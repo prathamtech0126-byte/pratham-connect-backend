@@ -1,0 +1,70 @@
+# =========================
+# Node.js
+# =========================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# =========================
+# Environment variables
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# TypeScript build output
+# =========================
+dist/
+build/
+out/
+
+# =========================
+# TypeScript cache
+# =========================
+*.tsbuildinfo
+
+# =========================
+# Drizzle / Database
+# =========================
+drizzle/
+*.sql
+*.db
+
+# =========================
+# Logs
+# =========================
+logs/
+*.log
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# IDE / Editor
+# =========================
+.vscode/
+.idea/
+*.swp
+
+# =========================
+# Coverage / Tests
+# =========================
+coverage/
+
+# =========================
+# Temporary files
+# =========================
+.tmp/
+temp/
+
+# Ignore all Markdown files
+*.md
+
+# Ignore all ZIP files
+*.zip
