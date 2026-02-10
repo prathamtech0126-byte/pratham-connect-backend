@@ -7,32 +7,53 @@ let io: SocketIOServer | null = null;
  * Initialize WebSocket server
  */
 export const initializeSocket = (httpServer: HttpServer) => {
+  const isProduction = process.env.NODE_ENV === "production";
+  const socketDebug = !isProduction && process.env.SOCKET_DEBUG === "true";
+
+  const parseOrigins = (raw?: string): string[] =>
+    (raw || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+  const allowedOrigins = Array.from(
+    new Set(
+      [
+        "https://connect.easyvisa.ai",
+        process.env.FRONTEND_URL,
+        ...parseOrigins(process.env.CORS_ORIGINS),
+      ].filter(Boolean) as string[]
+    )
+  );
+
   io = new SocketIOServer(httpServer, {
     cors: {
-      origin: process.env.FRONTEND_URL || "http://localhost:5173",
+      origin: isProduction ? allowedOrigins : true,
       credentials: true,
       methods: ["GET", "POST"],
     },
   });
 
   io.on("connection", (socket: Socket) => {
-    console.log(`✅ Client connected: ${socket.id}`);
-    console.log(`🔵 [BACKEND] Socket ${socket.id} - Registering event handlers...`);
+    if (socketDebug) {
+      console.log(`✅ Client connected: ${socket.id}`);
+      console.log(`🔵 [BACKEND] Socket ${socket.id} - Registering event handlers...`);
+    }
 
     // Test: Log ANY event received (for debugging)
-    socket.onAny((eventName, ...args) => {
-      // Log ALL events to see what's being received
-      console.log(`🔵 [BACKEND] [onAny] Received event: ${eventName}`, args);
-    });
+    if (socketDebug) {
+      socket.onAny((eventName, ...args) => {
+        console.log(`🔵 [BACKEND] [onAny] Received event: ${eventName}`, args);
+      });
+    }
 
     // ========== REGISTER join:role FIRST (for broadcast messages) ==========
     // Join role-based room (for broadcast messages)
     // Register this handler EARLY in the connection lifecycle
     socket.on("join:role", (role: string, callback?: (response: any) => void) => {
-      console.log(`🔵 [BACKEND] ========== join:role EVENT RECEIVED ==========`);
-      console.log(`🔵 [BACKEND] Socket ID: ${socket.id}`);
-      console.log(`🔵 [BACKEND] Socket connected: ${socket.connected}`);
-      console.log(`🔵 [BACKEND] Role received: ${role} (type: ${typeof role})`);
+      if (socketDebug) {
+        console.log(`🔵 [BACKEND] join:role received`, { socketId: socket.id, role });
+      }
 
       if (!role || typeof role !== "string") {
         console.error(`❌ [BACKEND] Invalid role: ${role} (type: ${typeof role})`);
@@ -45,9 +66,11 @@ export const initializeSocket = (httpServer: HttpServer) => {
       socket.join(room);
       const socketsInRoom = io!.sockets.adapter.rooms.get(room);
       const socketCount = socketsInRoom ? socketsInRoom.size : 0;
-      console.log(
-        `🎭 [BACKEND] Socket ${socket.id} joined role room: ${room} (Total sockets in room: ${socketCount})`
-      );
+      if (socketDebug) {
+        console.log(
+          `🎭 [BACKEND] Socket ${socket.id} joined role room: ${room} (Total sockets in room: ${socketCount})`
+        );
+      }
 
       // Emit confirmation back to frontend
       const confirmation = {
@@ -58,10 +81,11 @@ export const initializeSocket = (httpServer: HttpServer) => {
       };
       socket.emit("joined:role", confirmation);
       if (callback) callback(confirmation);
-      console.log(`✅ [BACKEND] Sent confirmation to socket ${socket.id} for role: ${role.toLowerCase()}`);
-      console.log(`🔵 [BACKEND] ========== join:role HANDLER COMPLETE ==========`);
+      if (socketDebug) {
+        console.log(`✅ [BACKEND] Sent confirmation to socket ${socket.id} for role: ${role.toLowerCase()}`);
+      }
     });
-    console.log(`✅ [BACKEND] join:role handler registered for socket ${socket.id}`);
+    if (socketDebug) console.log(`✅ [BACKEND] join:role handler registered for socket ${socket.id}`);
 
     // Join room for specific counsellor
     socket.on("join:counsellor", (counsellorId: number | string) => {
@@ -76,7 +100,7 @@ export const initializeSocket = (httpServer: HttpServer) => {
 
       const room = `counsellor:${id}`;
       socket.join(room);
-      console.log(`👤 Socket ${socket.id} joined room: ${room}`);
+      if (socketDebug) console.log(`👤 Socket ${socket.id} joined room: ${room}`);
     });
 
     // Leave room
@@ -91,43 +115,43 @@ export const initializeSocket = (httpServer: HttpServer) => {
 
       const room = `counsellor:${id}`;
       socket.leave(room);
-      console.log(`👋 Socket ${socket.id} left room: ${room}`);
+      if (socketDebug) console.log(`👋 Socket ${socket.id} left room: ${room}`);
     });
 
     // Join admin room
     socket.on("join:admin", () => {
       socket.join("admin");
-      console.log(`👑 Socket ${socket.id} joined admin room`);
+      if (socketDebug) console.log(`👑 Socket ${socket.id} joined admin room`);
     });
 
     // Leave admin room
     socket.on("leave:admin", () => {
       socket.leave("admin");
-      console.log(`👋 Socket ${socket.id} left admin room`);
+      if (socketDebug) console.log(`👋 Socket ${socket.id} left admin room`);
     });
 
     // Join dashboard room (for admin dashboard updates)
     socket.on("join:dashboard", () => {
       socket.join("admin:dashboard");
-      console.log(`📊 Socket ${socket.id} joined dashboard room`);
+      if (socketDebug) console.log(`📊 Socket ${socket.id} joined dashboard room`);
     });
 
     // Leave dashboard room
     socket.on("leave:dashboard", () => {
       socket.leave("admin:dashboard");
-      console.log(`👋 Socket ${socket.id} left dashboard room`);
+      if (socketDebug) console.log(`👋 Socket ${socket.id} left dashboard room`);
     });
 
     // Join counsellors room (for leaderboard updates - Image 1)
     socket.on("join:counsellors", () => {
       socket.join("counsellors");
-      console.log(`👥 Socket ${socket.id} joined counsellors room`);
+      if (socketDebug) console.log(`👥 Socket ${socket.id} joined counsellors room`);
     });
 
     // Leave counsellors room
     socket.on("leave:counsellors", () => {
       socket.leave("counsellors");
-      console.log(`👋 Socket ${socket.id} left counsellors room`);
+      if (socketDebug) console.log(`👋 Socket ${socket.id} left counsellors room`);
     });
 
     // Leave role-based room
@@ -139,15 +163,15 @@ export const initializeSocket = (httpServer: HttpServer) => {
 
       const room = `role:${role.toLowerCase()}`;
       socket.leave(room);
-      console.log(`👋 Socket ${socket.id} left role room: ${room}`);
+      if (socketDebug) console.log(`👋 Socket ${socket.id} left role room: ${room}`);
     });
 
     socket.on("disconnect", () => {
-      console.log(`❌ Client disconnected: ${socket.id}`);
+      if (socketDebug) console.log(`❌ Client disconnected: ${socket.id}`);
     });
   });
 
-  console.log("🔌 WebSocket server initialized");
+  if (socketDebug) console.log("🔌 WebSocket server initialized");
   return io;
 };
 
@@ -168,7 +192,7 @@ export const emitToCounsellor = (counsellorId: number, event: string, data: any)
   const io = getIO();
   const room = `counsellor:${counsellorId}`;
   io.to(room).emit(event, data);
-  console.log(`📤 Emitted '${event}' to room: ${room}`);
+  // Avoid noisy logs in production
 };
 
 /**
@@ -177,7 +201,6 @@ export const emitToCounsellor = (counsellorId: number, event: string, data: any)
 export const emitToAdmin = (event: string, data: any) => {
   const io = getIO();
   io.to("admin").emit(event, data);
-  console.log(`📤 Emitted '${event}' to admin room`);
 };
 
 /**
@@ -186,7 +209,6 @@ export const emitToAdmin = (event: string, data: any) => {
 export const emitToAll = (event: string, data: any) => {
   const io = getIO();
   io.emit(event, data);
-  console.log(`📤 Emitted '${event}' to all clients`);
 };
 
 /**
@@ -195,7 +217,6 @@ export const emitToAll = (event: string, data: any) => {
 export const emitDashboardUpdate = (event: string, data: any) => {
   const io = getIO();
   io.to("admin:dashboard").emit(event, data);
-  console.log(`📊 Emitted '${event}' to dashboard room`);
 };
 
 /**
@@ -204,7 +225,6 @@ export const emitDashboardUpdate = (event: string, data: any) => {
 export const emitToCounsellors = (event: string, data: any) => {
   const io = getIO();
   io.to("counsellors").emit(event, data);
-  console.log(`📤 Emitted '${event}' to counsellors room`);
 };
 
 /**
@@ -215,7 +235,6 @@ export const emitToRoles = (roles: string[], event: string, data: any) => {
   for (const role of roles) {
     const room = `role:${role.toLowerCase()}`;
     io.to(room).emit(event, data);
-    console.log(`📤 Emitted '${event}' to role room: ${room}`);
   }
 };
 

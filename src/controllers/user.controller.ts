@@ -25,6 +25,7 @@ import { Role } from "../types/role";
 import { AuthenticatedRequest } from "../types/express-auth";
 import { logActivity } from "../services/activityLog.service";
 import { redisDelByPrefix, redisGetJson, redisSetJson } from "../config/redis";
+import crypto from "crypto";
 
 const USERS_CACHE_TTL_SECONDS = 300; // 5 min
 /* ================================
@@ -192,6 +193,13 @@ export const login = async (req: Request, res: Response) => {
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   });
 
+  // CSRF: store token in httpOnly cookie and also return it in JSON response
+  const csrfToken = crypto.randomBytes(32).toString("hex");
+  res.cookie("csrfToken", csrfToken, {
+    ...cookieOptions,
+    maxAge: 7 * 24 * 60 * 60 * 1000, // match refresh lifetime
+  });
+
   if (process.env.NODE_ENV !== "production") {
     console.log(`✅ Login successful for user ${user.id} (${user.email})`);
     console.log(`   New refresh token created with session ID: ${sessionId}`);
@@ -232,6 +240,7 @@ export const login = async (req: Request, res: Response) => {
     designation: user.designation,
     role: user.role,
     accessToken,
+    csrfToken,
   });
 };
 
@@ -387,6 +396,19 @@ export const refreshAccessToken = async (req: Request, res: Response) => {
     path: "/",
   });
 
+  // Ensure CSRF token exists and return it for clients to send via X-CSRF-Token.
+  const existingCsrf = req.cookies?.csrfToken;
+  const csrfToken = existingCsrf || crypto.randomBytes(32).toString("hex");
+  if (!existingCsrf) {
+    res.cookie("csrfToken", csrfToken, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: "/",
+    });
+  }
+
   if (process.env.NODE_ENV !== "production") {
     console.log(`✅ Token refreshed for user ${decoded.userId} (session: ${tokenByHash.id})`);
   }
@@ -396,6 +418,7 @@ export const refreshAccessToken = async (req: Request, res: Response) => {
     accessToken: newAccessToken,
     role: dbUser.role,
     expiresIn: "15m",
+    csrfToken,
   });
 };
 
@@ -449,6 +472,7 @@ export const logout = async (req: Request, res: Response) => {
 
   res.clearCookie("accessToken", clearCookieOptions);
   res.clearCookie("refreshToken", clearCookieOptions);
+  res.clearCookie("csrfToken", clearCookieOptions);
   res.json({ message: "Logged out successfully" });
 };
 

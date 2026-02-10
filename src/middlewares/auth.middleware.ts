@@ -108,7 +108,7 @@ export const requireAuth = async (
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as {
-      userId: string;       // ✅ nanoid
+      userId: number;
       role: Role;
       sessionId: number;
     };
@@ -119,7 +119,7 @@ export const requireAuth = async (
       .where(
         and(
           eq(refreshTokens.id, decoded.sessionId),
-          eq(refreshTokens.userId, Number(decoded.userId)),
+          eq(refreshTokens.userId, decoded.userId),
           eq(refreshTokens.revoked, false),
           gt(refreshTokens.expiresAt, new Date())
         )
@@ -130,7 +130,7 @@ export const requireAuth = async (
     }
 
     req.user = {
-      id: decoded.userId as any,
+      id: decoded.userId,
       role: decoded.role,
     };
 

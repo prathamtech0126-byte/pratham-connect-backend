@@ -1,4 +1,5 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import { registerUser,login,logout,refreshAccessToken,getCurrentUser,getAllUsersController,
     updateUserController,
     deleteUserController,
@@ -14,8 +15,15 @@ import { healthController } from "../controllers/health.controller";
 
 const router = Router();
 
-router.post("/login", login);
-router.post("/refresh", refreshAccessToken);
+const authRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 30, // per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+router.post("/login", authRateLimit, login);
+router.post("/refresh", authRateLimit, refreshAccessToken);
 router.post("/logout", requireAuth,logout);
 router.get("/me", requireAuth, getCurrentUser);
 router.put("/change-password", requireAuth, preventDuplicateRequests, changePasswordController);

@@ -3,9 +3,9 @@ dotenv.config();
 
 import { createServer } from "http";
 import app from "./index";
-import { checkDbConnection } from "./config/databaseConnection";
+import { checkDbConnection, pool } from "./config/databaseConnection";
 import { initializeSocket } from "./config/socket";
-import { initRedis } from "./config/redis";
+import { getRedisClient, initRedis } from "./config/redis";
 import { deleteOldMessages } from "./models/message.model";
 import * as cron from "node-cron";
 
@@ -43,6 +43,45 @@ const httpServer = createServer(app);
 
 // Initialize WebSocket server
 initializeSocket(httpServer);
+
+const shutdown = async (signal: string) => {
+  try {
+    logger.warn(`🛑 Received ${signal}. Shutting down gracefully...`);
+
+    await new Promise<void>((resolve) => {
+      httpServer.close(() => resolve());
+    });
+
+    try {
+      await pool.end();
+    } catch (e) {
+      logger.warn("⚠️ Error closing DB pool:", e);
+    }
+
+    try {
+      const redis = await getRedisClient();
+      await redis?.quit();
+    } catch (e) {
+      logger.warn("⚠️ Error closing Redis:", e);
+    }
+
+    logger.info("✅ Shutdown complete.");
+    process.exit(0);
+  } catch (e) {
+    logger.error("❌ Shutdown error:", e);
+    process.exit(1);
+  }
+};
+
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("unhandledRejection", (reason) => {
+  logger.error("❌ Unhandled Promise Rejection:", reason);
+});
+process.on("uncaughtException", (err) => {
+  logger.error("❌ Uncaught Exception:", err);
+  void shutdown("uncaughtException");
+});
 
 // Start server - listen on all network interfaces (0.0.0.0) to allow network access
 httpServer.listen(Number(PORT), "0.0.0.0", () => {
