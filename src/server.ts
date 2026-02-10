@@ -1,5 +1,12 @@
 import dotenv from "dotenv";
-dotenv.config();
+import path from "path";
+
+// Load .env from project root (works when running from dist/ or src/)
+const envPath = path.resolve(process.cwd(), ".env");
+const result = dotenv.config({ path: envPath });
+if (process.env.NODE_ENV !== "production" && result.error) {
+  console.warn("⚠️ No .env file at", envPath, "- using process.env only");
+}
 
 import { createServer } from "http";
 import app from "./index";

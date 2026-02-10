@@ -22,25 +22,19 @@ if (isLocalhost) {
     .replace(/[?&]channel_binding=[^&]*/gi, "");
 }
 
-// Check if cleaned DATABASE_URL contains sslmode parameter
-const sslModeRequire = cleanDatabaseUrl.includes("sslmode=require") || cleanDatabaseUrl.includes("sslmode=prefer");
-
 // Determine SSL configuration
 // - Localhost: Always disable SSL (local PostgreSQL typically doesn't support SSL)
-// - Production remote: Use SSL
-// - Remote with sslmode=require: Use SSL
-// - Otherwise: Disable SSL
+// - Any remote DB (Neon, Supabase, etc.): Use SSL with rejectUnauthorized: false
+//   to avoid "UNABLE_TO_VERIFY_LEAF_SIGNATURE" with cloud provider certificates
 let sslConfig: boolean | { rejectUnauthorized: boolean } = false;
 
 if (isLocalhost) {
   // Local database - explicitly disable SSL
   sslConfig = false;
-} else if (isProduction || sslModeRequire) {
-  // Production or explicitly requires SSL - use SSL
-  sslConfig = { rejectUnauthorized: false };
 } else {
-  // Default: no SSL
-  sslConfig = false;
+  // Remote/cloud database - require SSL but do not verify server certificate
+  // (cloud providers often use certs that fail default Node verification)
+  sslConfig = { rejectUnauthorized: false };
 }
 
 if (process.env.NODE_ENV !== "production") {
@@ -91,9 +85,9 @@ export const checkDbConnection = async () => {
       console.error("   💡 Tip: Check your database username and password");
     } else if (error.code === "3D000") {
       console.error("   💡 Tip: Database 'demo' does not exist. Create it first.");
-    } else if (error.message?.includes("SSL") || error.message?.includes("ssl")) {
-      console.error("   💡 Tip: SSL connection issue. For local PostgreSQL, SSL should be disabled.");
-      console.error("   💡 Check your DATABASE_URL - remove '?sslmode=require' for local connections.");
+    } else if (error.code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" || (error.message?.includes("SSL") || error.message?.includes("certificate"))) {
+      console.error("   💡 Tip: SSL/certificate issue. For local DB remove '?sslmode=require' from DATABASE_URL.");
+      console.error("   💡 For cloud DB (Neon/Supabase/etc.) the app uses rejectUnauthorized: false - if this still fails, check DATABASE_URL and network.");
     }
     throw error; // Re-throw to let server.ts handle it
   }
