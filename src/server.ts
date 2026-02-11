@@ -133,7 +133,7 @@ httpServer.listen(Number(PORT), "0.0.0.0", () => {
       console.error("\n💡 Troubleshooting:");
       console.error("   1. Check if PostgreSQL is running");
       console.error("   2. Verify DATABASE_URL in .env file");
-      console.error("   3. Ensure database 'demo' exists");
+      console.error("   3. Ensure database 'any' exists");
       console.error("   4. Check username/password are correct");
       process.exit(1); // stop app if DB fails
     });

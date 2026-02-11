@@ -84,7 +84,7 @@ export const checkDbConnection = async () => {
     } else if (error.code === "28P01") {
       console.error("   💡 Tip: Check your database username and password");
     } else if (error.code === "3D000") {
-      console.error("   💡 Tip: Database 'demo' does not exist. Create it first.");
+      console.error("   💡 Tip: Database 'any' does not exist. Create it first.");
     } else if (error.code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" || (error.message?.includes("SSL") || error.message?.includes("certificate"))) {
       console.error("   💡 Tip: SSL/certificate issue. For local DB remove '?sslmode=require' from DATABASE_URL.");
       console.error("   💡 For cloud DB (Neon/Supabase/etc.) the app uses rejectUnauthorized: false - if this still fails, check DATABASE_URL and network.");

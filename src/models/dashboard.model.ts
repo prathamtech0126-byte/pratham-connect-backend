@@ -897,26 +897,20 @@ const getCoreProductMetrics = async (
 ): Promise<{ count: number; amount: number }> => {
   const startDateStr = toLocalDateString(dateRange.start);
   const endDateStr = toLocalDateString(dateRange.end);
-  const startTimestamp = dateRange.start.toISOString();
-  const endTimestamp = dateRange.end.toISOString();
+
+  // Only count/by amount when paymentDate is set; exclude records with NULL paymentDate from period metrics
+  const paymentDateCondition = sql`(
+    ${clientProductPayments.paymentDate} IS NOT NULL
+    AND ${clientProductPayments.paymentDate} >= ${startDateStr}
+    AND ${clientProductPayments.paymentDate} <= ${endDateStr}
+  )`;
 
   // Build base query
   let countQuery = db
     .select({ count: count() })
     .from(clientProductPayments)
     .where(
-      sql`(
-        ${clientProductPayments.productName} = ${CORE_PRODUCT}
-        AND (
-          (${clientProductPayments.paymentDate} IS NOT NULL
-            AND ${clientProductPayments.paymentDate} >= ${startDateStr}
-            AND ${clientProductPayments.paymentDate} <= ${endDateStr})
-          OR
-          (${clientProductPayments.paymentDate} IS NULL
-            AND ${clientProductPayments.createdAt} >= ${startTimestamp}
-            AND ${clientProductPayments.createdAt} <= ${endTimestamp})
-        )
-      )`
+      sql`${clientProductPayments.productName} = ${CORE_PRODUCT} AND ${paymentDateCondition}`
     ) as any;
 
   // Add counsellor filter or exclude archived (admin/manager)
@@ -931,15 +925,7 @@ const getCoreProductMetrics = async (
           ${clientInformation.counsellorId} = ${filter.counsellorId}
           AND ${clientInformation.archived} = false
           AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
-          AND (
-            (${clientProductPayments.paymentDate} IS NOT NULL
-              AND ${clientProductPayments.paymentDate} >= ${startDateStr}
-              AND ${clientProductPayments.paymentDate} <= ${endDateStr})
-            OR
-            (${clientProductPayments.paymentDate} IS NULL
-              AND ${clientProductPayments.createdAt} >= ${startTimestamp}
-              AND ${clientProductPayments.createdAt} <= ${endTimestamp})
-          )
+          AND ${paymentDateCondition}
         )`
       ) as any;
   } else {
@@ -953,22 +939,20 @@ const getCoreProductMetrics = async (
         sql`(
           ${clientInformation.archived} = false
           AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
-          AND (
-            (${clientProductPayments.paymentDate} IS NOT NULL
-              AND ${clientProductPayments.paymentDate} >= ${startDateStr}
-              AND ${clientProductPayments.paymentDate} <= ${endDateStr})
-            OR
-            (${clientProductPayments.paymentDate} IS NULL
-              AND ${clientProductPayments.createdAt} >= ${startTimestamp}
-              AND ${clientProductPayments.createdAt} <= ${endTimestamp})
-          )
+          AND ${paymentDateCondition}
         )`
       ) as any;
   }
 
   const [countResult] = await countQuery;
 
-  // Get amount - Core Product uses allFinance table
+  // Get amount - Core Product uses allFinance table (filter by paymentDate only)
+  const allFinancePaymentDateCondition = sql`(
+    ${allFinance.paymentDate} IS NOT NULL
+    AND ${allFinance.paymentDate} >= ${startDateStr}
+    AND ${allFinance.paymentDate} <= ${endDateStr}
+  )`;
+
   let amountQuery = db
     .select({
       total: sql<string>`COALESCE(SUM(${allFinance.amount}::numeric), 0)`,
@@ -979,18 +963,7 @@ const getCoreProductMetrics = async (
       sql`${clientProductPayments.entityId} = ${allFinance.financeId} AND ${clientProductPayments.entityType} = 'allFinance_id'`
     )
     .where(
-      sql`(
-        ${clientProductPayments.productName} = ${CORE_PRODUCT}
-        AND (
-          (${allFinance.paymentDate} IS NOT NULL
-            AND ${allFinance.paymentDate} >= ${startDateStr}
-            AND ${allFinance.paymentDate} <= ${endDateStr})
-          OR
-          (${allFinance.paymentDate} IS NULL
-            AND ${allFinance.createdAt} >= ${startTimestamp}
-            AND ${allFinance.createdAt} <= ${endTimestamp})
-        )
-      )`
+      sql`${clientProductPayments.productName} = ${CORE_PRODUCT} AND ${allFinancePaymentDateCondition}`
     ) as any;
 
   if (filter?.userRole === "counsellor" && filter.counsellorId) {
@@ -1004,15 +977,7 @@ const getCoreProductMetrics = async (
           ${clientInformation.counsellorId} = ${filter.counsellorId}
           AND ${clientInformation.archived} = false
           AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
-          AND (
-            (${allFinance.paymentDate} IS NOT NULL
-              AND ${allFinance.paymentDate} >= ${startDateStr}
-              AND ${allFinance.paymentDate} <= ${endDateStr})
-            OR
-            (${allFinance.paymentDate} IS NULL
-              AND ${allFinance.createdAt} >= ${startTimestamp}
-              AND ${allFinance.createdAt} <= ${endTimestamp})
-          )
+          AND ${allFinancePaymentDateCondition}
         )`
       ) as any;
   } else {
@@ -1026,15 +991,7 @@ const getCoreProductMetrics = async (
         sql`(
           ${clientInformation.archived} = false
           AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
-          AND (
-            (${allFinance.paymentDate} IS NOT NULL
-              AND ${allFinance.paymentDate} >= ${startDateStr}
-              AND ${allFinance.paymentDate} <= ${endDateStr})
-            OR
-            (${allFinance.paymentDate} IS NULL
-              AND ${allFinance.createdAt} >= ${startTimestamp}
-              AND ${allFinance.createdAt} <= ${endTimestamp})
-          )
+          AND ${allFinancePaymentDateCondition}
         )`
       ) as any;
   }
@@ -1056,26 +1013,20 @@ const getOtherProductMetrics = async (
 ): Promise<{ count: number; amount: number }> => {
   const startDateStr = toLocalDateString(dateRange.start);
   const endDateStr = toLocalDateString(dateRange.end);
-  const startTimestamp = dateRange.start.toISOString();
-  const endTimestamp = dateRange.end.toISOString();
+
+  // Only count/by amount when paymentDate is set; exclude records with NULL paymentDate from period metrics
+  const paymentDateCondition = sql`(
+    ${clientProductPayments.paymentDate} IS NOT NULL
+    AND ${clientProductPayments.paymentDate} >= ${startDateStr}
+    AND ${clientProductPayments.paymentDate} <= ${endDateStr}
+  )`;
 
   // Build count query - all products except CORE_PRODUCT
   let countQuery = db
     .select({ count: count() })
     .from(clientProductPayments)
     .where(
-      sql`(
-        ${clientProductPayments.productName} != ${CORE_PRODUCT}
-        AND (
-          (${clientProductPayments.paymentDate} IS NOT NULL
-            AND ${clientProductPayments.paymentDate} >= ${startDateStr}
-            AND ${clientProductPayments.paymentDate} <= ${endDateStr})
-          OR
-          (${clientProductPayments.paymentDate} IS NULL
-            AND ${clientProductPayments.createdAt} >= ${startTimestamp}
-            AND ${clientProductPayments.createdAt} <= ${endTimestamp})
-        )
-      )`
+      sql`${clientProductPayments.productName} != ${CORE_PRODUCT} AND ${paymentDateCondition}`
     ) as any;
 
   // Add counsellor filter or exclude archived (admin/manager)
@@ -1090,15 +1041,7 @@ const getOtherProductMetrics = async (
           ${clientInformation.counsellorId} = ${filter.counsellorId}
           AND ${clientInformation.archived} = false
           AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
-          AND (
-            (${clientProductPayments.paymentDate} IS NOT NULL
-              AND ${clientProductPayments.paymentDate} >= ${startDateStr}
-              AND ${clientProductPayments.paymentDate} <= ${endDateStr})
-            OR
-            (${clientProductPayments.paymentDate} IS NULL
-              AND ${clientProductPayments.createdAt} >= ${startTimestamp}
-              AND ${clientProductPayments.createdAt} <= ${endTimestamp})
-          )
+          AND ${paymentDateCondition}
         )`
       ) as any;
   } else {
@@ -1112,15 +1055,7 @@ const getOtherProductMetrics = async (
         sql`(
           ${clientInformation.archived} = false
           AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
-          AND (
-            (${clientProductPayments.paymentDate} IS NOT NULL
-              AND ${clientProductPayments.paymentDate} >= ${startDateStr}
-              AND ${clientProductPayments.paymentDate} <= ${endDateStr})
-            OR
-            (${clientProductPayments.paymentDate} IS NULL
-              AND ${clientProductPayments.createdAt} >= ${startTimestamp}
-              AND ${clientProductPayments.createdAt} <= ${endTimestamp})
-          )
+          AND ${paymentDateCondition}
         )`
       ) as any;
   }
@@ -1129,7 +1064,6 @@ const getOtherProductMetrics = async (
 
   // Get amount - exclude count-only products
   // 1. Products with amount (master_only) - exclude count-only
-  // Build NOT IN clause manually
   const countOnlyProductsList = COUNT_ONLY_PRODUCTS.map((p) => `'${p}'`).join(", ");
 
   let amountQuery = db
@@ -1142,15 +1076,7 @@ const getOtherProductMetrics = async (
         ${clientProductPayments.amount} IS NOT NULL
         AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
         AND ${clientProductPayments.productName} NOT IN (${sql.raw(countOnlyProductsList)})
-        AND (
-          (${clientProductPayments.paymentDate} IS NOT NULL
-            AND ${clientProductPayments.paymentDate} >= ${startDateStr}
-            AND ${clientProductPayments.paymentDate} <= ${endDateStr})
-          OR
-          (${clientProductPayments.paymentDate} IS NULL
-            AND ${clientProductPayments.createdAt} >= ${startTimestamp}
-            AND ${clientProductPayments.createdAt} <= ${endTimestamp})
-        )
+        AND ${paymentDateCondition}
       )`
     ) as any;
 
@@ -1167,15 +1093,7 @@ const getOtherProductMetrics = async (
           AND ${clientProductPayments.amount} IS NOT NULL
           AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
           AND ${clientProductPayments.productName} NOT IN (${sql.raw(countOnlyProductsList)})
-          AND (
-            (${clientProductPayments.paymentDate} IS NOT NULL
-              AND ${clientProductPayments.paymentDate} >= ${startDateStr}
-              AND ${clientProductPayments.paymentDate} <= ${endDateStr})
-            OR
-            (${clientProductPayments.paymentDate} IS NULL
-              AND ${clientProductPayments.createdAt} >= ${startTimestamp}
-              AND ${clientProductPayments.createdAt} <= ${endTimestamp})
-          )
+          AND ${paymentDateCondition}
         )`
       ) as any;
   } else {
@@ -1191,15 +1109,7 @@ const getOtherProductMetrics = async (
           AND ${clientProductPayments.amount} IS NOT NULL
           AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
           AND ${clientProductPayments.productName} NOT IN (${sql.raw(countOnlyProductsList)})
-          AND (
-            (${clientProductPayments.paymentDate} IS NOT NULL
-              AND ${clientProductPayments.paymentDate} >= ${startDateStr}
-              AND ${clientProductPayments.paymentDate} <= ${endDateStr})
-            OR
-            (${clientProductPayments.paymentDate} IS NULL
-              AND ${clientProductPayments.createdAt} >= ${startTimestamp}
-              AND ${clientProductPayments.createdAt} <= ${endTimestamp})
-          )
+          AND ${paymentDateCondition}
         )`
       ) as any;
   }
@@ -1219,15 +1129,7 @@ const getOtherProductMetrics = async (
         ${clientProductPayments.amount} IS NULL
         AND ${clientProductPayments.entityId} IS NOT NULL
         AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
-        AND (
-          (${clientProductPayments.paymentDate} IS NOT NULL
-            AND ${clientProductPayments.paymentDate} >= ${startDateStr}
-            AND ${clientProductPayments.paymentDate} <= ${endDateStr})
-          OR
-          (${clientProductPayments.paymentDate} IS NULL
-            AND ${clientProductPayments.createdAt} >= ${startTimestamp}
-            AND ${clientProductPayments.createdAt} <= ${endTimestamp})
-        )
+        AND ${paymentDateCondition}
       )`
     ) as any;
 
@@ -1245,15 +1147,7 @@ const getOtherProductMetrics = async (
           AND ${clientProductPayments.amount} IS NULL
           AND ${clientProductPayments.entityId} IS NOT NULL
           AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
-          AND (
-            (${clientProductPayments.paymentDate} IS NOT NULL
-              AND ${clientProductPayments.paymentDate} >= ${startDateStr}
-              AND ${clientProductPayments.paymentDate} <= ${endDateStr})
-            OR
-            (${clientProductPayments.paymentDate} IS NULL
-              AND ${clientProductPayments.createdAt} >= ${startTimestamp}
-              AND ${clientProductPayments.createdAt} <= ${endTimestamp})
-          )
+          AND ${paymentDateCondition}
         )`
       ) as any;
   } else {
@@ -1269,15 +1163,7 @@ const getOtherProductMetrics = async (
           AND ${clientProductPayments.amount} IS NULL
           AND ${clientProductPayments.entityId} IS NOT NULL
           AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
-          AND (
-            (${clientProductPayments.paymentDate} IS NOT NULL
-              AND ${clientProductPayments.paymentDate} >= ${startDateStr}
-              AND ${clientProductPayments.paymentDate} <= ${endDateStr})
-            OR
-            (${clientProductPayments.paymentDate} IS NULL
-              AND ${clientProductPayments.createdAt} >= ${startTimestamp}
-              AND ${clientProductPayments.createdAt} <= ${endTimestamp})
-          )
+          AND ${paymentDateCondition}
         )`
       ) as any;
   }
