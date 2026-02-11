@@ -88,10 +88,13 @@ app.use(compression());
 
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
+
+// health check
+app.get("/health", healthController);
+
 app.use(requireCsrf);
 
 // lightweight health check
-app.get("/health", healthController);
 app.use("/api/users", userRoutes);
 app.use("/api/sale-types", saleRoute);
 app.use("/api/lead-types", leadTypeRoutes);
