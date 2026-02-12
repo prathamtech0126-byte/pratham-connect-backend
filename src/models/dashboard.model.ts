@@ -74,7 +74,7 @@ export interface AdminManagerDashboardStats {
     amount: string;
   };
   totalClients: {
-    count: number; // Filter-based: clients by enrollment date in selected period
+    count: number; // Distinct clients with INITIAL/BEFORE_VISA/AFTER_VISA payment in period
   };
   revenue: {
     amount: string; // Core Sale Amount + Core Product Amount + Other Product Amount
@@ -372,15 +372,31 @@ const getAllTimeDateRange = (): DateRange => {
 
 /* ==============================
    TOTAL CLIENTS
+   Count = distinct clients who have at least one INITIAL/BEFORE_VISA/AFTER_VISA
+   payment with payment date (or createdAt if null) in the selected period.
+   Matches leaderboard "enrolled" logic so Total Clients = sum(leaderboard enrolled).
 ============================== */
 const getTotalClients = async (
   dateRange: DateRange,
   filter?: RoleBasedFilter
 ): Promise<number> => {
+  const startDateStr = toLocalDateString(dateRange.start);
+  const endDateStr = toLocalDateString(dateRange.end);
+  const startTimestamp = dateRange.start.toISOString();
+  const endTimestamp = dateRange.end.toISOString();
+
   const conditions: any[] = [
     eq(clientInformation.archived, false),
-    gte(clientInformation.enrollmentDate, toLocalDateString(dateRange.start)),
-    lte(clientInformation.enrollmentDate, toLocalDateString(dateRange.end)),
+    sql`${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')`,
+    sql`(
+      (${clientPayments.paymentDate} IS NOT NULL
+        AND ${clientPayments.paymentDate} >= ${startDateStr}
+        AND ${clientPayments.paymentDate} <= ${endDateStr})
+      OR
+      (${clientPayments.paymentDate} IS NULL
+        AND ${clientPayments.createdAt} >= ${startTimestamp}
+        AND ${clientPayments.createdAt} <= ${endTimestamp})
+    )`,
   ];
 
   const counsellorFilter = filter ? buildCounsellorFilter(filter, clientInformation) : undefined;
@@ -389,11 +405,12 @@ const getTotalClients = async (
   }
 
   const [result] = await db
-    .select({ count: count() })
-    .from(clientInformation)
+    .select({ count: sql<number>`COUNT(DISTINCT ${clientPayments.clientId})` })
+    .from(clientPayments)
+    .innerJoin(clientInformation, eq(clientPayments.clientId, clientInformation.clientId))
     .where(and(...conditions));
 
-  return Number(result?.count || "0");
+  return Number(result?.count ?? 0);
 };
 
 
