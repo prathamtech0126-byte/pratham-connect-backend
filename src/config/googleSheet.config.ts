@@ -3,37 +3,66 @@ import { GoogleAuth } from "google-auth-library";
 
 /**
  * Google Sheets Configuration
+ *
+ * Supports two ways to provide credentials (avoids OpenSSL DECODER unsupported in production):
+ * 1. GOOGLE_SERVICE_ACCOUNT_JSON = full JSON key file as string (recommended for deployment)
+ * 2. GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_PRIVATE_KEY (with robust key cleaning)
+ * GOOGLE_SHEET_ID is always required.
  */
 interface GoogleSheetsConfig {
   sheetId: string;
-  serviceAccountEmail: string;
-  privateKey: string;
   defaultRange?: string;
+  /** When using JSON: credentials object for GoogleAuth. When using key: null and we use client_email + private_key. */
+  credentialsFromJson?: object;
+  serviceAccountEmail?: string;
+  privateKey?: string;
+}
+
+/**
+ * Normalize private key from env so OpenSSL can decode it (fixes error:1E08010C DECODER routines::unsupported).
+ */
+function normalizePrivateKey(raw: string): string {
+  return raw
+    .replace(/\\n/g, "\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/^["']|["']$/g, "")
+    .trim();
 }
 
 export const getGoogleSheetsConfig = (): GoogleSheetsConfig => {
   const sheetId = process.env.GOOGLE_SHEET_ID;
+  const jsonRaw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   const serviceAccountEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const privateKeyRaw = process.env.GOOGLE_PRIVATE_KEY;
 
-  if (!sheetId || !serviceAccountEmail || !privateKeyRaw) {
+  if (!sheetId) {
+    throw new Error("Missing GOOGLE_SHEET_ID. Set GOOGLE_SHEET_ID in your environment.");
+  }
+
+  // Prefer full JSON (avoids private key decoding issues in production/Coolify/Docker)
+  if (jsonRaw && jsonRaw.trim()) {
+    try {
+      const credentials = typeof jsonRaw === "string" ? JSON.parse(jsonRaw.trim()) : jsonRaw;
+      if (!credentials.client_email || !credentials.private_key) {
+        throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON must contain client_email and private_key.");
+      }
+      return {
+        sheetId,
+        defaultRange: process.env.GOOGLE_SHEET_RANGE || "Sheet1!A1:Z1000",
+        credentialsFromJson: credentials,
+      };
+    } catch (e: any) {
+      throw new Error(`Invalid GOOGLE_SERVICE_ACCOUNT_JSON: ${e.message}`);
+    }
+  }
+
+  if (!serviceAccountEmail || !privateKeyRaw) {
     throw new Error(
-      "Missing Google Sheets configuration. Please set GOOGLE_SHEET_ID, GOOGLE_SERVICE_ACCOUNT_EMAIL, and GOOGLE_PRIVATE_KEY in your .env file"
+      "Missing Google Sheets credentials. Set either GOOGLE_SERVICE_ACCOUNT_JSON (recommended) or GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_PRIVATE_KEY."
     );
   }
 
-  /**
-   * ROBUST KEY CLEANING:
-   * 1. Replaces literal "\n" strings with actual newlines.
-   * 2. Removes any wrapping quotes (common .env issue).
-   * 3. Trims whitespace.
-   */
-  const privateKey = privateKeyRaw
-    .replace(/\\n/g, "\n")
-    .replace(/^"|"$/g, "") // Remove surrounding quotes if they exist
-    .replace(/^'|'$/g, "")
-    .trim();
-
+  const privateKey = normalizePrivateKey(privateKeyRaw);
   return {
     sheetId,
     serviceAccountEmail,
@@ -44,19 +73,26 @@ export const getGoogleSheetsConfig = (): GoogleSheetsConfig => {
 
 export const createGoogleSheetsClient = () => {
   try {
-    const { sheetId, serviceAccountEmail, privateKey, defaultRange } = getGoogleSheetsConfig();
+    const config = getGoogleSheetsConfig();
+    const { sheetId, defaultRange } = config;
 
-    // Use GoogleAuth instead of JWT directly. It auto-detects formatting better.
-    const auth = new GoogleAuth({
-      credentials: {
-        client_email: serviceAccountEmail,
-        private_key: privateKey,
-      },
-      scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-    });
+    let auth: InstanceType<typeof GoogleAuth>;
+    if (config.credentialsFromJson) {
+      auth = new GoogleAuth({
+        credentials: config.credentialsFromJson as any,
+        scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+      });
+    } else {
+      auth = new GoogleAuth({
+        credentials: {
+          client_email: config.serviceAccountEmail,
+          private_key: config.privateKey,
+        },
+        scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+      });
+    }
 
     const sheets = google.sheets({ version: "v4", auth });
-
     return { sheets, sheetId, defaultRange };
   } catch (error: any) {
     console.error("Failed to create Google Sheets client:", error);
