@@ -91,6 +91,11 @@ app.use(cookieParser());
 
 // health check
 app.get("/health", healthController);
+// root healthcheck (for Coolify)
+app.get("/", (_req, res) => {
+  res.status(200).send("OK");
+});
+
 
 app.use(requireCsrf);
 
