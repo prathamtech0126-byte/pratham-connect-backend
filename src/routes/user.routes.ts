@@ -15,15 +15,29 @@ import { healthController } from "../controllers/health.controller";
 
 const router = Router();
 
-const authRateLimit = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 30, // per IP
+const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const loginMax = Math.max(1, parseInt(process.env.RATE_LIMIT_LOGIN_MAX ?? "100", 10));
+const refreshMax = Math.max(1, parseInt(process.env.RATE_LIMIT_REFRESH_MAX ?? "10000", 10));
+const windowMs = Math.max(60000, parseInt(process.env.RATE_LIMIT_WINDOW_MS ?? String(WINDOW_MS), 10));
+
+const loginRateLimit = rateLimit({
+  windowMs,
+  max: loginMax,
+  message: { success: false, message: "Too many login attempts, please try again later." },
   standardHeaders: true,
   legacyHeaders: false,
 });
 
-router.post("/login", authRateLimit, login);
-router.post("/refresh", authRateLimit, refreshAccessToken);
+const refreshRateLimit = rateLimit({
+  windowMs,
+  max: refreshMax,
+  message: { success: false, message: "Too many requests, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+router.post("/login", loginRateLimit, login);
+router.post("/refresh", refreshRateLimit, refreshAccessToken);
 router.post("/logout", requireAuth,logout);
 router.get("/me", requireAuth, getCurrentUser);
 router.put("/change-password", requireAuth, preventDuplicateRequests, changePasswordController);
