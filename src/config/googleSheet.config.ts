@@ -109,7 +109,7 @@ export const testGoogleSheetsConnection = async (): Promise<boolean> => {
       spreadsheetId: sheetId,
     });
 
-    console.log("✅ Google Sheets connection successful:", response.data.properties?.title);
+    // console.log("✅ Google Sheets connection successful:", response.data.properties?.title);
     return response.status === 200;
   } catch (error: any) {
     console.error("❌ Google Sheets connection test failed:");

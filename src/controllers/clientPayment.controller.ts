@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import {
   saveClientPayment,
   getPaymentsByClientId,
+  deleteClientPayment,
 } from "../models/clientPayment.model";
 import { getClientFullDetailsById, getClientsByCounsellor, getAllClientsForAdmin } from "../models/client.model";
 import { emitToCounsellor, emitToAdmin, emitDashboardUpdate } from "../config/socket";
@@ -235,3 +236,65 @@ export const getClientPaymentsController = async (
   }
 };
 
+export const deleteClientPaymentController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const paymentId = Number(req.params.paymentId);
+
+    // 1. Validate ID
+    if (!Number.isInteger(paymentId) || paymentId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid paymentId",
+      });
+    }
+
+    // 2. Call service
+    const deleted = await deleteClientPayment(paymentId);
+
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Payment not found",
+      });
+    }
+
+    // 3. Activity log: who deleted which client's payment + reason from admin/manager
+    const performedBy = (req as any).user?.id;
+    if (performedBy) {
+      const reason = [req.body?.reason, req.body?.description].find(Boolean);
+      const parts = [
+        deleted.stage,
+        deleted.amount != null ? `Amount: ${deleted.amount}` : null,
+      ].filter(Boolean);
+      const description = reason
+        ? `Reason: ${String(reason).trim()}`
+        : `Payment deleted: ${parts.join(", ")}`;
+      await logActivity(req, {
+        entityType: "clientPayment",
+        entityId: paymentId,
+        clientId: deleted.clientId,
+        action: "PAYMENT_DELETED",
+        oldValue: normalizePaymentForActivityLog(deleted),
+        description,
+        performedBy,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Payment deleted successfully",
+      data: deleted,
+    });
+
+  } catch (error: any) {
+    console.error("Delete payment error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};

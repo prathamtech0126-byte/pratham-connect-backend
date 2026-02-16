@@ -131,7 +131,7 @@ export { pool };
 export const checkDbConnection = async () => {
   try {
     const result = await pool.query("SELECT current_database()");
-    console.log("✅ Connected to DB:", result.rows[0].current_database);
+    // console.log("✅ Connected to DB:", result.rows[0].current_database);
   } catch (error: any) {
     console.error("❌ Database connection error:", error.message);
     throw error;

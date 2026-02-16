@@ -1532,3 +1532,56 @@ export const rejectAllFinancePayment = async (
     } : null,
   };
 };
+
+
+/**
+ * Delete a client product payment by id. Also deletes the linked entity row
+ * (e.g. ielts, visaExtension, allFinance) when entityId is present.
+ */
+export const deleteClientProductPayment = async (
+  productPaymentId: number
+): Promise<typeof clientProductPayments.$inferSelect | null> => {
+  return await db.transaction(async (tx) => {
+    // 1. Get record first (need entityType + entityId to delete entity row)
+    const [payment] = await tx
+      .select({
+        productPaymentId: clientProductPayments.productPaymentId,
+        entityType: clientProductPayments.entityType,
+        entityId: clientProductPayments.entityId,
+      })
+      .from(clientProductPayments)
+      .where(eq(clientProductPayments.productPaymentId, productPaymentId))
+      .limit(1);
+
+    if (!payment) {
+      return null;
+    }
+
+    const { entityType, entityId } = payment;
+
+    // 2. Delete main record
+    const deleted = await tx
+      .delete(clientProductPayments)
+      .where(eq(clientProductPayments.productPaymentId, productPaymentId))
+      .returning();
+
+    if (!deleted.length) {
+      return null;
+    }
+
+    // 3. Delete referenced entity row if present (ielts, visaExtension, allFinance, etc.)
+    if (
+      entityId != null &&
+      entityType &&
+      entityType !== "master_only"
+    ) {
+      const table = entityTypeToTable[entityType as EntityType];
+      if (table) {
+        const idField = entityType === "allFinance_id" ? table.financeId : table.id;
+        await tx.delete(table).where(eq(idField, entityId));
+      }
+    }
+
+    return deleted[0];
+  });
+};

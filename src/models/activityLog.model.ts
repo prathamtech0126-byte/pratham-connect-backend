@@ -98,9 +98,11 @@ export const getActivityLogs = async (filters: GetActivityLogsFilters) => {
       ipAddress: activityLog.ipAddress,
       userAgent: activityLog.userAgent,
       createdAt: activityLog.createdAt,
-      // Performer info
+      // Performer info (user who did the action: id, name, empId)
+      performerId: activityLog.performedBy,
       performerName: users.fullName,
       performerEmail: users.email,
+      performerEmpId: users.emp_id,
       performerRole: users.role,
       // Client info (if applicable)
       clientName: clientInformation.fullName,

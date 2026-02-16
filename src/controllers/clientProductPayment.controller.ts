@@ -3,6 +3,7 @@ import {
   saveClientProductPayment,
   getProductPaymentsByClientId,
   getEntityDisplayDataForActivityLog,
+  deleteClientProductPayment,
   EntityDisplayData,
   ProductType,
 } from "../models/clientProductPayments.model";
@@ -437,6 +438,68 @@ export const getClientProductPaymentsController = async (
     res.status(400).json({
       success: false,
       message: error.message || "Failed to fetch product payments",
+    });
+  }
+};
+
+/**
+ * Delete client product payment by id. Also deletes linked entity row (e.g. ielts, visaExtension) when present.
+ */
+export const deleteClientProductPaymentController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const productPaymentId = Number(req.params.productPaymentId);
+
+    if (!Number.isInteger(productPaymentId) || productPaymentId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid productPaymentId",
+      });
+    }
+
+    const deleted = await deleteClientProductPayment(productPaymentId);
+
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Product payment not found",
+      });
+    }
+
+    // Activity log: who deleted which client's product payment + reason (same pattern as client payment delete)
+    const performedBy = (req as any).user?.id;
+    if (performedBy) {
+      const reason = [req.body?.reason, req.body?.description].find(Boolean);
+      const parts = [
+        deleted.productName,
+        deleted.amount != null ? `Amount: ${deleted.amount}` : null,
+      ].filter(Boolean);
+      const description = reason
+        ? `Reason: ${String(reason).trim()}`
+        : `Product payment deleted (${parts.join(", ")})`;
+      await logActivity(req, {
+        entityType: "clientProductPayment",
+        entityId: productPaymentId,
+        clientId: deleted.clientId,
+        action: "PRODUCT_DELETED",
+        oldValue: normalizeProductPaymentForActivityLog(deleted),
+        description,
+        performedBy,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Product payment deleted successfully",
+      data: deleted,
+    });
+  } catch (error: any) {
+    console.error("Delete product payment error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
     });
   }
 };

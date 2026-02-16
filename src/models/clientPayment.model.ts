@@ -4,6 +4,7 @@ import { clientPayments } from "../schemas/clientPayment.schema";
 import { saleTypes } from "../schemas/saleType.schema";
 import { eq, and, ne, desc } from "drizzle-orm";
 import { parseFrontendDate } from "../utils/date";
+import { activityActionEnum } from "../schemas/activityLog.schema";
 
 export type PaymentStage =
   | "INITIAL"
@@ -258,4 +259,30 @@ export const getPaymentsByClientId = async (clientId: number) => {
     remarks: payment.remarks,
     createdAt: payment.createdAt,
   }));
+};
+
+
+export const deleteClientPayment = async (paymentId: number) => {
+  try {
+    const deleted = await db
+      .delete(clientPayments)
+      .where(eq(clientPayments.paymentId, paymentId))
+      .returning({
+        paymentId: clientPayments.paymentId,
+        clientId: clientPayments.clientId,
+        saleTypeId: clientPayments.saleTypeId,
+        totalPayment: clientPayments.totalPayment,
+        stage: clientPayments.stage,
+        amount: clientPayments.amount,
+      });
+
+    if (!deleted || deleted.length === 0) {
+      return null;
+    }
+
+    return deleted[0];
+  } catch (error: any) {
+    console.error("DB delete error:", error);
+    throw new Error("DATABASE_DELETE_FAILED");
+  }
 };

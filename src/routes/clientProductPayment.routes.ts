@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   saveClientProductPaymentController,
   getClientProductPaymentsController,
+  deleteClientProductPaymentController,
 } from "../controllers/clientProductPayment.controller";
 import { requireAuth } from "../middlewares/auth.middleware";
 import { preventDuplicateRequests } from "../middlewares/requestDeduplication.middleware";
@@ -21,5 +22,10 @@ router.get(
   requireAuth,
   getClientProductPaymentsController
 );
+
+/**
+ * Delete product payment by id (also deletes linked entity row when present)
+ */
+router.delete("/:productPaymentId", requireAuth, deleteClientProductPaymentController);
 
 export default router;
