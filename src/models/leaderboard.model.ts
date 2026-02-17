@@ -262,36 +262,26 @@ export const getLeaderboard = async (
     .where(eq(users.role, "counsellor"));
 
   // Calculate enrollments and revenue for each counsellor
+  // Enrollment count = same as dashboard: by ENROLLMENT DATE in period, one client = one count (not payment date)
   const counsellorStats = await Promise.all(
     allCounsellors.map(async (counsellor) => {
-      // Count enrollments: unique clients who have payments (INITIAL, BEFORE_VISA, AFTER_VISA) in this month/year
       const [enrollmentResult] = await db
-        .select({
-          count: sql<number>`COUNT(DISTINCT ${clientPayments.clientId})`,
-        })
-        .from(clientPayments)
-        .innerJoin(
-          clientInformation,
-          eq(clientPayments.clientId, clientInformation.clientId)
-        )
+        .select({ count: count() })
+        .from(clientInformation)
         .where(
-          sql`(
-            ${clientInformation.counsellorId} = ${counsellor.id}
-            AND ${clientInformation.archived} = false
-            AND ${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
-            AND (
-              (${clientPayments.paymentDate} IS NOT NULL
-                AND ${clientPayments.paymentDate} >= ${startDateStr}
-                AND ${clientPayments.paymentDate} <= ${endDateStr})
-              OR
-              (${clientPayments.paymentDate} IS NULL
-                AND ${clientPayments.createdAt} >= ${startTimestamp}
-                AND ${clientPayments.createdAt} <= ${endTimestamp})
-            )
-          )`
-        ) as any;
+          and(
+            eq(clientInformation.counsellorId, counsellor.id),
+            eq(clientInformation.archived, false),
+            gte(clientInformation.enrollmentDate, startDateStr),
+            lte(clientInformation.enrollmentDate, endDateStr),
+            sql`${clientInformation.clientId} IN (
+              SELECT client_id FROM client_payment
+              WHERE stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
+            )`
+          )
+        );
 
-      const enrollments = enrollmentResult?.count || 0;
+      const enrollments = enrollmentResult?.count ?? 0;
 
       // Calculate revenue for this counsellor in this period
       const revenue = await calculateCounsellorRevenue(

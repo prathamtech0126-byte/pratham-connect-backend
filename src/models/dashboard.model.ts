@@ -372,9 +372,9 @@ const getAllTimeDateRange = (): DateRange => {
 
 /* ==============================
    TOTAL CLIENTS
-   Count = distinct clients who have at least one INITIAL/BEFORE_VISA/AFTER_VISA
-   payment with payment date (or createdAt if null) in the selected period.
-   Matches leaderboard "enrolled" logic so Total Clients = sum(leaderboard enrolled).
+   Same as Core Service / leaderboard: by ENROLLMENT DATE in period.
+   Count = clients whose enrollment_date is in the period and who have at least
+   one INITIAL/BEFORE_VISA/AFTER_VISA payment (any date). One client = one count.
 ============================== */
 const getTotalClients = async (
   dateRange: DateRange,
@@ -382,20 +382,14 @@ const getTotalClients = async (
 ): Promise<number> => {
   const startDateStr = toLocalDateString(dateRange.start);
   const endDateStr = toLocalDateString(dateRange.end);
-  const startTimestamp = dateRange.start.toISOString();
-  const endTimestamp = dateRange.end.toISOString();
 
   const conditions: any[] = [
     eq(clientInformation.archived, false),
-    sql`${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')`,
-    sql`(
-      (${clientPayments.paymentDate} IS NOT NULL
-        AND ${clientPayments.paymentDate} >= ${startDateStr}
-        AND ${clientPayments.paymentDate} <= ${endDateStr})
-      OR
-      (${clientPayments.paymentDate} IS NULL
-        AND ${clientPayments.createdAt} >= ${startTimestamp}
-        AND ${clientPayments.createdAt} <= ${endTimestamp})
+    gte(clientInformation.enrollmentDate, startDateStr),
+    lte(clientInformation.enrollmentDate, endDateStr),
+    sql`${clientInformation.clientId} IN (
+      SELECT client_id FROM client_payment
+      WHERE stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
     )`,
   ];
 
@@ -405,9 +399,8 @@ const getTotalClients = async (
   }
 
   const [result] = await db
-    .select({ count: sql<number>`COUNT(DISTINCT ${clientPayments.clientId})` })
-    .from(clientPayments)
-    .innerJoin(clientInformation, eq(clientPayments.clientId, clientInformation.clientId))
+    .select({ count: count() })
+    .from(clientInformation)
     .where(and(...conditions));
 
   return Number(result?.count ?? 0);
@@ -1368,6 +1361,10 @@ const getLeaderboardDataForDashboard = async (
   const startTimestamp = dateRange.start.toISOString();
   const endTimestamp = dateRange.end.toISOString();
 
+  // #region agent log
+  fetch("http://127.0.0.1:7243/ingest/d82f0fb7-7505-4c44-b82a-e27972897e19", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ location: "dashboard.model.ts:getLeaderboardDataForDashboard", message: "Dashboard leaderboard date range", data: { startDateStr, endDateStr, startTs: startTimestamp.slice(0, 19), endTs: endTimestamp.slice(0, 19) }, timestamp: Date.now(), hypothesisId: "H1,H5" }) }).catch(() => {});
+  // #endregion
+
   // Get counsellors: all for admin and counsellor (whole leaderboard), by manager for manager
   const roleCondition = eq(users.role, "counsellor");
   const whereCondition =
@@ -1387,34 +1384,24 @@ const getLeaderboardDataForDashboard = async (
     .from(users)
     .where(whereCondition);
 
-  // Per-counsellor: enrollments (distinct clients with INITIAL/BEFORE_VISA/AFTER_VISA in range) + revenue
+  // Per-counsellor: enrollments by ENROLLMENT DATE in period (same as leaderboard / core service), one client = one count
   const stats = await Promise.all(
     counsellorsList.map(async (c) => {
       const [enrollmentResult] = await db
-        .select({
-          count: sql<number>`COUNT(DISTINCT ${clientPayments.clientId})`,
-        })
-        .from(clientPayments)
-        .innerJoin(
-          clientInformation,
-          eq(clientPayments.clientId, clientInformation.clientId)
-        )
+        .select({ count: count() })
+        .from(clientInformation)
         .where(
-          sql`(
-            ${clientInformation.counsellorId} = ${c.id}
-            AND ${clientInformation.archived} = false
-            AND ${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
-            AND (
-              (${clientPayments.paymentDate} IS NOT NULL
-                AND ${clientPayments.paymentDate} >= ${startDateStr}
-                AND ${clientPayments.paymentDate} <= ${endDateStr})
-              OR
-              (${clientPayments.paymentDate} IS NULL
-                AND ${clientPayments.createdAt} >= ${startTimestamp}
-                AND ${clientPayments.createdAt} <= ${endTimestamp})
-            )
-          )`
-        ) as any;
+          and(
+            eq(clientInformation.counsellorId, c.id),
+            eq(clientInformation.archived, false),
+            gte(clientInformation.enrollmentDate, startDateStr),
+            lte(clientInformation.enrollmentDate, endDateStr),
+            sql`${clientInformation.clientId} IN (
+              SELECT client_id FROM client_payment
+              WHERE stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
+            )`
+          )
+        );
 
       const enrollments = Number(enrollmentResult?.count ?? 0);
       const revenue = await calculateCounsellorRevenue(
