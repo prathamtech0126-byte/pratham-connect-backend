@@ -99,38 +99,30 @@ export async function redisSetJson(
 }
 
 export async function redisDel(keys: string | string[]): Promise<void> {
-  try {
-    const c = await getRedisClient();
-    if (!c) return;
-    const arr = Array.isArray(keys) ? keys : [keys];
-    if (arr.length === 0) return;
-    await c.del(arr);
-  } catch {
-    // ignore
-  }
+  const c = await getRedisClient();
+  if (!c) return;
+  const arr = Array.isArray(keys) ? keys : [keys];
+  if (arr.length === 0) return;
+  await c.del(arr);
 }
 
 export async function redisDelByPrefix(prefix: string): Promise<void> {
-  try {
-    const c = await getRedisClient();
-    if (!c) return;
+  const c = await getRedisClient();
+  if (!c) return;
 
-    const batch: string[] = [];
-    for await (const key of c.scanIterator({
-      MATCH: `${prefix}*`,
-      COUNT: 200,
-    })) {
-      batch.push(String(key));
-      if (batch.length >= 200) {
-        await c.del(batch);
-        batch.length = 0;
-      }
-    }
-    if (batch.length) {
+  const batch: string[] = [];
+  for await (const key of c.scanIterator({
+    MATCH: `${prefix}*`,
+    COUNT: 200,
+  })) {
+    batch.push(String(key));
+    if (batch.length >= 200) {
       await c.del(batch);
+      batch.length = 0;
     }
-  } catch {
-    // ignore
+  }
+  if (batch.length) {
+    await c.del(batch);
   }
 }
 

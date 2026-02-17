@@ -588,6 +588,20 @@ const createEntityRecord = async (
       const normalizedInvoiceNo = data.invoiceNo && data.invoiceNo.trim() !== "" ? data.invoiceNo.trim() : null;
       const normalizedRemarks = data.remarks && data.remarks.trim() !== "" ? data.remarks.trim() : null;
 
+      // Check for duplicate invoice_no before insert (unique constraint on visa_extension)
+      if (normalizedInvoiceNo) {
+        const [duplicate] = await db
+          .select({ id: visaExtension.id })
+          .from(visaExtension)
+          .where(eq(visaExtension.invoiceNo, normalizedInvoiceNo))
+          .limit(1);
+        if (duplicate) {
+          throw new Error(
+            `Invoice number "${normalizedInvoiceNo}" already exists in visa extension. Please use a different invoice number.`
+          );
+        }
+      }
+
       const [record] = await db
         .insert(visaExtension)
         .values({

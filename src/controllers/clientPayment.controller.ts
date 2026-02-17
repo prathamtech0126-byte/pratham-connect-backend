@@ -261,6 +261,28 @@ export const deleteClientPaymentController = async (
       });
     }
 
+    // Invalidate Redis caches so frontend sees updated list immediately
+    const clientId = Number(deleted.clientId);
+    try {
+      await redisDel([
+        `client-payments:${clientId}`,
+        `clients:complete:${clientId}`,
+        `clients:full:${clientId}`,
+      ]);
+    } catch (e) {
+      console.error("Redis invalidate after payment delete failed:", e);
+    }
+    try {
+      await redisDelByPrefix("dashboard:");
+    } catch (e) {
+      console.error("Redis invalidate dashboard after payment delete failed:", e);
+    }
+    try {
+      await redisDelByPrefix("leaderboard:");
+    } catch (e) {
+      console.error("Redis invalidate leaderboard after payment delete failed:", e);
+    }
+
     // 3. Activity log: who deleted which client's payment + reason from admin/manager
     const performedBy = (req as any).user?.id;
     if (performedBy) {

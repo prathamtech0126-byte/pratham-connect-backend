@@ -1191,10 +1191,9 @@ const getOtherProductMetrics = async (
 };
 
 /* ==============================
-   NEW: Get Core Sale Amount
-   Only sums INITIAL/BEFORE_VISA/AFTER_VISA payments for clients whose
-   enrollment_date is in the date range. Old clients paying in the period
-   do not add to this amount (revenue is separate and unchanged).
+   Get Core Sale Amount
+   Sums INITIAL/BEFORE_VISA/AFTER_VISA payments where the payment falls in the period.
+   If payment is in current month it counts in current month, even if client was enrolled earlier.
 ============================== */
 const getCoreSaleAmount = async (
   dateRange: DateRange,
@@ -1202,16 +1201,21 @@ const getCoreSaleAmount = async (
 ): Promise<number> => {
   const startDateStr = toLocalDateString(dateRange.start);
   const endDateStr = toLocalDateString(dateRange.end);
+  const startTimestamp = dateRange.start.toISOString();
+  const endTimestamp = dateRange.end.toISOString();
 
-  // Revenue: only payment date (no createdAt)
   const baseConditions = sql`(
     ${clientInformation.archived} = false
-    AND ${clientInformation.enrollmentDate} >= ${startDateStr}
-    AND ${clientInformation.enrollmentDate} <= ${endDateStr}
     AND ${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
-    AND ${clientPayments.paymentDate} IS NOT NULL
-    AND ${clientPayments.paymentDate} >= ${startDateStr}
-    AND ${clientPayments.paymentDate} <= ${endDateStr}
+    AND (
+      (${clientPayments.paymentDate} IS NOT NULL
+        AND ${clientPayments.paymentDate} >= ${startDateStr}
+        AND ${clientPayments.paymentDate} <= ${endDateStr})
+      OR
+      (${clientPayments.paymentDate} IS NULL
+        AND ${clientPayments.createdAt} >= ${startTimestamp}
+        AND ${clientPayments.createdAt} <= ${endTimestamp})
+    )
   )`;
 
   let query = db

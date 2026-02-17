@@ -386,7 +386,7 @@ export const getAllCounsellors = async () => {
       fullName: users.fullName,
       email: users.email,
       managerId: users.managerId,
-      clientCount: count(clientInformation.clientId),
+      // clientCount: count(clientInformation.clientId),
     })
     .from(users)
     .leftJoin(clientInformation, eq(users.id, clientInformation.counsellorId))

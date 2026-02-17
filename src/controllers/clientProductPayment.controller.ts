@@ -18,7 +18,12 @@ import { eq, and } from "drizzle-orm";
 import { logActivity } from "../services/activityLog.service";
 import { createIndividualMessage } from "../models/message.model";
 import { parseFrontendDate } from "../utils/date";
-import { redisDel, redisDelByPrefix, redisGetJson, redisSetJson } from "../config/redis";
+import {
+  redisDel,
+  redisDelByPrefix,
+  redisGetJson,
+  redisSetJson,
+} from "../config/redis";
 
 const CLIENT_PRODUCT_PAYMENTS_CACHE_TTL_SECONDS = 45;
 
@@ -406,9 +411,14 @@ export const saveClientProductPaymentController = async (
       data: result.record,
     });
   } catch (error: any) {
+    const code = error?.code ?? error?.cause?.code;
+    const message =
+      code === "23505"
+        ? "This invoice number is already in use. Please use a different invoice number."
+        : error?.message ?? "Failed to save product payment";
     res.status(400).json({
       success: false,
-      message: error.message,
+      message,
     });
   }
 };
@@ -466,6 +476,28 @@ export const deleteClientProductPaymentController = async (
         success: false,
         message: "Product payment not found",
       });
+    }
+
+    // Invalidate Redis caches so frontend sees updated list immediately
+    const clientId = Number(deleted.clientId);
+    try {
+      await redisDel([
+        `client-product-payments:${clientId}`,
+        `clients:complete:${clientId}`,
+        `clients:full:${clientId}`,
+      ]);
+    } catch (e) {
+      console.error("Redis invalidate after product payment delete failed:", e);
+    }
+    try {
+      await redisDelByPrefix("dashboard:");
+    } catch (e) {
+      console.error("Redis invalidate dashboard after product payment delete failed:", e);
+    }
+    try {
+      await redisDelByPrefix("leaderboard:");
+    } catch (e) {
+      console.error("Redis invalidate leaderboard after product payment delete failed:", e);
     }
 
     // Activity log: who deleted which client's product payment + reason (same pattern as client payment delete)
