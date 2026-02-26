@@ -4,6 +4,7 @@ import { getProductPaymentsByClientId } from "../models/clientProductPayments.mo
 import { emitToCounsellor, emitToAdmin, emitDashboardUpdate, emitToCounsellors } from "../config/socket";
 import { getDashboardStats } from "../models/dashboard.model";
 import { getLeaderboard, getMonthlyEnrollmentGoal } from "../models/leaderboard.model";
+import { emitManagerTargetUpdateForManager } from "./managerTargets.controller";
 import { logActivity } from "../services/activityLog.service";
 import { db } from "../config/databaseConnection";
 import { clientInformation } from "../schemas/clientInformation.schema";
@@ -241,6 +242,16 @@ export const saveClientController = async (req: Request, res: Response) => {
           counsellorId: counsellorId,
           data: enrollmentGoalData,
         });
+
+        // Emit manager target update so manager's achieved (client count / revenue) updates instantly
+        const [counsellorUser] = await db
+          .select({ managerId: users.managerId })
+          .from(users)
+          .where(eq(users.id, counsellorId))
+          .limit(1);
+        if (counsellorUser?.managerId) {
+          await emitManagerTargetUpdateForManager(counsellorUser.managerId);
+        }
       } catch (leaderboardError) {
         console.error("Leaderboard/enrollment goal update emit error:", leaderboardError);
       }
@@ -517,13 +528,14 @@ export const getClientCompleteDetailsController = async (req: Request, res: Resp
       });
     }
 
-    // Use productPayments from clientData (already includes entity data)
-
+    // productPayments include full entity data; for ALL_FINANCE_EMPLOYEMENT, entity has
+    // amount, paymentDate, invoiceNo, partialPayment, approvalStatus, approvedBy, remarks,
+    // anotherPaymentAmount, anotherPaymentDate, createdAt, approver (if approved)
     const completeDetails = {
       client: clientData.client,
       leadType: clientData.leadType,
       payments: clientData.payments,
-      productPayments: clientData.productPayments, // Already enhanced with entity data
+      productPayments: clientData.productPayments,
     };
 
     await redisSetJson(cacheKey, completeDetails, CLIENT_CACHE_TTL_SECONDS);

@@ -175,7 +175,7 @@ const parseLocalDate = (dateStr: string): Date => {
 // Union type for dashboard stats
 export type DashboardStats = AdminManagerDashboardStats | CounsellorDashboardStats;
 
-interface DateRange {
+export interface DateRange {
   start: Date;
   end: Date;
   previousStart?: Date; // Optional - not used in rolling window analytics
@@ -211,7 +211,7 @@ const buildCounsellorFilter = (
 /* ==============================
    DATE RANGE HELPERS
 ============================== */
-const getDateRange = (
+export const getDateRange = (
   filter: DashboardFilter,
   beforeDate?: string,
   afterDate?: string
@@ -1010,9 +1010,103 @@ const getCoreProductMetrics = async (
 
   const [amountResult] = await amountQuery;
 
+  // Another payment: count and amount by anotherPaymentDate (partial/second payment in all_finance)
+  const anotherDateCondition = sql`(
+    ${allFinance.anotherPaymentDate} IS NOT NULL
+    AND ${allFinance.anotherPaymentDate} >= ${startDateStr}
+    AND ${allFinance.anotherPaymentDate} <= ${endDateStr}
+    AND ${allFinance.anotherPaymentAmount} IS NOT NULL
+  )`;
+  let countAnotherQuery = db
+    .select({ count: count() })
+    .from(clientProductPayments)
+    .innerJoin(
+      allFinance,
+      sql`${clientProductPayments.entityId} = ${allFinance.financeId} AND ${clientProductPayments.entityType} = 'allFinance_id'`
+    )
+    .where(
+      sql`${clientProductPayments.productName} = ${CORE_PRODUCT} AND ${anotherDateCondition}`
+    ) as any;
+  if (roleFilter?.userRole === "counsellor" && roleFilter.counsellorId) {
+    countAnotherQuery = countAnotherQuery
+      .innerJoin(
+        clientInformation,
+        eq(clientProductPayments.clientId, clientInformation.clientId)
+      )
+      .where(
+        sql`(
+          ${clientInformation.counsellorId} = ${roleFilter.counsellorId}
+          AND ${clientInformation.archived} = false
+          AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
+          AND ${anotherDateCondition}
+        )`
+      ) as any;
+  } else {
+    countAnotherQuery = countAnotherQuery
+      .innerJoin(
+        clientInformation,
+        eq(clientProductPayments.clientId, clientInformation.clientId)
+      )
+      .where(
+        sql`(
+          ${clientInformation.archived} = false
+          AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
+          AND ${anotherDateCondition}
+        )`
+      ) as any;
+  }
+  const [countAnotherResult] = await countAnotherQuery;
+
+  let amountAnotherQuery = db
+    .select({
+      total: sql<string>`COALESCE(SUM(${allFinance.anotherPaymentAmount}::numeric), 0)`,
+    })
+    .from(allFinance)
+    .innerJoin(
+      clientProductPayments,
+      sql`${clientProductPayments.entityId} = ${allFinance.financeId} AND ${clientProductPayments.entityType} = 'allFinance_id'`
+    )
+    .where(
+      sql`${clientProductPayments.productName} = ${CORE_PRODUCT} AND ${anotherDateCondition}`
+    ) as any;
+  if (roleFilter?.userRole === "counsellor" && roleFilter.counsellorId) {
+    amountAnotherQuery = amountAnotherQuery
+      .innerJoin(
+        clientInformation,
+        eq(clientProductPayments.clientId, clientInformation.clientId)
+      )
+      .where(
+        sql`(
+          ${clientInformation.counsellorId} = ${roleFilter.counsellorId}
+          AND ${clientInformation.archived} = false
+          AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
+          AND ${anotherDateCondition}
+        )`
+      ) as any;
+  } else {
+    amountAnotherQuery = amountAnotherQuery
+      .innerJoin(
+        clientInformation,
+        eq(clientProductPayments.clientId, clientInformation.clientId)
+      )
+      .where(
+        sql`(
+          ${clientInformation.archived} = false
+          AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
+          AND ${anotherDateCondition}
+        )`
+      ) as any;
+  }
+  const [amountAnotherResult] = await amountAnotherQuery;
+
+  const mainCount = countResult?.count || 0;
+  const mainAmount = parseFloat(amountResult?.total || "0");
+  const anotherCount = countAnotherResult?.count || 0;
+  const anotherAmount = parseFloat(amountAnotherResult?.total || "0");
+
   return {
-    count: countResult?.count || 0,
-    amount: parseFloat(amountResult?.total || "0"),
+    count: mainCount + anotherCount,
+    amount: mainAmount + anotherAmount,
   };
 };
 

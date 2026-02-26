@@ -21,6 +21,7 @@ import { eq, and, sql, count, desc, gte, lte, or, inArray } from "drizzle-orm";
 
 // Match dashboard: Core Product = this product name; Other = rest (some are count-only for amount)
 const CORE_PRODUCT = "ALL_FINANCE_EMPLOYEMENT";
+// Count-only products: count the payment for metrics but NEVER add to revenue (e.g. INSURANCE — count only, no revenue)
 const COUNT_ONLY_PRODUCTS = [
   "LOAN_DETAILS",
   "FOREX_CARD",
@@ -32,6 +33,25 @@ const COUNT_ONLY_PRODUCTS = [
   "AIR_TICKET",
   "FOREX_FEES",
 ] as const;
+
+// For SQL: case-insensitive exclusion so 'INSURANCE' / 'Insurance' / 'insurance' all excluded from revenue
+const COUNT_ONLY_PRODUCTS_LOWER = COUNT_ONLY_PRODUCTS.map((p) => `'${p.toLowerCase()}'`).join(", ");
+
+// Entity types for those products: count payment, do not add to revenue (insurance_id = INSURANCE, etc.)
+const COUNT_ONLY_ENTITY_TYPES = [
+  "loan_id",
+  "forexCard_id",
+  "tutionFees_id",
+  "creditCard_id",
+  "simCard_id",
+  "insurance_id",
+  "beaconAccount_id",
+  "airTicket_id",
+  "forexFees_id",
+] as const;
+
+const isCountOnlyEntityType = (entityType: string): boolean =>
+  (COUNT_ONLY_ENTITY_TYPES as readonly string[]).includes(entityType);
 
 // Helper function to get entity amounts (same as dashboard model)
 const getEntityAmounts = async (
@@ -140,7 +160,7 @@ export const calculateCounsellorRevenue = async (
       )`
     );
 
-  // 2. Product payments with amount (master_only products) for this counsellor's clients
+  // 2. Product payments with amount — exclude count-only (e.g. INSURANCE: count only, never revenue)
   const [productPaymentsWithAmount] = await db
     .select({
       total: sql<string>`COALESCE(SUM(${clientProductPayments.amount}::numeric), 0)`,
@@ -155,6 +175,7 @@ export const calculateCounsellorRevenue = async (
         ${clientInformation.counsellorId} = ${counsellorId}
         AND ${clientInformation.archived} = false
         AND ${clientProductPayments.amount} IS NOT NULL
+        AND LOWER((${clientProductPayments.productName})::text) NOT IN (${sql.raw(COUNT_ONLY_PRODUCTS_LOWER)})
         AND (
           (${clientProductPayments.paymentDate} IS NOT NULL
             AND ${clientProductPayments.paymentDate} >= ${startDateStr}
@@ -210,6 +231,7 @@ export const calculateCounsellorRevenue = async (
     });
 
     for (const [entityType, entityIds] of Object.entries(entityGroups)) {
+      if (isCountOnlyEntityType(entityType)) continue;
       const amount = await getEntityAmounts(entityType, entityIds);
       entityAmountsTotal += amount;
     }
@@ -222,9 +244,45 @@ export const calculateCounsellorRevenue = async (
   return total;
 };
 
+/** Core Sale client count for one counsellor: distinct clients with INITIAL/BEFORE_VISA/AFTER_VISA payment in the period. */
+export const getCounsellorCoreSaleClientCount = async (
+  counsellorId: number,
+  startDateStr: string,
+  endDateStr: string,
+  startTimestamp: string,
+  endTimestamp: string
+): Promise<number> => {
+  const [result] = await db
+    .select({
+      count: sql<number>`COUNT(DISTINCT ${clientPayments.clientId})`,
+    })
+    .from(clientPayments)
+    .innerJoin(
+      clientInformation,
+      eq(clientPayments.clientId, clientInformation.clientId)
+    )
+    .where(
+      sql`(
+        ${clientInformation.counsellorId} = ${counsellorId}
+        AND ${clientInformation.archived} = false
+        AND ${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
+        AND (
+          (${clientPayments.paymentDate} IS NOT NULL
+            AND ${clientPayments.paymentDate} >= ${startDateStr}
+            AND ${clientPayments.paymentDate} <= ${endDateStr})
+          OR
+          (${clientPayments.paymentDate} IS NULL
+            AND ${clientPayments.createdAt} >= ${startTimestamp}
+            AND ${clientPayments.createdAt} <= ${endTimestamp})
+        )
+      )`
+    );
+  return Number(result?.count ?? 0);
+};
+
 /** Core Sale amount for one counsellor: client_payment (INITIAL/BEFORE_VISA/AFTER_VISA) where payment falls in the period.
  *  If payment is in current month it counts in current month, even if client was enrolled earlier (no enrollment_date filter). */
-const getCounsellorCoreSaleAmount = async (
+export const getCounsellorCoreSaleAmount = async (
   counsellorId: number,
   startDateStr: string,
   endDateStr: string,
@@ -259,8 +317,8 @@ const getCounsellorCoreSaleAmount = async (
   return parseFloat(result?.total || "0");
 };
 
-/** Core Product (ALL_FINANCE_EMPLOYEMENT) count and amount for one counsellor, allFinance.paymentDate in range. */
-const getCounsellorCoreProductMetrics = async (
+/** Core Product (ALL_FINANCE_EMPLOYEMENT): main payment by paymentDate, another payment by anotherPaymentDate. */
+export const getCounsellorCoreProductMetrics = async (
   counsellorId: number,
   startDateStr: string,
   endDateStr: string
@@ -310,14 +368,68 @@ const getCounsellorCoreProductMetrics = async (
         AND ${allFinanceDateCondition}
       )`
     );
+
+  // Another payment: count and amount by anotherPaymentDate (partial/second payment)
+  const anotherDateCondition = sql`(
+    ${allFinance.anotherPaymentDate} IS NOT NULL
+    AND ${allFinance.anotherPaymentDate} >= ${startDateStr}
+    AND ${allFinance.anotherPaymentDate} <= ${endDateStr}
+    AND ${allFinance.anotherPaymentAmount} IS NOT NULL
+  )`;
+  const [countAnotherResult] = await db
+    .select({ count: count() })
+    .from(clientProductPayments)
+    .innerJoin(
+      allFinance,
+      sql`${clientProductPayments.entityId} = ${allFinance.financeId} AND ${clientProductPayments.entityType} = 'allFinance_id'`
+    )
+    .innerJoin(
+      clientInformation,
+      eq(clientProductPayments.clientId, clientInformation.clientId)
+    )
+    .where(
+      sql`(
+        ${clientInformation.counsellorId} = ${counsellorId}
+        AND ${clientInformation.archived} = false
+        AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
+        AND ${anotherDateCondition}
+      )`
+    );
+  const [amountAnotherResult] = await db
+    .select({
+      total: sql<string>`COALESCE(SUM(${allFinance.anotherPaymentAmount}::numeric), 0)`,
+    })
+    .from(allFinance)
+    .innerJoin(
+      clientProductPayments,
+      sql`${clientProductPayments.entityId} = ${allFinance.financeId} AND ${clientProductPayments.entityType} = 'allFinance_id'`
+    )
+    .innerJoin(
+      clientInformation,
+      eq(clientProductPayments.clientId, clientInformation.clientId)
+    )
+    .where(
+      sql`(
+        ${clientInformation.counsellorId} = ${counsellorId}
+        AND ${clientInformation.archived} = false
+        AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
+        AND ${anotherDateCondition}
+      )`
+    );
+
+  const mainCount = countResult?.count ?? 0;
+  const mainAmount = parseFloat(amountResult?.total || "0");
+  const anotherCount = countAnotherResult?.count ?? 0;
+  const anotherAmount = parseFloat(amountAnotherResult?.total || "0");
+
   return {
-    count: countResult?.count ?? 0,
-    amount: parseFloat(amountResult?.total || "0"),
+    count: mainCount + anotherCount,
+    amount: mainAmount + anotherAmount,
   };
 };
 
 /** Other Product (non–Core Product) count and amount for one counsellor. Direct: paymentDate in range. Entity: entity table date in range. */
-const getCounsellorOtherProductMetrics = async (
+export const getCounsellorOtherProductMetrics = async (
   counsellorId: number,
   startDateStr: string,
   endDateStr: string
@@ -327,7 +439,6 @@ const getCounsellorOtherProductMetrics = async (
     AND ${clientProductPayments.paymentDate} >= ${startDateStr}
     AND ${clientProductPayments.paymentDate} <= ${endDateStr}
   )`;
-  const countOnlyList = COUNT_ONLY_PRODUCTS.map((p) => `'${p}'`).join(", ");
 
   const [directCountResult] = await db
     .select({ count: count() })
@@ -359,7 +470,7 @@ const getCounsellorOtherProductMetrics = async (
         AND ${clientInformation.archived} = false
         AND ${clientProductPayments.amount} IS NOT NULL
         AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
-        AND ${clientProductPayments.productName} NOT IN (${sql.raw(countOnlyList)})
+        AND LOWER((${clientProductPayments.productName})::text) NOT IN (${sql.raw(COUNT_ONLY_PRODUCTS_LOWER)})
         AND ${directCondition}
       )`
     );
@@ -402,7 +513,7 @@ const getCounsellorOtherProductMetrics = async (
       );
     directCount += rows.length;
     const ids = rows.map((r: { entityId: number | null }) => r.entityId).filter((id): id is number => id != null);
-    if (ids.length > 0) directAmount += await getEntityAmounts(type, ids);
+    if (ids.length > 0 && !isCountOnlyEntityType(type)) directAmount += await getEntityAmounts(type, ids);
   }
 
   return { count: directCount, amount: directAmount };
@@ -721,7 +832,7 @@ export const getLeaderboardSummary = async (month: number, year: number) => {
       )`
     );
 
-  // 2. Product payments with amount
+  // 2. Product payments with amount — exclude count-only (e.g. INSURANCE: count only, never revenue)
   const [productPaymentsWithAmount] = await db
     .select({
       total: sql<string>`COALESCE(SUM(${clientProductPayments.amount}::numeric), 0)`,
@@ -730,6 +841,7 @@ export const getLeaderboardSummary = async (month: number, year: number) => {
     .where(
       sql`(
         ${clientProductPayments.amount} IS NOT NULL
+        AND LOWER((${clientProductPayments.productName})::text) NOT IN (${sql.raw(COUNT_ONLY_PRODUCTS_LOWER)})
         AND (
           (${clientProductPayments.paymentDate} IS NOT NULL
             AND ${clientProductPayments.paymentDate} >= ${startDateStr}
@@ -779,6 +891,7 @@ export const getLeaderboardSummary = async (month: number, year: number) => {
     });
 
     for (const [entityType, entityIds] of Object.entries(entityGroups)) {
+      if (isCountOnlyEntityType(entityType)) continue;
       const amount = await getEntityAmounts(entityType, entityIds);
       entityAmountsTotal += amount;
     }

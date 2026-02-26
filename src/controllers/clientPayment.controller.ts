@@ -7,9 +7,11 @@ import {
 import { getClientFullDetailsById, getClientsByCounsellor, getAllClientsForAdmin } from "../models/client.model";
 import { emitToCounsellor, emitToAdmin, emitDashboardUpdate } from "../config/socket";
 import { getDashboardStats } from "../models/dashboard.model";
+import { emitManagerTargetUpdateForManager } from "./managerTargets.controller";
 import { db } from "../config/databaseConnection";
 import { clientInformation } from "../schemas/clientInformation.schema";
 import { clientPayments } from "../schemas/clientPayment.schema";
+import { users } from "../schemas/users.schema";
 import { eq } from "drizzle-orm";
 import { logActivity } from "../services/activityLog.service";
 import { redisDel, redisDelByPrefix, redisGetJson, redisSetJson } from "../config/redis";
@@ -109,7 +111,7 @@ export const saveClientPaymentController = async (
             oldValue: oldValue,
             newValue: newValueForLog,
             description: result.action === "CREATED"
-              ? `Payment added: ${result.payment.stage} - $${result.payment.amount}`
+              ? `New payment added: ${result.payment.stage} - $${result.payment.amount}`
               : `Payment updated: ${result.payment.stage} - $${result.payment.amount}`,
             metadata: {
               stage: result.payment.stage,
@@ -173,6 +175,20 @@ export const saveClientPaymentController = async (
         });
       } catch (dashboardError) {
         console.error("Dashboard update emit error:", dashboardError);
+      }
+
+      // Emit manager target update so manager's achieved (revenue) updates instantly
+      try {
+        const [counsellorUser] = await db
+          .select({ managerId: users.managerId })
+          .from(users)
+          .where(eq(users.id, counsellorId))
+          .limit(1);
+        if (counsellorUser?.managerId) {
+          await emitManagerTargetUpdateForManager(counsellorUser.managerId);
+        }
+      } catch (managerTargetError) {
+        console.error("Manager target emit error:", managerTargetError);
       }
     } catch (wsError) {
       // Don't fail the request if WebSocket fails

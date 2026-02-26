@@ -12,6 +12,7 @@ import { clientProductPayments } from "../schemas/clientProductPayments.schema";
 import { clientInformation } from "../schemas/clientInformation.schema";
 import { users } from "../schemas/users.schema";
 import { eq,and } from "drizzle-orm";
+import { redisDel, redisDelByPrefix } from "../config/redis";
 
 /**
  * Get pending all finance approvals
@@ -169,6 +170,19 @@ export const approveAllFinanceController = async (
       approvedBy: req.user.id,
     });
 
+    // Invalidate Redis caches so the updated status is visible immediately
+    try {
+      const clientId = productPayment?.clientId;
+      if (clientId) {
+        await redisDel(`client-product-payments:${clientId}`);
+        await redisDel(`clients:complete:${clientId}`);
+      }
+      await redisDelByPrefix("dashboard:");
+      await redisDelByPrefix("leaderboard:");
+    } catch (cacheError) {
+      console.error("Redis invalidate after allFinance approve failed:", cacheError);
+    }
+
     // Log activity
     try {
       await logActivity(req, {
@@ -312,6 +326,19 @@ export const rejectAllFinanceController = async (
       productPaymentId: productPayment?.productPaymentId,
       rejectedBy: req.user.id,
     });
+
+    // Invalidate Redis caches so the updated status is visible immediately
+    try {
+      const clientId = productPayment?.clientId;
+      if (clientId) {
+        await redisDel(`client-product-payments:${clientId}`);
+        await redisDel(`clients:complete:${clientId}`);
+      }
+      await redisDelByPrefix("dashboard:");
+      await redisDelByPrefix("leaderboard:");
+    } catch (cacheError) {
+      console.error("Redis invalidate after allFinance reject failed:", cacheError);
+    }
 
     // Log activity
     try {

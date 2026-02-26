@@ -41,6 +41,12 @@ export const allFinance = pgTable(
     approvedBy: bigint("approved_by", { mode: "number" })
       .references(() => users.id),
 
+    // Another payment amount and date
+    anotherPaymentAmount: decimal("another_payment_amount", { precision: 12, scale: 2 }),
+    
+    // Another payment date
+    anotherPaymentDate: date("another_payment_date"),
+
     // Remarks for the payment
     remarks: text("remarks"),
 

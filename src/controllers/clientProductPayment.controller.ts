@@ -9,6 +9,7 @@ import {
 } from "../models/clientProductPayments.model";
 import { getClientFullDetailsById, getClientsByCounsellor, getAllClientsForAdmin } from "../models/client.model";
 import { emitToCounsellor, emitToAdmin, emitDashboardUpdate, emitToRoles } from "../config/socket";
+import { emitManagerTargetUpdateForManager } from "./managerTargets.controller";
 import { getDashboardStats } from "../models/dashboard.model";
 import { db } from "../config/databaseConnection";
 import { clientInformation } from "../schemas/clientInformation.schema";
@@ -335,7 +336,7 @@ export const saveClientProductPaymentController = async (
           newValue: newValueForLog,
           description:
             result.action === "CREATED"
-              ? `Product payment added: ${result.record.productName} - ${amountText}`
+              ? `New payment added: ${result.record.productName} - ${amountText}`
               : `Product payment updated: ${result.record.productName} - ${amountText}`,
           metadata: {
             productName: result.record.productName,
@@ -353,9 +354,10 @@ export const saveClientProductPaymentController = async (
       console.error("Activity log error in saveClientProductPaymentController:", activityError);
     }
 
-    // Invalidate caches for this client's product payments and dashboard
+    // Invalidate caches so next client complete-details load includes latest entity (e.g. anotherPaymentAmount, anotherPaymentDate)
     try {
       await redisDel(`client-product-payments:${clientId}`);
+      await redisDel(`clients:complete:${clientId}`);
       await redisDelByPrefix("dashboard:");
     } catch {
       // ignore
@@ -399,6 +401,20 @@ export const saveClientProductPaymentController = async (
         });
       } catch (dashboardError) {
         console.error("Dashboard update emit error:", dashboardError);
+      }
+
+      // Emit manager target update so manager's achieved (product revenue) updates instantly
+      try {
+        const [counsellorUser] = await db
+          .select({ managerId: users.managerId })
+          .from(users)
+          .where(eq(users.id, counsellorId))
+          .limit(1);
+        if (counsellorUser?.managerId) {
+          await emitManagerTargetUpdateForManager(counsellorUser.managerId);
+        }
+      } catch (managerTargetError) {
+        console.error("Manager target emit error:", managerTargetError);
       }
     } catch (wsError) {
       // Don't fail the request if WebSocket fails

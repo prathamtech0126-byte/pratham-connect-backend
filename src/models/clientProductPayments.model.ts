@@ -163,12 +163,14 @@ const entityTypeToTable: Record<EntityType, any> = {
   master_only: null,
 };
 
-/** Return type for activity log: amount, remarks, paymentDate, invoiceNo from entity tables */
+/** Return type for activity log: amount, remarks, paymentDate, invoiceNo (and allFinance anotherPayment*) from entity tables */
 export interface EntityDisplayData {
   amount?: string | null;
   remarks?: string | null;
   paymentDate?: string | Date | null;
   invoiceNo?: string | null;
+  anotherPaymentAmount?: string | null;
+  anotherPaymentDate?: string | Date | null;
 }
 
 /**
@@ -199,6 +201,10 @@ export const getEntityDisplayDataForActivityLog = async (
     if ("invoiceNo" in row && row.invoiceNo != null) out.invoiceNo = String(row.invoiceNo);
     if ("invoice_no" in row && (row as any).invoice_no != null)
       out.invoiceNo = String((row as any).invoice_no);
+    if ("anotherPaymentAmount" in row && (row as any).anotherPaymentAmount != null)
+      out.anotherPaymentAmount = String((row as any).anotherPaymentAmount);
+    if ("anotherPaymentDate" in row && (row as any).anotherPaymentDate != null)
+      out.anotherPaymentDate = (row as any).anotherPaymentDate;
     // Entities like beacon_account use fundingDate/openingDate instead of paymentDate
     if (out.paymentDate == null) {
       const fundingDate = (row as any).fundingDate ?? (row as any).funding_date;
@@ -294,6 +300,8 @@ interface AllFinanceData {
   approvalStatus?: "pending" | "approved" | "rejected";
   approvedBy?: number;
   remarks?: string;
+  anotherPaymentAmount?: number | string;
+  anotherPaymentDate?: string;
 }
 
 interface VisaExtensionData {
@@ -561,6 +569,12 @@ const createEntityRecord = async (
         }
       }
 
+      const anotherAmount =
+        data.anotherPaymentAmount !== undefined && data.anotherPaymentAmount !== null && data.anotherPaymentAmount !== ""
+          ? (typeof data.anotherPaymentAmount === "string" ? parseFloat(data.anotherPaymentAmount) : data.anotherPaymentAmount)
+          : null;
+      const anotherDate = data.anotherPaymentDate ? parseFrontendDate(data.anotherPaymentDate) ?? null : null;
+
       const [record] = await db
         .insert(allFinance)
         .values({
@@ -571,6 +585,8 @@ const createEntityRecord = async (
           approvalStatus: approvalStatus as "pending" | "approved" | "rejected",
           approvedBy: data.approvedBy && approvalStatus === "approved" ? data.approvedBy : null,
           remarks: data.remarks && data.remarks.trim() !== "" ? data.remarks.trim() : null,
+          anotherPaymentAmount: anotherAmount != null && isFinite(anotherAmount) ? anotherAmount.toString() : null,
+          anotherPaymentDate: anotherDate,
         })
         .returning();
       return record.financeId;
@@ -705,12 +721,11 @@ export const saveClientProductPayment = async (
       const table = entityTypeToTable[entityType];
 
       // Filter out non-entity fields (id, productPaymentId, productName, etc.)
-      // These fields don't belong in the entity table update
+      // Note: paymentDate is kept because for allFinance_id it is the entity's own payment date
       const {
         id,
         productPaymentId,
         productName,
-        paymentDate,
         clientId,
         entityId,
         entityType: _entityType,
@@ -777,6 +792,12 @@ export const saveClientProductPayment = async (
           if (!newPaymentDateParsed) {
             throw new Error("paymentDate is required for all finance");
           }
+          const anotherAmount =
+            data.anotherPaymentAmount !== undefined && data.anotherPaymentAmount !== null && data.anotherPaymentAmount !== ""
+              ? (typeof data.anotherPaymentAmount === "string" ? parseFloat(data.anotherPaymentAmount) : data.anotherPaymentAmount)
+              : null;
+          const anotherDate = data.anotherPaymentDate ? parseFrontendDate(data.anotherPaymentDate) ?? null : null;
+
           const [newAllFinance] = await db
             .insert(allFinance)
             .values({
@@ -787,6 +808,8 @@ export const saveClientProductPayment = async (
               approvalStatus: approvalStatus as "pending" | "approved" | "rejected",
               approvedBy: data.approvedBy && approvalStatus === "approved" ? data.approvedBy : null,
               remarks: data.remarks && data.remarks.trim() !== "" ? data.remarks.trim() : null,
+              anotherPaymentAmount: anotherAmount != null && isFinite(anotherAmount) ? anotherAmount.toString() : null,
+              anotherPaymentDate: anotherDate,
             })
             .returning();
 
@@ -856,8 +879,22 @@ export const saveClientProductPayment = async (
             updateData.remarks = data.remarks && data.remarks.trim() !== "" ? data.remarks.trim() : null;
           }
 
-          // Note: approvalStatus and approvedBy should only be updated through approval endpoint
-          // Regular updates should not change these fields
+          if (data.anotherPaymentAmount !== undefined) {
+            const anotherAmount =
+              data.anotherPaymentAmount !== null && data.anotherPaymentAmount !== ""
+                ? (typeof data.anotherPaymentAmount === "string" ? parseFloat(data.anotherPaymentAmount) : data.anotherPaymentAmount)
+                : null;
+            updateData.anotherPaymentAmount = anotherAmount != null && isFinite(anotherAmount) ? anotherAmount.toString() : null;
+          }
+          if (data.anotherPaymentDate !== undefined) {
+            updateData.anotherPaymentDate = data.anotherPaymentDate ? parseFrontendDate(data.anotherPaymentDate) ?? null : null;
+          }
+
+          // If the payment was previously rejected, editing it resubmits it for approval (reset to pending)
+          if (existingAllFinance.approvalStatus === "rejected") {
+            updateData.approvalStatus = "pending";
+            updateData.approvedBy = null;
+          }
 
           await db
             .update(allFinance)
@@ -1308,6 +1345,8 @@ export const getPendingAllFinanceApprovals = async () => {
       approvalStatus: allFinance.approvalStatus,
       approvedBy: allFinance.approvedBy,
       remarks: allFinance.remarks,
+      anotherPaymentAmount: allFinance.anotherPaymentAmount,
+      anotherPaymentDate: allFinance.anotherPaymentDate,
       createdAt: allFinance.createdAt,
     })
     .from(allFinance)

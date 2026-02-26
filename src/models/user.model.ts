@@ -2,6 +2,9 @@ import bcrypt from "bcrypt";
 import { db } from "../config/databaseConnection";
 import { users } from "./../schemas/users.schema";
 import { clientInformation } from "./../schemas/clientInformation.schema";
+import { leaderBoard } from "./../schemas/leaderBoard.schema";
+import { managerTargets } from "./../schemas/managerTargets.schema";
+import { activityLog } from "./../schemas/activityLog.schema";
 import { eq, ne, and, count } from "drizzle-orm";
 import { ROLES, Role, isRole } from "../types/role";
 
@@ -247,15 +250,14 @@ export const updateUserByAdmin = async (
 
   const finalRole = data.role ?? existingUser.role;
 
-  const finalManagerId =
+  // When converting to manager/admin, ignore existing/request managerId — only counsellors have a manager
+  const rawManagerId =
     data.managerId !== undefined ? data.managerId : existingUser.managerId;
+  const finalManagerId =
+    finalRole === "counsellor" ? rawManagerId : null;
 
   if (finalRole === "counsellor" && !finalManagerId) {
     throw new Error("Counsellor must have a manager");
-  }
-
-  if (finalRole !== "counsellor" && finalManagerId) {
-    throw new Error("Only counsellors can have managerId");
   }
 
   // Only managers can be supervisors
@@ -355,6 +357,29 @@ export const deleteUserByAdmin = async (
       throw new Error("Manager has assigned counsellors");
     }
   }
+
+  if (existingUser.role === "counsellor") {
+    const [clientCount] = await db
+      .select({ count: count() })
+      .from(clientInformation)
+      .where(eq(clientInformation.counsellorId, targetUserId));
+    if (clientCount && clientCount.count > 0) {
+      throw new Error("Counsellor has assigned clients; reassign or archive them first");
+    }
+  }
+
+  // Remove references so user delete does not violate FKs
+  await db.delete(leaderBoard).where(eq(leaderBoard.counsellor_id, targetUserId));
+  await db
+    .update(leaderBoard)
+    .set({ manager_id: null })
+    .where(eq(leaderBoard.manager_id, targetUserId));
+  await db.delete(managerTargets).where(eq(managerTargets.manager_id, targetUserId));
+  // Reassign activity_log rows so this user can be deleted (performed_by is FK to users.id)
+  await db
+    .update(activityLog)
+    .set({ performedBy: adminUserId })
+    .where(eq(activityLog.performedBy, targetUserId));
 
   await db.delete(users).where(eq(users.id, targetUserId));
 

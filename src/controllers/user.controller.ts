@@ -8,7 +8,7 @@ import {
   getAllCounsellors,
   getCounsellorsByManagerId,
   getManagersWithCounsellors,
-  changePassword
+  changePassword,
 } from "../models/user.model";
 import bcrypt from "bcrypt";
 import { db } from "../config/databaseConnection";
@@ -93,8 +93,22 @@ export const registerUser = async (req: Request, res: Response) => {
 
       try {
         await redisDelByPrefix("users:");
+        // Repopulate user caches so new user appears instantly on next list requests
+        const [usersList, managersList, counsellorsList, managersWithCounsellorsList] =
+          await Promise.all([
+            getAllUsers(),
+            getAllManagers(),
+            getAllCounsellors(),
+            getManagersWithCounsellors(),
+          ]);
+        await Promise.all([
+          redisSetJson("users:all", usersList, USERS_CACHE_TTL_SECONDS),
+          redisSetJson("users:managers", managersList, USERS_CACHE_TTL_SECONDS),
+          redisSetJson("users:counsellors", counsellorsList, USERS_CACHE_TTL_SECONDS),
+          redisSetJson("users:managers-with-counsellors", managersWithCounsellorsList, USERS_CACHE_TTL_SECONDS),
+        ]);
       } catch {
-        // ignore
+        // ignore cache errors
       }
 
       res.status(201).json(user);
@@ -625,8 +639,22 @@ export const updateUserController = async (req: Request, res: Response) => {
 
     try {
       await redisDelByPrefix("users:");
+      // Repopulate user caches so updated user appears instantly in list endpoints
+      const [usersList, managersList, counsellorsList, managersWithCounsellorsList] =
+        await Promise.all([
+          getAllUsers(),
+          getAllManagers(),
+          getAllCounsellors(),
+          getManagersWithCounsellors(),
+        ]);
+      await Promise.all([
+        redisSetJson("users:all", usersList, USERS_CACHE_TTL_SECONDS),
+        redisSetJson("users:managers", managersList, USERS_CACHE_TTL_SECONDS),
+        redisSetJson("users:counsellors", counsellorsList, USERS_CACHE_TTL_SECONDS),
+        redisSetJson("users:managers-with-counsellors", managersWithCounsellorsList, USERS_CACHE_TTL_SECONDS),
+      ]);
     } catch {
-      // ignore
+      // ignore cache errors
     }
 
     res.json({ success: true, data: updatedUser });
@@ -643,16 +671,63 @@ export const deleteUserController = async (req: Request, res: Response) => {
   const authReq = req as AuthenticatedRequest;
   const adminUserId = authReq.user.id;
 
+  // Fetch user details before delete so we can store who was deleted in the activity log
+  let deletedUserInfo: Record<string, unknown> | null = null;
+  try {
+    const [targetUser] = await db
+      .select({
+        id: users.id,
+        fullName: users.fullName,
+        email: users.email,
+        role: users.role,
+        emp_id: users.emp_id,
+        managerId: users.managerId,
+        designation: users.designation,
+        officePhone: users.officePhone,
+        personalPhone: users.personalPhone,
+        isSupervisor: users.isSupervisor,
+        createdAt: users.createdAt,
+      })
+      .from(users)
+      .where(eq(users.id, targetUserId))
+      .limit(1);
+    if (targetUser) {
+      deletedUserInfo = {
+        id: targetUser.id,
+        fullName: targetUser.fullName,
+        email: targetUser.email,
+        role: targetUser.role,
+        empId: targetUser.emp_id ?? null,
+        managerId: targetUser.managerId ?? null,
+        designation: targetUser.designation ?? null,
+        officePhone: targetUser.officePhone ?? null,
+        personalPhone: targetUser.personalPhone ?? null,
+        isSupervisor: targetUser.isSupervisor ?? false,
+        createdAt: targetUser.createdAt != null ? String(targetUser.createdAt) : null,
+      };
+    }
+  } catch (e) {
+    console.error("Error fetching user for activity log before delete:", e);
+  }
+
   const result = await deleteUserByAdmin(targetUserId, adminUserId);
 
-  // Log activity
+  // Log activity with deleted user info so you can identify who was deleted
   try {
+    const description = deletedUserInfo?.fullName
+      ? `User deleted: ${deletedUserInfo.fullName} (ID ${targetUserId})`
+      : `User deleted: ID ${targetUserId}`;
     await logActivity(req, {
       entityType: "user",
       entityId: targetUserId,
       clientId: null,
       action: "DELETE",
-      description: `User deleted: ID ${targetUserId}`,
+      oldValue: deletedUserInfo,
+      newValue: null,
+      description,
+      metadata: deletedUserInfo
+        ? { deletedUserId: targetUserId, deletedUserEmail: deletedUserInfo.email, deletedUserRole: deletedUserInfo.role }
+        : null,
       performedBy: adminUserId,
     });
   } catch (activityError) {
@@ -661,8 +736,22 @@ export const deleteUserController = async (req: Request, res: Response) => {
 
   try {
     await redisDelByPrefix("users:");
+    // Repopulate user caches so lists reflect deletion immediately
+    const [usersList, managersList, counsellorsList, managersWithCounsellorsList] =
+      await Promise.all([
+        getAllUsers(),
+        getAllManagers(),
+        getAllCounsellors(),
+        getManagersWithCounsellors(),
+      ]);
+    await Promise.all([
+      redisSetJson("users:all", usersList, USERS_CACHE_TTL_SECONDS),
+      redisSetJson("users:managers", managersList, USERS_CACHE_TTL_SECONDS),
+      redisSetJson("users:counsellors", counsellorsList, USERS_CACHE_TTL_SECONDS),
+      redisSetJson("users:managers-with-counsellors", managersWithCounsellorsList, USERS_CACHE_TTL_SECONDS),
+    ]);
   } catch {
-    // ignore
+    // ignore cache errors
   }
 
   res.json({ success: true, message: result.message });
