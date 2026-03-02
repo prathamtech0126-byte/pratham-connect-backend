@@ -523,6 +523,38 @@ export type LeaderboardUserRole = "admin" | "manager" | "counsellor";
 
 export type LeaderboardDateRange = { start: Date; end: Date };
 
+/** Counsellor list for target dropdown: id and name only. Scoped by role (admin/supervisor = all, non-supervisor manager = own team). */
+export const getCounsellorListForTargets = async (
+  userId: number,
+  userRole: LeaderboardUserRole
+): Promise<{ id: number; name: string }[]> => {
+  if (userRole === "counsellor") return [];
+  if (userRole === "admin") {
+    const list = await db
+      .select({ id: users.id, name: users.fullName })
+      .from(users)
+      .where(eq(users.role, "counsellor"));
+    return list.map((r) => ({ id: r.id, name: r.name }));
+  }
+  if (userRole === "manager") {
+    const [manager] = await db
+      .select({ isSupervisor: users.isSupervisor })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    const isSupervisor = manager?.isSupervisor ?? false;
+    const whereCondition = isSupervisor
+      ? eq(users.role, "counsellor")
+      : and(eq(users.role, "counsellor"), eq(users.managerId, userId));
+    const list = await db
+      .select({ id: users.id, name: users.fullName })
+      .from(users)
+      .where(whereCondition);
+    return list.map((r) => ({ id: r.id, name: r.name }));
+  }
+  return [];
+};
+
 /* ==============================
    GET LEADERBOARD
    Returns ranked list of counsellors with enrollments and revenue.
@@ -1133,6 +1165,24 @@ export const updateTarget = async (targetId: number, target: number) => {
     .returning();
 
   return updated;
+};
+
+/* ==============================
+   DELETE TARGET
+   Removes target for a counsellor (month/year). Returns deleted record for emit.
+============================== */
+export const deleteTarget = async (targetId: number) => {
+  if (!targetId || targetId <= 0) {
+    throw new Error("Invalid target ID");
+  }
+  const [deleted] = await db
+    .delete(leaderBoard)
+    .where(eq(leaderBoard.id, targetId))
+    .returning();
+  if (!deleted) {
+    throw new Error("Target not found");
+  }
+  return deleted;
 };
 
 /* ==============================

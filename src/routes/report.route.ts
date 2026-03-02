@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../middlewares/auth.middleware";
 import { getReportController } from "../controllers/report.controller";
+import { getCounsellorReportController } from "../controllers/counsellorReport.controller";
 
 const router = Router();
 
@@ -20,5 +21,16 @@ const router = Router();
 // - GET /api/reports?filter=yearly
 
 router.get("/", requireAuth, requireRole("admin", "manager", "counsellor"), getReportController);
+
+// Individual counsellor report
+// - Admin: any counsellor
+// - Manager (isSupervisor=true): any counsellor
+// - Manager (isSupervisor=false): only own team counsellors
+// - Counsellor: own report only (use "me" or own id)
+//
+// - GET /api/reports/counsellor/5?filter=monthly
+// - GET /api/reports/counsellor/me?filter=today          (counsellor role only)
+// - GET /api/reports/counsellor/12?filter=custom&startDate=2026-01-01&endDate=2026-01-31
+router.get("/counsellor/:counsellorId", requireAuth, requireRole("admin", "manager", "counsellor"), getCounsellorReportController);
 
 export default router;

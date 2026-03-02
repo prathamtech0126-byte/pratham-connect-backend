@@ -2,8 +2,10 @@ import { Router } from "express";
 import {
   getLeaderboardController,
   getLeaderboardSummaryController,
+  getLeaderboardCounsellorsController,
   setTargetController,
   updateTargetController,
+  deleteTargetController,
 } from "../controllers/leaderboard.controller";
 import { requireAuth, requireRole } from "../middlewares/auth.middleware";
 import { preventDuplicateRequests } from "../middlewares/requestDeduplication.middleware";
@@ -35,6 +37,19 @@ router.get(
 );
 
 /**
+ * Get counsellor list for target dropdown (id, name only).
+ * Admin / manager (supervisor): all counsellors; manager (not supervisor): own team; counsellor: [].
+ * GET image.png
+ * get /api/leaderboard/counsellors
+ */
+router.get(
+  "/counsellors",
+  requireAuth,
+  requireRole("admin", "manager"),
+  getLeaderboardCounsellorsController
+);
+
+/**
  * Set target for counsellor
  * POST /api/leaderboard/target
  * Body: { counsellorId, target, month, year }
@@ -60,6 +75,20 @@ router.put(
   requireRole("admin", "manager"),
   preventDuplicateRequests,
   updateTargetController
+);
+
+/**
+ * Delete target
+ * DELETE /api/leaderboard/target/:id
+ * Access: admin, or manager (only targets they created)
+ * Emits only the affected counsellor's leaderboard row.
+ */
+router.delete(
+  "/target/:id",
+  requireAuth,
+  requireRole("admin", "manager"),
+  preventDuplicateRequests,
+  deleteTargetController
 );
 
 export default router;

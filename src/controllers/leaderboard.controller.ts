@@ -4,7 +4,9 @@ import {
   getLeaderboardSummary,
   setTarget,
   updateTarget,
+  deleteTarget,
   getMonthlyEnrollmentGoal,
+  getCounsellorListForTargets,
 } from "../models/leaderboard.model";
 import { db } from "../config/databaseConnection";
 import { users } from "../schemas/users.schema";
@@ -17,15 +19,47 @@ import { redisGetJson, redisSetJson, redisDelByPrefix } from "../config/redis";
 const LEADERBOARD_CACHE_TTL_SECONDS = 60;
 
 
+/** Apply scope to full leaderboard: admin/supervisor = all; non-supervisor manager = own team; counsellor = own row. */
+function applyLeaderboardScope(
+  leaderboard: Array<{ counsellorId: number; managerId: number | null; [k: string]: unknown }>,
+  userId: number,
+  userRole: string,
+  isSupervisor: boolean
+): typeof leaderboard {
+  if (userRole === "admin") return leaderboard;
+  if (userRole === "counsellor") return leaderboard.filter((s) => s.counsellorId === userId);
+  if (userRole === "manager") {
+    if (isSupervisor) return leaderboard;
+    const team = leaderboard.filter((s) => s.managerId === userId);
+    return team.map((s, i) => ({ ...s, rank: i + 1 }));
+  }
+  return leaderboard;
+}
+
+/** Recompute summary from scoped leaderboard data. */
+function summaryFromData(
+  data: Array<{ revenue: number; enrollments: number }>
+): { totalCounsellors: number; totalEnrollments: number; totalRevenue: number } {
+  return {
+    totalCounsellors: data.length,
+    totalEnrollments: data.reduce((s, r) => s + r.enrollments, 0),
+    totalRevenue: parseFloat(data.reduce((s, r) => s + r.revenue, 0).toFixed(2)),
+  };
+}
+
 /* ==============================
    GET LEADERBOARD
    GET /api/leaderboard?month=1&year=2026
+   Admin: all counsellors. Manager (supervisor): all. Manager (not supervisor): own team. Counsellor: own row.
 ============================== */
 export const getLeaderboardController = async (
   req: Request,
   res: Response
 ) => {
   try {
+    const userId = req.user?.id as number | undefined;
+    const userRole = req.user?.role as string | undefined;
+
     // Get month and year from query params, default to current month/year
     const currentDate = new Date();
     const month = req.query.month
@@ -52,33 +86,73 @@ export const getLeaderboardController = async (
 
     const cacheKey = `leaderboard:${month}:${year}`;
     const cached = await redisGetJson<any>(cacheKey);
+    let fullResult: { leaderboard: any[]; summary: any };
     if (cached) {
-      const data = Array.isArray(cached) ? cached : cached.leaderboard;
+      const leaderboard = Array.isArray(cached) ? cached : cached.leaderboard;
       const summary = Array.isArray(cached) ? undefined : cached.summary;
-      return res.status(200).json({
-        success: true,
-        data,
-        summary,
-        month,
-        year,
-        cached: true,
-      });
+      fullResult = { leaderboard, summary: summary ?? summaryFromData(leaderboard) };
+    } else {
+      fullResult = await getLeaderboard(month, year);
+      await redisSetJson(cacheKey, fullResult, LEADERBOARD_CACHE_TTL_SECONDS);
     }
 
-    const result = await getLeaderboard(month, year);
-    await redisSetJson(cacheKey, result, LEADERBOARD_CACHE_TTL_SECONDS);
+    let data = fullResult.leaderboard;
+    let summary = fullResult.summary;
+
+    if (userId != null && userRole) {
+      let isSupervisor = false;
+      if (userRole === "manager") {
+        const [manager] = await db
+          .select({ isSupervisor: users.isSupervisor })
+          .from(users)
+          .where(eq(users.id, userId))
+          .limit(1);
+        isSupervisor = manager?.isSupervisor ?? false;
+      }
+      data = applyLeaderboardScope(fullResult.leaderboard, userId, userRole, isSupervisor);
+      summary = summaryFromData(data);
+    }
 
     res.status(200).json({
       success: true,
-      data: result.leaderboard,
-      summary: result.summary,
+      data,
+      summary,
       month,
       year,
+      cached: !!cached,
     });
   } catch (error: any) {
     res.status(400).json({
       success: false,
       message: error.message,
+    });
+  }
+};
+
+/* ==============================
+   GET COUNSELLORS FOR TARGET DROPDOWN
+   GET /api/leaderboard/counsellors
+   Returns [{ id, name }]. Admin: all; Manager (supervisor): all; Manager (not supervisor): own team; Counsellor: [].
+============================== */
+export const getLeaderboardCounsellorsController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    if (!req.user?.id || !req.user?.role) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+    const userId = req.user.id as number;
+    const userRole = req.user.role as "admin" | "manager";
+    if (!["admin", "manager"].includes(userRole)) {
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+    const counsellors = await getCounsellorListForTargets(userId, userRole);
+    return res.status(200).json({ success: true, data: counsellors });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error?.message ?? "Failed to load counsellor list",
     });
   }
 };
@@ -299,31 +373,26 @@ export const setTargetController = async (req: Request, res: Response) => {
       console.error("Activity log error in setTargetController:", activityError);
     }
 
-    // Emit WebSocket event for real-time updates
+    // Emit WebSocket event: only the affected counsellor's leaderboard row (so frontend can patch that row)
     try {
-      // Fetch fresh leaderboard data (includes summary)
       const leaderboardResult = await getLeaderboard(month, year);
+      const counsellorRow = leaderboardResult.leaderboard.find(
+        (row: { counsellorId: number }) => row.counsellorId === counsellorId
+      );
 
       const eventName = "leaderboard:updated";
       const eventData = {
         action: result.action,
         target: result.target,
-        leaderboard: leaderboardResult.leaderboard,
-        summary: leaderboardResult.summary,
-        month: month,
-        year: year,
+        counsellorRow: counsellorRow ?? null,
+        month,
+        year,
       };
 
-      // Emit to admin room
       emitToAdmin(eventName, eventData);
-
-      // Emit to manager's room (the manager who owns the counsellor)
-      // This ensures manager sees updates even if admin set the target
       if (managerId) {
         emitToCounsellor(managerId, eventName, eventData);
       }
-
-      // Emit to counsellor's room (notify the counsellor whose target was set)
       emitToCounsellor(counsellorId, eventName, eventData);
 
       // Also emit enrollment goal update for this counselor
@@ -451,37 +520,30 @@ export const updateTargetController = async (req: Request, res: Response) => {
       console.error("Activity log error in updateTargetController:", activityError);
     }
 
-    // Emit WebSocket event for real-time updates
+    // Emit WebSocket event: only the affected counsellor's leaderboard row
     try {
-      // Get month and year from the updated target's createdAt
       const createdAt = updated.createdAt;
       if (createdAt) {
         const month = createdAt.getMonth() + 1;
         const year = createdAt.getFullYear();
-
-        // Fetch fresh leaderboard data (includes summary)
         const leaderboardResult = await getLeaderboard(month, year);
+        const counsellorRow = leaderboardResult.leaderboard.find(
+          (row: { counsellorId: number }) => row.counsellorId === updated.counsellor_id
+        );
 
         const eventName = "leaderboard:updated";
         const eventData = {
           action: "UPDATED",
           target: updated,
-          leaderboard: leaderboardResult.leaderboard,
-          summary: leaderboardResult.summary,
-          month: month,
-          year: year,
+          counsellorRow: counsellorRow ?? null,
+          month,
+          year,
         };
 
-        // Emit to admin room
         emitToAdmin(eventName, eventData);
-
-        // Emit to manager's room (the manager who owns the counsellor)
-        // This ensures manager sees updates even if admin updated the target
         if (updated.manager_id) {
           emitToCounsellor(updated.manager_id, eventName, eventData);
         }
-
-        // Emit to counsellor's room (notify the counsellor whose target was updated)
         emitToCounsellor(updated.counsellor_id, eventName, eventData);
 
         // Also emit enrollment goal update for this counselor
@@ -516,6 +578,142 @@ export const updateTargetController = async (req: Request, res: Response) => {
     res.status(400).json({
       success: false,
       message: error.message,
+    });
+  }
+};
+
+/* ==============================
+   DELETE TARGET
+   DELETE /api/leaderboard/target/:id
+   Emits only the affected counsellor's leaderboard row (with target 0).
+============================== */
+export const deleteTargetController = async (req: Request, res: Response) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const targetId = parseInt(req.params.id);
+    if (isNaN(targetId) || targetId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid target ID",
+      });
+    }
+
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    const [targetRecord] = await db
+      .select()
+      .from(leaderBoard)
+      .where(eq(leaderBoard.id, targetId))
+      .limit(1);
+
+    if (!targetRecord) {
+      return res.status(404).json({
+        success: false,
+        message: "Target not found",
+      });
+    }
+
+    if (userRole === "admin") {
+      // admin can delete any target
+    } else if (userRole === "manager") {
+      const [manager] = await db
+        .select({ isSupervisor: users.isSupervisor })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      const isSupervisor = manager?.isSupervisor ?? false;
+      if (!isSupervisor && targetRecord.manager_id !== userId) {
+        return res.status(403).json({
+          success: false,
+          message: "You can only delete targets for your own counsellors",
+        });
+      }
+    } else {
+      return res.status(403).json({
+        success: false,
+        message: "Only admin and manager can delete targets",
+      });
+    }
+
+    const deleted = await deleteTarget(targetId);
+
+    try {
+      await redisDelByPrefix("leaderboard:");
+    } catch {
+      // ignore
+    }
+
+    try {
+      await logActivity(req, {
+        entityType: "leaderboard",
+        entityId: targetId,
+        clientId: null,
+        action: "DELETE",
+        oldValue: deleted,
+        newValue: null,
+        description: "Target deleted",
+        performedBy: userId,
+      });
+    } catch (activityError) {
+      console.error("Activity log error in deleteTargetController:", activityError);
+    }
+
+    const createdAt = deleted.createdAt;
+    if (createdAt) {
+      const month = createdAt.getMonth() + 1;
+      const year = createdAt.getFullYear();
+      try {
+        const leaderboardResult = await getLeaderboard(month, year);
+        const counsellorRow = leaderboardResult.leaderboard.find(
+          (row: { counsellorId: number }) => row.counsellorId === deleted.counsellor_id
+        );
+        const eventName = "leaderboard:updated";
+        const eventData = {
+          action: "DELETED",
+          target: null,
+          counsellorRow: counsellorRow ?? null,
+          month,
+          year,
+        };
+        emitToAdmin(eventName, eventData);
+        if (deleted.manager_id) {
+          emitToCounsellor(deleted.manager_id, eventName, eventData);
+        }
+        emitToCounsellor(deleted.counsellor_id, eventName, eventData);
+        try {
+          const enrollmentGoalData = await getMonthlyEnrollmentGoal(deleted.counsellor_id, month, year);
+          emitToCounsellor(deleted.counsellor_id, "enrollment-goal:updated", {
+            month,
+            year,
+            data: enrollmentGoalData,
+          });
+          emitToAdmin("enrollment-goal:updated", {
+            month,
+            year,
+            counsellorId: deleted.counsellor_id,
+            data: enrollmentGoalData,
+          });
+        } catch (goalError) {
+          console.error("Enrollment goal update emit error:", goalError);
+        }
+      } catch (wsError) {
+        console.error("WebSocket emit error in deleteTargetController:", wsError);
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Target deleted",
+      data: { id: targetId, counsellor_id: deleted.counsellor_id },
+    });
+  } catch (error: any) {
+    res.status(400).json({
+      success: false,
+      message: error?.message ?? "Failed to delete target",
     });
   }
 };

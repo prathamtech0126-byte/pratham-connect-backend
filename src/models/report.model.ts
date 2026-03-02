@@ -69,6 +69,8 @@ export interface ManagerReportItem {
 export interface ReportResult {
   filter_start_date: string;
   filter_end_date: string;
+  /** Total company revenue for the filter period (sum of all counsellor total_revenue). Use this instead of adding on frontend. */
+  total_company_revenue: number;
   counsellor_performance: CounsellorPerformanceItem[];
   manager_data: ManagerReportItem[];
 }
@@ -336,9 +338,14 @@ export const getReport = async (
     }));
   }
 
+  const total_company_revenue = Math.round(
+    counsellor_performance.reduce((sum, c) => sum + c.total_revenue, 0) * 100
+  ) / 100;
+
   return {
     filter_start_date: startStr,
     filter_end_date: endStr,
+    total_company_revenue,
     counsellor_performance,
     manager_data,
   };
