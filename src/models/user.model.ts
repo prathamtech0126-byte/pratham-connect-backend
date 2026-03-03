@@ -354,7 +354,7 @@ export const deleteUserByAdmin = async (
       .where(eq(users.managerId, targetUserId));
 
     if (counsellors.length > 0) {
-      throw new Error("Manager has assigned counsellors");
+      throw new Error("Manager has assigned counsellors; reassign them to another manager");
     }
   }
 
@@ -364,7 +364,7 @@ export const deleteUserByAdmin = async (
       .from(clientInformation)
       .where(eq(clientInformation.counsellorId, targetUserId));
     if (clientCount && clientCount.count > 0) {
-      throw new Error("Counsellor has assigned clients; reassign or archive them first");
+      throw new Error("Counsellor has assigned clients; reassign them to another counsellor");
     }
   }
 

@@ -710,7 +710,14 @@ export const deleteUserController = async (req: Request, res: Response) => {
     console.error("Error fetching user for activity log before delete:", e);
   }
 
-  const result = await deleteUserByAdmin(targetUserId, adminUserId);
+  let result: { message: string };
+  try {
+    result = await deleteUserByAdmin(targetUserId, adminUserId);
+  } catch (err: any) {
+    // Return proper response so frontend can show message (e.g. counsellor has clients, manager has counsellors)
+    const message = err?.message ?? "Cannot delete user";
+    return res.status(400).json({ success: false, message });
+  }
 
   // Log activity with deleted user info so you can identify who was deleted
   try {
