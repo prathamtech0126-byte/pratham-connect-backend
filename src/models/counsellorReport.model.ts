@@ -22,6 +22,12 @@ import {
   getCounsellorCoreProductMetrics,
   getCounsellorOtherProductMetrics,
 } from "./leaderboard.model";
+import { getPendingAmountByCounsellors } from "./dashboard.model";
+import {
+  getRevenueBySaleTypePerCounsellor,
+  getEnrollmentCountBySaleTypePerCounsellor,
+} from "./report.model";
+import { getAllSaleTypes } from "./saleType.model";
 import { eq, and, count, sql, inArray, gte, lte } from "drizzle-orm";
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -111,6 +117,10 @@ export interface CounsellorReportResult {
     other_product_revenue: number;
     average_revenue_per_client: number;
     archived_count: number;
+    /** Pending amount (outstanding) for this counsellor's clients (all time). */
+    pending_amount: string;
+    /** No filter = total_enrollments. With saleTypeId filter = number of client_payment rows for that sale type only. */
+    sale_type_count: number;
   };
   monthly_comparison: {
     current_month: { revenue: number; start_date: string; end_date: string };
@@ -542,6 +552,8 @@ export interface CounsellorReportDateOptions {
   endDateStr?: string;
   /** When "yearly", monthly_comparison shows current year vs previous year instead of month vs last month. */
   filter?: "today" | "weekly" | "monthly" | "yearly" | "custom";
+  /** When set, report is filtered by this sale type and performance includes sale_type_count. */
+  saleTypeId?: number;
 }
 
 export const getCounsellorReport = async (
@@ -595,41 +607,73 @@ export const getCounsellorReport = async (
         })()
       : dateRange.end.toISOString();
 
-  // Monthly comparison: period depends on filter
-  // yearly → current year vs previous year; otherwise → month at end of range vs previous month
+  // Comparison period: today → today vs yesterday; weekly → this week vs last week; monthly/yearly → month vs last month / year vs last year
+  const filterType = dateOptions?.filter ?? "monthly";
   const filterYear = dateRange.end.getFullYear();
   const filterMonth = dateRange.end.getMonth();
-  const isYearly = dateOptions?.filter === "yearly";
+  const isYearly = filterType === "yearly";
+  const isToday = filterType === "today";
+  const isWeekly = filterType === "weekly";
 
-  const cmStart = isYearly
-    ? new Date(filterYear, 0, 1)
-    : new Date(filterYear, filterMonth, 1);
-  const cmEnd = isYearly
-    ? new Date(filterYear, 11, 31, 23, 59, 59, 999)
-    : new Date(filterYear, filterMonth + 1, 0, 23, 59, 59, 999);
-  const lmStart = isYearly
-    ? new Date(filterYear - 1, 0, 1)
-    : new Date(filterYear, filterMonth - 1, 1);
-  const lmEnd = isYearly
-    ? new Date(filterYear - 1, 11, 31, 23, 59, 59, 999)
-    : new Date(filterYear, filterMonth, 0, 23, 59, 59, 999);
+  let cmStart: Date;
+  let cmEnd: Date;
+  let lmStart: Date;
+  let lmEnd: Date;
+
+  if (isToday) {
+    cmStart = new Date(dateRange.start);
+    cmEnd = new Date(dateRange.end);
+    const d = dateRange.end.getDate();
+    const m = dateRange.end.getMonth();
+    const y = dateRange.end.getFullYear();
+    lmEnd = new Date(y, m, d - 1, 23, 59, 59, 999);
+    lmStart = new Date(y, m, d - 1, 0, 0, 0, 0);
+  } else if (isWeekly) {
+    cmStart = new Date(dateRange.start);
+    cmEnd = new Date(dateRange.end);
+    const mon = new Date(dateRange.start);
+    lmEnd = new Date(mon);
+    lmEnd.setDate(lmEnd.getDate() - 1);
+    lmEnd.setHours(23, 59, 59, 999);
+    lmStart = new Date(lmEnd);
+    lmStart.setDate(lmStart.getDate() - 6);
+    lmStart.setHours(0, 0, 0, 0);
+  } else if (isYearly) {
+    cmStart = new Date(filterYear, 0, 1);
+    cmEnd = new Date(filterYear, 11, 31, 23, 59, 59, 999);
+    lmStart = new Date(filterYear - 1, 0, 1);
+    lmEnd = new Date(filterYear - 1, 11, 31, 23, 59, 59, 999);
+  } else {
+    cmStart = new Date(filterYear, filterMonth, 1);
+    cmEnd = new Date(filterYear, filterMonth + 1, 0, 23, 59, 59, 999);
+    lmStart = new Date(filterYear, filterMonth - 1, 1);
+    lmEnd = new Date(filterYear, filterMonth, 0, 23, 59, 59, 999);
+  }
+
   const cmStartStr = toLocalDateStr(cmStart);
   const cmEndStr = toLocalDateStr(cmEnd);
+  const cmStartTs = new Date(cmStart.getFullYear(), cmStart.getMonth(), cmStart.getDate(), 0, 0, 0, 0).toISOString();
+  const cmEndTs = new Date(cmEnd.getFullYear(), cmEnd.getMonth(), cmEnd.getDate(), 23, 59, 59, 999).toISOString();
+  const lmStartStr = toLocalDateStr(lmStart);
+  const lmEndStr = toLocalDateStr(lmEnd);
+  const lmStartTs = new Date(lmStart.getFullYear(), lmStart.getMonth(), lmStart.getDate(), 0, 0, 0, 0).toISOString();
+  const lmEndTs = new Date(lmEnd.getFullYear(), lmEnd.getMonth(), lmEnd.getDate(), 23, 59, 59, 999).toISOString();
 
   // ── Parallel data fetch ────────────────────────────────────────
-  const [
+  let [
     enrollments,
     coreSaleRev,
     coreProductMetrics,
     otherProductMetrics,
     archivedCount,
-    currentMonthRev,
-    lastMonthRev,
+    currentPeriodRev,
+    lastPeriodRev,
     target,
-    currentMonthAchieved,
+    currentPeriodAchieved,
     rankData,
     productBreakdown,
     coreProductClients,
+    pendingByCounsellor,
   ] = await Promise.all([
     getEnrollmentBasedAchieved(counsellorId, startStr, endStr),
     getCounsellorCoreSaleAmount(counsellorId, startStr, endStr, startTs, endTs),
@@ -644,12 +688,59 @@ export const getCounsellorReport = async (
           for (let m = 1; m <= 12; m++) sum += await getTargetForMonth(counsellorId, m, filterYear);
           return sum;
         })()
-      : getTargetForMonth(counsellorId, filterMonth + 1, filterYear),
+      : isToday || isWeekly
+        ? Promise.resolve(0)
+        : getTargetForMonth(counsellorId, filterMonth + 1, filterYear),
     getEnrollmentBasedAchieved(counsellorId, cmStartStr, cmEndStr),
     computeRank(counsellorId, cmStart, cmEnd),
     getPerProductBreakdown(counsellorId, startStr, endStr),
     getCoreProductDistinctClientCount(counsellorId, startStr, endStr),
+    getPendingAmountByCounsellors([counsellorId]),
   ]);
+
+  // ── sale_type_count: when filter used = payment count (client_payment rows) for that sale type only; when no filter = total enrollments ─
+  let saleTypeCount: number;
+  const saleTypeIdNum = dateOptions?.saleTypeId != null ? Number(dateOptions.saleTypeId) : null;
+  if (saleTypeIdNum != null) {
+    const saleTypesList = await getAllSaleTypes();
+    const st = saleTypesList.find((s) => s.id === saleTypeIdNum);
+    if (st) {
+      const [revMain, enrollMain, revCm, revLm, enrollCm] = await Promise.all([
+        getRevenueBySaleTypePerCounsellor([counsellorId], startStr, endStr, startTs, endTs),
+        getEnrollmentCountBySaleTypePerCounsellor(
+          [counsellorId],
+          startStr,
+          endStr,
+          startTs,
+          endTs,
+          saleTypeIdNum,
+        ),
+        getRevenueBySaleTypePerCounsellor([counsellorId], cmStartStr, cmEndStr, cmStartTs, cmEndTs),
+        getRevenueBySaleTypePerCounsellor([counsellorId], lmStartStr, lmEndStr, lmStartTs, lmEndTs),
+        getEnrollmentCountBySaleTypePerCounsellor(
+          [counsellorId],
+          cmStartStr,
+          cmEndStr,
+          cmStartTs,
+          cmEndTs,
+          saleTypeIdNum,
+        ),
+      ]);
+      enrollments = Number(enrollMain.get(counsellorId) ?? 0);
+      coreSaleRev = revMain.get(counsellorId)?.get(saleTypeIdNum) ?? 0;
+      saleTypeCount = Number(enrollMain.get(counsellorId) ?? 0);
+      currentPeriodRev = revCm.get(counsellorId)?.get(saleTypeIdNum) ?? 0;
+      lastPeriodRev = revLm.get(counsellorId)?.get(saleTypeIdNum) ?? 0;
+      currentPeriodAchieved = Number(enrollCm.get(counsellorId) ?? 0);
+      coreProductMetrics = { amount: 0, count: 0 };
+      otherProductMetrics = { amount: 0, count: 0 };
+    } else {
+      saleTypeCount = 0;
+    }
+  } else {
+    // No filter: total distinct clients (enrollments) in the period – same as total_enrollments, so sale_type_count is always "client count"
+    saleTypeCount = enrollments;
+  }
 
   // ── Build performance ──────────────────────────────────────────
   const totalRevenue = coreSaleRev + coreProductMetrics.amount + otherProductMetrics.amount;
@@ -657,12 +748,12 @@ export const getCounsellorReport = async (
 
   // ── Monthly comparison ─────────────────────────────────────────
   const growthPct =
-    lastMonthRev > 0
-      ? ((currentMonthRev - lastMonthRev) / lastMonthRev) * 100
-      : currentMonthRev > 0
+    lastPeriodRev > 0
+      ? ((currentPeriodRev - lastPeriodRev) / lastPeriodRev) * 100
+      : currentPeriodRev > 0
         ? 100
         : 0;
-  const targetAchievedPct = target > 0 ? (currentMonthAchieved / target) * 100 : 0;
+  const targetAchievedPct = target > 0 ? (currentPeriodAchieved / target) * 100 : 0;
 
   // ── Product analytics ──────────────────────────────────────────
   const coreSaleTicket = enrollments > 0 ? coreSaleRev / enrollments : 0;
@@ -697,21 +788,24 @@ export const getCounsellorReport = async (
       other_product_revenue: round2(otherProductMetrics.amount),
       average_revenue_per_client: round2(avgPerClient),
       archived_count: archivedCount,
+      pending_amount: pendingByCounsellor.get(counsellorId) ?? "0.00",
+      /** No filter: total payment count (all sale types). With saleTypeId filter: distinct clients for that sale type only. */
+      sale_type_count: saleTypeCount,
     },
     monthly_comparison: {
       current_month: {
-        revenue: round2(currentMonthRev),
+        revenue: round2(currentPeriodRev),
         start_date: toLocalDateStr(cmStart),
         end_date: toLocalDateStr(cmEnd),
       },
       last_month: {
-        revenue: round2(lastMonthRev),
+        revenue: round2(lastPeriodRev),
         start_date: toLocalDateStr(lmStart),
         end_date: toLocalDateStr(lmEnd),
       },
       growth_percentage: round2(growthPct),
       target,
-      achieved: currentMonthAchieved,
+      achieved: currentPeriodAchieved,
       target_achieved_percentage: round2(targetAchievedPct),
       rank: rankData.rank,
       rank_out_of: rankData.total_counsellors,

@@ -4,7 +4,7 @@ import { clientInformation } from "../schemas/clientInformation.schema";
 import { clientPayments } from "../schemas/clientPayment.schema";
 import { clientProductPayments } from "../schemas/clientProductPayments.schema";
 import { users } from "../schemas/users.schema";
-import { eq, desc, inArray, and } from "drizzle-orm";
+import { eq, desc, inArray, and, gte, lte, ilike } from "drizzle-orm";
 import { Request, Response } from "express";
 import { getPaymentsByClientId } from "./clientPayment.model";
 import { getProductPaymentsByClientId } from "./clientProductPayments.model";
@@ -488,6 +488,66 @@ export const getClientsByCounsellor = async (counsellorId: number) => {
 /* ==============================
    GET ALL COUNSELLOR IDs FROM ALL CLIENTS
 ============================== */
+/* ==============================
+   GET CLIENTS BY ENROLLMENT DATE RANGE (for filtered route)
+   counsellorIds: scope to these counsellors. Returns flat array with full details.
+============================== */
+export const getClientsByEnrollmentDateRange = async (
+  counsellorIds: number[],
+  startDateStr: string,
+  endDateStr: string
+) => {
+  const clients = await db
+    .select()
+    .from(clientInformation)
+    .where(
+      and(
+        eq(clientInformation.archived, false),
+        gte(clientInformation.enrollmentDate, startDateStr),
+        lte(clientInformation.enrollmentDate, endDateStr),
+        inArray(clientInformation.counsellorId, counsellorIds)
+      )
+    )
+    .orderBy(desc(clientInformation.enrollmentDate));
+
+  if (clients.length === 0) return [];
+
+  const uniqueCounsellorIds = [...new Set(clients.map((c) => c.counsellorId))];
+  const counsellorsData = await db
+    .select({ id: users.id, name: users.fullName, designation: users.designation })
+    .from(users)
+    .where(inArray(users.id, uniqueCounsellorIds));
+  const counsellorMap = new Map(
+    counsellorsData.map((c) => [c.id, { id: c.id, name: c.name, designation: c.designation || null }])
+  );
+  const uniqueLeadTypeIds = [...new Set(clients.map((c) => c.leadTypeId))];
+  const leadTypesData =
+    uniqueLeadTypeIds.length > 0
+      ? await db.select().from(leadTypes).where(inArray(leadTypes.id, uniqueLeadTypeIds))
+      : [];
+
+  const clientsWithDetails = await Promise.all(
+    clients.map(async (client) => {
+      const payments = await getPaymentsByClientId(client.clientId);
+      const productPayments = await getProductPaymentsByClientId(client.clientId);
+      const leadType = leadTypesData.find((lt) => lt.id === client.leadTypeId);
+      const enrolmentYearMonth = getEnrollmentYearMonth(client.enrollmentDate);
+      const counsellor = counsellorMap.get(client.counsellorId) || null;
+      return {
+        ...client,
+        enrollmentDate: formatDateToDDMMYYYY(client.enrollmentDate),
+        enrollmentYear: enrolmentYearMonth?.year ?? null,
+        enrollmentMonth: enrolmentYearMonth?.month ?? null,
+        counsellor,
+        leadType: leadType ? { id: leadType.id, leadType: leadType.leadType } : null,
+        payments,
+        productPayments: productPayments || [],
+      };
+    })
+  );
+  return clientsWithDetails;
+};
+
 export const getAllCounsellorIds = async () => {
   // Get all counsellor IDs from all clients
   const clients = await db
@@ -677,12 +737,18 @@ export const getAllClientsForManager = async (managerId: number) => {
   return result;
 };
 
-// Get all clients
-export const  getAllClients = async () => {
+// Get all clients (optional search by client name: case-insensitive partial match on fullName)
+export const getAllClients = async (search?: string) => {
+  const conditions = [eq(clientInformation.archived, false)];
+  const term = typeof search === "string" ? search.trim() : "";
+  if (term.length > 0) {
+    const escaped = term.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+    conditions.push(ilike(clientInformation.fullName, `%${escaped}%`));
+  }
   const allClients = await db
     .select()
     .from(clientInformation)
-    .where(eq(clientInformation.archived, false))
+    .where(and(...conditions))
     .orderBy(desc(clientInformation.enrollmentDate));
   return allClients;
 };
@@ -864,18 +930,16 @@ export const getAllClientsForAdmin = async () => {
 };
 
 /* ==============================
-   GET ARCHIVED CLIENTS BY COUNSELLOR
-   Returns: { [year]: { [month]: { clients: any[], total: number } } }
+   GET ARCHIVED CLIENTS BY COUNSELLOR (flat list, same shape as filtered API)
+   Returns: array of client objects with counsellor, leadType, payments, productPayments
 ============================== */
 export const getArchivedClientsByCounsellor = async (counsellorId: number) => {
-  // Get only archived clients for this counsellor
   const clients = await db
     .select()
     .from(clientInformation)
     .where(and(eq(clientInformation.counsellorId, counsellorId), eq(clientInformation.archived, true)))
     .orderBy(desc(clientInformation.enrollmentDate));
 
-  // Get counsellor information
   const counsellorData = await db
     .select({
       id: users.id,
@@ -899,112 +963,40 @@ export const getArchivedClientsByCounsellor = async (counsellorId: number) => {
     .where(inArray(leadTypes.id, uniqueLeadTypeIds))
     : [];
 
-  // Fetch payments and product payments for each client
   const clientsWithDetails = await Promise.all(
     clients.map(async (client) => {
       const enrollmentYearMonth = getEnrollmentYearMonth(client.enrollmentDate);
       try {
         const payments = await getPaymentsByClientId(client.clientId);
         const productPayments = await getProductPaymentsByClientId(client.clientId);
-
         const leadType = leadTypesData.find(lt => lt.id === client.leadTypeId);
-
         return {
           ...client,
           enrollmentDate: formatDateToDDMMYYYY(client.enrollmentDate),
           enrollmentYear: enrollmentYearMonth?.year ?? null,
           enrollmentMonth: enrollmentYearMonth?.month ?? null,
-          counsellor: counsellor,
-          leadType: leadType ? {
-            id: leadType.id,
-            leadType: leadType.leadType,
-          } : null,
-          payments: payments,
+          counsellor,
+          leadType: leadType ? { id: leadType.id, leadType: leadType.leadType } : null,
+          payments,
           productPayments: productPayments || [],
         };
-      } catch (error) {
+      } catch {
         const leadType = leadTypesData.find(lt => lt.id === client.leadTypeId);
-            return {
-              ...client,
-              enrollmentDate: formatDateToDDMMYYYY(client.enrollmentDate),
-              enrollmentYear: enrollmentYearMonth?.year ?? null,
-              enrollmentMonth: enrollmentYearMonth?.month ?? null,
-              counsellor: counsellor,
-              leadType: leadType ? {
-                id: leadType.id,
-                leadType: leadType.leadType,
-              } : null,
-              payments: [],
-              productPayments: [],
-            };
+        return {
+          ...client,
+          enrollmentDate: formatDateToDDMMYYYY(client.enrollmentDate),
+          enrollmentYear: enrollmentYearMonth?.year ?? null,
+          enrollmentMonth: enrollmentYearMonth?.month ?? null,
+          counsellor,
+          leadType: leadType ? { id: leadType.id, leadType: leadType.leadType } : null,
+          payments: [],
+          productPayments: [],
+        };
       }
     })
   );
 
-  // Group clients by enrollment year and month (use explicit fields, not parsed date)
-  const groupedClients: { [year: string]: { [month: string]: { clients: any[], total: number } } } = {};
-
-  clientsWithDetails.forEach(client => {
-    const year = (client as any).enrollmentYear;
-    const month = (client as any).enrollmentMonth;
-    if (!year || !month) return;
-
-    if (!groupedClients[year]) {
-      groupedClients[year] = {};
-    }
-
-    if (!groupedClients[year][month]) {
-      groupedClients[year][month] = {
-        clients: [],
-        total: 0
-      };
-    }
-
-    groupedClients[year][month].clients.push(client);
-    groupedClients[year][month].total++;
-  });
-
-  // Sort years: descending (newest first: 2026 → 2025 → 2024)
-  const currentYear = new Date().getFullYear().toString();
-  const sortedYears = Object.keys(groupedClients).sort((a, b) => {
-    return parseInt(b) - parseInt(a); // descending order (newest first)
-  });
-
-  // Sort months within each year: current month first, then chronological
-  const currentDate = new Date();
-  const currentMonth = currentDate.toLocaleString('default', { month: 'short' });
-  const currentMonthIndex = currentDate.getMonth();
-  const monthOrder = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-  const result: { [year: string]: { [month: string]: { clients: any[], total: number } } } = {};
-
-  sortedYears.forEach(year => {
-    result[year] = {};
-    const months = Object.keys(groupedClients[year]);
-
-    months.sort((a, b) => {
-      if (year === currentYear) {
-        const aIndex = monthOrder.indexOf(a);
-        const bIndex = monthOrder.indexOf(b);
-
-        if (a === currentMonth) return -1;
-        if (b === currentMonth) return 1;
-
-        const aFromCurrent = (aIndex - currentMonthIndex + 12) % 12;
-        const bFromCurrent = (bIndex - currentMonthIndex + 12) % 12;
-
-        return aFromCurrent - bFromCurrent;
-      }
-
-      return monthOrder.indexOf(a) - monthOrder.indexOf(b);
-    });
-
-    months.forEach(month => {
-      result[year][month] = groupedClients[year][month];
-    });
-  });
-
-  return result;
+  return clientsWithDetails;
 };
 
 /* ==============================

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
-import { registerUser,login,logout,refreshAccessToken,getCurrentUser,getAllUsersController,
+import { registerUser,login,logout,refreshAccessToken,getCurrentUser,getAllUsersController,getAllUserDetailsController,
     updateUserController,
     deleteUserController,
     getManagersDropdown,
@@ -45,13 +45,16 @@ router.put("/change-password", requireAuth, preventDuplicateRequests, changePass
 // 🔐 ADMIN ONLY: Get all users
 router.post("/register",requireAuth,requireRole("admin"), preventDuplicateRequests, registerUser);
 router.get("/users",requireAuth,requireRole("admin"),getAllUsersController);
+/** All user details (admin and manager only; counsellor cannot access). */
+router.get("/users/details", requireAuth, requireRole("admin", "manager"), getAllUserDetailsController);
 router.put("/users-update/:userId",requireAuth,requireRole("admin"), preventDuplicateRequests, updateUserController);
 router.delete("/users-delete/:userId",requireAuth,requireRole("admin"), preventDuplicateRequests, deleteUserController);
 /**
  * Managers dropdown (admin only)
  */
 router.get("/managers",requireAuth, requireRole("admin"),getManagersDropdown);
-router.get("/counsellors",requireAuth, requireRole("admin"),getAllCounsellorsAdminController);
+/** Counsellors list (admin: all; counsellor: self only). */
+router.get("/counsellors", requireAuth, requireRole("admin", "counsellor"), getAllCounsellorsAdminController);
 /**
  * Get counsellors by manager ID (admin only)
  */

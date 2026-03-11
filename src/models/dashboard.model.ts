@@ -227,69 +227,24 @@ export const getDateRange = (
 
   switch (filter) {
     case "today": {
-      // Today filter: Use 7 days for chart data (same as weekly)
-      // Rolling 7 days: 7 days back to today
-      const daysToSubtract = 7;
-      start = new Date(now);
-      start.setDate(now.getDate() - daysToSubtract);
-      start.setHours(0, 0, 0, 0);
+      // Today = current calendar day only (00:00:00 to 23:59:59)
+      start = new Date(today);
       end = new Date(endOfToday);
       break;
     }
-    // case "weekly": {
-    //   // Rolling 7 days: Same weekday last week to today
-    //   // Get current weekday (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
-    //   const currentDayOfWeek = now.getDay();
-    //   // Calculate days to subtract to get to same weekday last week
-    //   const daysToSubtract = 7;
-    //   start = new Date(now);
-    //   start.setDate(now.getDate() - daysToSubtract);
-    //   start.setHours(0, 0, 0, 0);
-    //   end = new Date(endOfToday);
-    //   break;
-    // }
-    // case "monthly": {
-    //   // Rolling ~30 days: Same date of previous month to today
-    //   const currentDate = now.getDate();
-    //   const currentMonth = now.getMonth();
-    //   const currentYear = now.getFullYear();
-
-    //   // Go back one month
-    //   let targetMonth = currentMonth - 1;
-    //   let targetYear = currentYear;
-
-    //   if (targetMonth < 0) {
-    //     targetMonth = 11;
-    //     targetYear = currentYear - 1;
-    //   }
-
-    //   // Get last day of target month
-    //   const lastDayOfTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
-
-    //   // Use same date, or last day of month if date doesn't exist
-    //   const targetDate = Math.min(currentDate, lastDayOfTargetMonth);
-
-    //   start = new Date(targetYear, targetMonth, targetDate);
-    //   start.setHours(0, 0, 0, 0);
-    //   end = new Date(endOfToday);
-    //   break;
-    // }
     case "weekly": {
-      const day = now.getDay(); // 0=Sun,1=Mon,...6=Sat
+      // Current week = Monday 00:00:00 through end of today (or Sunday 23:59 if today is Sunday)
+      const day = now.getDay(); // 0=Sun, 1=Mon, ... 6=Sat
+      const diffToMonday = (day + 6) % 7; // days back to Monday (Mon=0, Sun=6)
 
-      // Calculate how many days to go back to Monday
-      const diffToMonday = (day + 6) % 7;
-
-      // Monday
       start = new Date(now);
       start.setDate(now.getDate() - diffToMonday);
       start.setHours(0, 0, 0, 0);
 
-      // Sunday
-      end = new Date(start);
-      end.setDate(start.getDate() + 6);
-      end.setHours(23, 59, 59, 999);
-
+      const weekEndSunday = new Date(start);
+      weekEndSunday.setDate(start.getDate() + 6);
+      weekEndSunday.setHours(23, 59, 59, 999);
+      end = weekEndSunday.getTime() > endOfToday.getTime() ? new Date(endOfToday) : weekEndSunday;
       break;
     }
 
@@ -657,6 +612,27 @@ const getPendingAmount = async (
     pendingAmount: Math.max(0, pendingAmount).toFixed(2), // Don't return negative
     breakdown,
   };
+};
+
+/**
+ * Pending amount per counsellor (all non-archived clients of that counsellor).
+ * Used by report to show individual counsellor pending amount.
+ */
+export const getPendingAmountByCounsellors = async (
+  counsellorIds: number[]
+): Promise<Map<number, string>> => {
+  if (counsellorIds.length === 0) return new Map();
+  const allTime = getAllTimeDateRange();
+  const results = await Promise.all(
+    counsellorIds.map(async (id) => {
+      const r = await getPendingAmount(allTime, {
+        userRole: "counsellor",
+        counsellorId: id,
+      });
+      return [id, r.pendingAmount] as const;
+    })
+  );
+  return new Map(results);
 };
 
 /* ==============================

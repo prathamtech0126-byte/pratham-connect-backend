@@ -1,0 +1,11 @@
+{
+  "fullName": "Test Telecaller",
+  "email": "telecaller@example.com",
+  "password": "YourSecurePassword123",
+  "role": "telecaller",
+  "managerId": 8,
+  "empId": "TC001",
+  "officePhone": "9876543210",
+  "personalPhone": "9876543211",
+  "designation": "Telecaller"
+}

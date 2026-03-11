@@ -2,13 +2,6 @@ import { Request, Response } from "express";
 import { getDateRange, type DashboardFilter } from "../models/dashboard.model";
 import { getReport, type ReportUserRole, type ReportScopeOptions } from "../models/report.model";
 
-/**
- * GET /api/reports
- * Query:
- *   - filter (today | weekly | monthly | yearly | custom), beforeDate, afterDate (required for custom).
- *   - managerId (admin only): show that manager's report only (their counsellors + their target/achieved).
- *   - counsellorId (manager only): show that counsellor's report only (must be under this manager).
- */
 export const getReportController = async (req: Request, res: Response) => {
   try {
     if (!req.user?.id || !req.user?.role) {
@@ -20,7 +13,11 @@ export const getReportController = async (req: Request, res: Response) => {
       return res.status(403).json({ message: "Forbidden" });
     }
 
-    const filter = (req.query.filter as DashboardFilter) || "monthly";
+    const rawFilter = (req.query.filter as string) || "monthly";
+    const filter = rawFilter.toLowerCase() as DashboardFilter;
+    if (!["today", "weekly", "monthly", "yearly", "custom"].includes(filter)) {
+      return res.status(400).json({ message: "Invalid filter; use today, weekly, monthly, yearly, or custom." });
+    }
     // Custom range: accept beforeDate/afterDate (dashboard convention) or startDate/endDate (intuitive)
     let beforeDate = req.query.beforeDate as string | undefined;
     let afterDate = req.query.afterDate as string | undefined;
@@ -44,6 +41,11 @@ export const getReportController = async (req: Request, res: Response) => {
     }
     const managerIdParam = req.query.managerId as string | undefined;
     const counsellorIdParam = req.query.counsellorId as string | undefined;
+    const saleTypeIdParam = req.query.saleTypeId ?? req.query.saleType;
+    const saleTypeId =
+      saleTypeIdParam != null && saleTypeIdParam !== ""
+        ? parseInt(String(saleTypeIdParam), 10)
+        : undefined;
 
     const options: ReportScopeOptions = {};
     if (userRole === "admin" && managerIdParam != null) {
@@ -75,7 +77,7 @@ export const getReportController = async (req: Request, res: Response) => {
       throw dateError;
     }
 
-    const report = await getReport(userId, userRole, dateRange, options);
+    const report = await getReport(userId, userRole, dateRange, options, saleTypeId);
 
     return res.json(report);
   } catch (err) {

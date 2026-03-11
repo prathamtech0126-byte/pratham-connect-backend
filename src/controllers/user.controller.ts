@@ -2,6 +2,9 @@ import { Request, Response } from "express";
 import {
   createUser,
   getAllUsers,
+  getAllUsersWithManagerDetails,
+  getAllUsersWithManagerDetailsExcludeAdmin,
+  getManagerTeamWithManagerDetails,
   updateUserByAdmin,
   deleteUserByAdmin,
   getAllManagers,
@@ -786,7 +789,71 @@ export const getAllUsersController = async (_req: Request, res: Response) => {
   res.json({ success: true, count: usersList.length, data: usersList });
 };
 
-export const getAllCounsellorsAdminController = async (_req: Request, res: Response) => {
+/** GET all user details (admin and manager only). Admin: all users; Manager supervisor: all except admin; Manager non-supervisor: only that manager + their counsellors. */
+export const getAllUserDetailsController = async (req: Request, res: Response) => {
+  const authReq = req as AuthenticatedRequest;
+  const userId = authReq.user?.id as number | undefined;
+  const role = authReq.user?.role as string | undefined;
+
+  if (role === "admin") {
+    const cacheKey = "users:all:with-manager";
+    const cached = await redisGetJson<any[]>(cacheKey);
+    if (cached) {
+      return res.json({ success: true, count: cached.length, data: cached, cached: true });
+    }
+    const usersList = await getAllUsersWithManagerDetails();
+    await redisSetJson(cacheKey, usersList, USERS_CACHE_TTL_SECONDS);
+    return res.json({ success: true, count: usersList.length, data: usersList });
+  }
+
+  if (role === "manager" && userId != null) {
+    const [managerRow] = await db
+      .select({ isSupervisor: users.isSupervisor })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    const isSupervisor = managerRow?.isSupervisor ?? false;
+
+    if (isSupervisor) {
+      const cacheKey = "users:details:manager:supervisor";
+      const cached = await redisGetJson<any[]>(cacheKey);
+      if (cached) {
+        return res.json({ success: true, count: cached.length, data: cached, cached: true });
+      }
+      const usersList = await getAllUsersWithManagerDetailsExcludeAdmin();
+      await redisSetJson(cacheKey, usersList, USERS_CACHE_TTL_SECONDS);
+      return res.json({ success: true, count: usersList.length, data: usersList });
+    }
+
+    const cacheKey = `users:details:manager:${userId}`;
+    const cached = await redisGetJson<any[]>(cacheKey);
+    if (cached) {
+      return res.json({ success: true, count: cached.length, data: cached, cached: true });
+    }
+    const usersList = await getManagerTeamWithManagerDetails(userId);
+    await redisSetJson(cacheKey, usersList, USERS_CACHE_TTL_SECONDS);
+    return res.json({ success: true, count: usersList.length, data: usersList });
+  }
+
+  res.status(403).json({ success: false, message: "Forbidden" });
+};
+
+export const getAllCounsellorsAdminController = async (req: Request, res: Response) => {
+  const authReq = req as AuthenticatedRequest;
+  if (authReq.user?.role === "counsellor") {
+    const [self] = await db
+      .select({
+        id: users.id,
+        fullName: users.fullName,
+        email: users.email,
+        managerId: users.managerId,
+      })
+      .from(users)
+      .where(and(eq(users.id, authReq.user.id), eq(users.role, "counsellor")))
+      .limit(1);
+    const data = self ? [self] : [];
+    return res.json({ success: true, count: data.length, data });
+  }
   const cacheKey = "users:counsellors";
   const cached = await redisGetJson<any[]>(cacheKey);
   if (cached) {

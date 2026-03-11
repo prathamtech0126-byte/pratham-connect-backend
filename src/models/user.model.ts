@@ -5,7 +5,7 @@ import { clientInformation } from "./../schemas/clientInformation.schema";
 import { leaderBoard } from "./../schemas/leaderBoard.schema";
 import { managerTargets } from "./../schemas/managerTargets.schema";
 import { activityLog } from "./../schemas/activityLog.schema";
-import { eq, ne, and, count } from "drizzle-orm";
+import { eq, ne, and, count, inArray, or } from "drizzle-orm";
 import { ROLES, Role, isRole } from "../types/role";
 
 /* ================================
@@ -102,12 +102,15 @@ export const createUser = async (
     finalRole = data.role;
   }
 
+  const roleRequiresManager = finalRole === "counsellor" || finalRole === "telecaller";
   if (finalRole === "counsellor" && !data.managerId) {
     throw new Error("Counsellor must be assigned to a manager");
   }
-
-  if (finalRole !== "counsellor" && data.managerId) {
-    throw new Error("Only counsellors can have managerId");
+  if (finalRole === "telecaller" && !data.managerId) {
+    throw new Error("Telecaller must be assigned to a manager");
+  }
+  if (!roleRequiresManager && data.managerId) {
+    throw new Error("Only counsellors and telecallers can have a manager");
   }
 
   // Only managers can be supervisors
@@ -136,7 +139,7 @@ export const createUser = async (
       emp_id: data.empId || null, // Use || to convert empty strings to null
       passwordHash,
       role: finalRole,
-      managerId: finalRole === "counsellor" ? data.managerId : null,
+      managerId: roleRequiresManager ? data.managerId : null,
       officePhone,
       personalPhone,
       designation,
@@ -175,6 +178,143 @@ export const getAllUsers = async () => {
     })
     .from(users)
     .where(ne(users.role, "admin"));
+};
+
+/** All users with manager details: include admin; only include non-admin if they have at least one client (counsellorId in client_information). */
+export const getAllUsersWithManagerDetails = async () => {
+  const counsellorIdsWithClients = await db
+    .selectDistinct({ counsellorId: clientInformation.counsellorId })
+    .from(clientInformation);
+  const idsWithClients = counsellorIdsWithClients
+    .map((r) => r.counsellorId)
+    .filter((id): id is number => id != null);
+
+  const list = await db
+    .select({
+      id: users.id,
+      empId: users.emp_id,
+      fullName: users.fullName,
+      email: users.email,
+      role: users.role,
+      managerId: users.managerId,
+      designation: users.designation,
+      isSupervisor: users.isSupervisor,
+    })
+    .from(users)
+    .where(
+      idsWithClients.length === 0
+        ? eq(users.role, "admin")
+        : or(eq(users.role, "admin"), inArray(users.id, idsWithClients))
+    );
+
+  const managerIds = [...new Set(list.map((u) => u.managerId).filter((id): id is number => id != null))];
+  if (managerIds.length === 0) {
+    return list.map((u) => ({ ...u, manager: null }));
+  }
+
+  const managers = await db
+    .select({
+      id: users.id,
+      fullName: users.fullName,
+      email: users.email,
+    })
+    .from(users)
+    .where(inArray(users.id, managerIds));
+  const managerMap = new Map(managers.map((m) => [m.id, m]));
+
+  return list.map((u) => ({
+    ...u,
+    manager: u.managerId != null ? managerMap.get(u.managerId) ?? null : null,
+  }));
+};
+
+/** All users with manager details but exclude admin. Used for manager (isSupervisor): managers + counsellors with at least one client. */
+export const getAllUsersWithManagerDetailsExcludeAdmin = async () => {
+  const counsellorIdsWithClients = await db
+    .selectDistinct({ counsellorId: clientInformation.counsellorId })
+    .from(clientInformation);
+  const idsWithClients = counsellorIdsWithClients
+    .map((r) => r.counsellorId)
+    .filter((id): id is number => id != null);
+
+  const list = await db
+    .select({
+      id: users.id,
+      empId: users.emp_id,
+      fullName: users.fullName,
+      email: users.email,
+      role: users.role,
+      managerId: users.managerId,
+      designation: users.designation,
+      isSupervisor: users.isSupervisor,
+    })
+    .from(users)
+    .where(
+      and(
+        ne(users.role, "admin"),
+        idsWithClients.length === 0
+          ? eq(users.role, "manager")
+          : or(eq(users.role, "manager"), inArray(users.id, idsWithClients))
+      )
+    );
+
+  const managerIds = [...new Set(list.map((u) => u.managerId).filter((id): id is number => id != null))];
+  if (managerIds.length === 0) {
+    return list.map((u) => ({ ...u, manager: null }));
+  }
+
+  const managers = await db
+    .select({
+      id: users.id,
+      fullName: users.fullName,
+      email: users.email,
+    })
+    .from(users)
+    .where(inArray(users.id, managerIds));
+  const managerMap = new Map(managers.map((m) => [m.id, m]));
+
+  return list.map((u) => ({
+    ...u,
+    manager: u.managerId != null ? managerMap.get(u.managerId) ?? null : null,
+  }));
+};
+
+/** Users under one manager (that manager + their counsellors) with manager details. Used for manager (!isSupervisor). */
+export const getManagerTeamWithManagerDetails = async (managerId: number) => {
+  const [managerRow] = await db
+    .select({
+      id: users.id,
+      fullName: users.fullName,
+      email: users.email,
+    })
+    .from(users)
+    .where(and(eq(users.id, managerId), eq(users.role, "manager")))
+    .limit(1);
+  const manager = managerRow ?? null;
+
+  const list = await db
+    .select({
+      id: users.id,
+      empId: users.emp_id,
+      fullName: users.fullName,
+      email: users.email,
+      role: users.role,
+      managerId: users.managerId,
+      designation: users.designation,
+      isSupervisor: users.isSupervisor,
+    })
+    .from(users)
+    .where(
+      or(
+        eq(users.id, managerId),
+        and(eq(users.role, "counsellor"), eq(users.managerId, managerId))
+      )
+    );
+
+  return list.map((u) => ({
+    ...u,
+    manager: u.managerId != null ? (u.managerId === managerId ? manager : null) : null,
+  }));
 };
 
 /* ================================
@@ -250,14 +390,19 @@ export const updateUserByAdmin = async (
 
   const finalRole = data.role ?? existingUser.role;
 
-  // When converting to manager/admin, ignore existing/request managerId — only counsellors have a manager
+  const roleRequiresManager = finalRole === "counsellor" || finalRole === "telecaller";
   const rawManagerId =
     data.managerId !== undefined ? data.managerId : existingUser.managerId;
-  const finalManagerId =
-    finalRole === "counsellor" ? rawManagerId : null;
+  const finalManagerId = roleRequiresManager ? rawManagerId : null;
 
   if (finalRole === "counsellor" && !finalManagerId) {
     throw new Error("Counsellor must have a manager");
+  }
+  if (finalRole === "telecaller" && !finalManagerId) {
+    throw new Error("Telecaller must have a manager");
+  }
+  if (!roleRequiresManager && rawManagerId != null) {
+    throw new Error("Only counsellors and telecallers can have a manager");
   }
 
   // Only managers can be supervisors
@@ -289,7 +434,7 @@ export const updateUserByAdmin = async (
           normalizedEmpIdValue !== undefined
             ? normalizedEmpIdValue
             : existingUser.empId,
-        managerId: finalRole === "counsellor" ? finalManagerId : null,
+        managerId: roleRequiresManager ? finalManagerId : null,
         officePhone: data.officePhone,
         personalPhone: data.personalPhone,
         designation: data.designation,
@@ -348,13 +493,13 @@ export const deleteUserByAdmin = async (
   }
 
   if (existingUser.role === "manager") {
-    const counsellors = await db
+    const underManager = await db
       .select({ id: users.id })
       .from(users)
       .where(eq(users.managerId, targetUserId));
 
-    if (counsellors.length > 0) {
-      throw new Error("Manager has assigned counsellors; reassign them to another manager");
+    if (underManager.length > 0) {
+      throw new Error("Manager has assigned counsellors or telecallers; reassign them to another manager");
     }
   }
 

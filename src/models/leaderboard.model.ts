@@ -280,6 +280,30 @@ export const getCounsellorCoreSaleClientCount = async (
   return Number(result?.count ?? 0);
 };
 
+/** Same as dashboard getTotalClients: count by ENROLLMENT DATE in period. Client must have at least one INITIAL/BEFORE_VISA/AFTER_VISA payment (any date). One client = one. */
+export const getCounsellorEnrollmentCountByEnrollmentDate = async (
+  counsellorId: number,
+  startDateStr: string,
+  endDateStr: string
+): Promise<number> => {
+  const [result] = await db
+    .select({ count: count() })
+    .from(clientInformation)
+    .where(
+      and(
+        eq(clientInformation.counsellorId, counsellorId),
+        eq(clientInformation.archived, false),
+        gte(clientInformation.enrollmentDate, startDateStr),
+        lte(clientInformation.enrollmentDate, endDateStr),
+        sql`${clientInformation.clientId} IN (
+          SELECT client_id FROM client_payment
+          WHERE stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
+        )`
+      )
+    );
+  return Number(result?.count ?? 0);
+};
+
 /** Core Sale amount for one counsellor: client_payment (INITIAL/BEFORE_VISA/AFTER_VISA) where payment falls in the period.
  *  If payment is in current month it counts in current month, even if client was enrolled earlier (no enrollment_date filter). */
 export const getCounsellorCoreSaleAmount = async (

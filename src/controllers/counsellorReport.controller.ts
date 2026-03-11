@@ -16,6 +16,7 @@ import {
  * Query:
  *   - filter: today | weekly | monthly | yearly | custom  (default: monthly)
  *   - beforeDate / afterDate  OR  startDate / endDate  (required for custom)
+ *   - saleTypeId (or saleType): optional; when set, report is filtered by this sale type and performance includes sale_type_count
  *
  * Access:
  *   - Admin: any counsellor
@@ -59,13 +60,9 @@ export const getCounsellorReportController = async (req: Request, res: Response)
     }
 
     // ── Date range ───────────────────────────────────────────────
-    // Counsellor → only monthly (current month) or custom (pick month/year)
-    // Admin / Manager → all filters allowed
+    // All roles: today | weekly | monthly | yearly | custom (today = today only, weekly = current week)
     const requestedFilter = (req.query.filter as DashboardFilter) || "monthly";
-    const filter: DashboardFilter =
-      viewerRole === "counsellor" && requestedFilter !== "custom"
-        ? "monthly"
-        : requestedFilter;
+    const filter: DashboardFilter = requestedFilter;
     let beforeDate = req.query.beforeDate as string | undefined;
     let afterDate = req.query.afterDate as string | undefined;
     const startDateParam = req.query.startDate as string | undefined;
@@ -87,33 +84,43 @@ export const getCounsellorReportController = async (req: Request, res: Response)
       }
     }
 
-    let dateRange;
-    try {
-      dateRange = getDateRange(filter, beforeDate, afterDate);
-    } catch (dateError: any) {
-      const msg = dateError?.message || "Invalid date range";
-      if (
-        typeof msg === "string" &&
-        (msg.includes("Custom filter") ||
-          msg.includes("beforeDate") ||
-          msg.includes("afterDate") ||
-          msg.includes("Invalid filter"))
-      ) {
-        return res.status(400).json({ message: msg });
-      }
-      throw dateError;
-    }
-
-    // Counsellor report overrides: today = only today; yearly = current year only (dashboard getDateRange differs)
     const now = new Date();
+    let dateRange: { start: Date; end: Date };
+
     if (filter === "today") {
       const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
       const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      dateRange = { start, end };
+    } else if (filter === "weekly") {
+      const day = now.getDay();
+      const diffToMonday = (day + 6) % 7;
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diffToMonday, 0, 0, 0, 0);
+      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      const weekEndSunday = new Date(start);
+      weekEndSunday.setDate(start.getDate() + 6);
+      weekEndSunday.setHours(23, 59, 59, 999);
+      const end = weekEndSunday.getTime() > endOfToday.getTime() ? endOfToday : weekEndSunday;
       dateRange = { start, end };
     } else if (filter === "yearly") {
       const start = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
       const end = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
       dateRange = { start, end };
+    } else {
+      try {
+        dateRange = getDateRange(filter, beforeDate, afterDate);
+      } catch (dateError: any) {
+        const msg = dateError?.message || "Invalid date range";
+        if (
+          typeof msg === "string" &&
+          (msg.includes("Custom filter") ||
+            msg.includes("beforeDate") ||
+            msg.includes("afterDate") ||
+            msg.includes("Invalid filter"))
+        ) {
+          return res.status(400).json({ message: msg });
+        }
+        throw dateError;
+      }
     }
 
     // Pass explicit date strings for the selected range so all report data (today/weekly/monthly/yearly/custom) uses the same range
@@ -123,11 +130,21 @@ export const getCounsellorReportController = async (req: Request, res: Response)
       const day = String(d.getDate()).padStart(2, "0");
       return `${y}-${m}-${day}`;
     };
-    const dateOptions = {
+    const dateOptions: {
+      startDateStr: string;
+      endDateStr: string;
+      filter: DashboardFilter;
+      saleTypeId?: number;
+    } = {
       startDateStr: toLocalDateStr(dateRange.start),
       endDateStr: toLocalDateStr(dateRange.end),
       filter,
     };
+    const saleTypeParam = req.query.saleTypeId ?? req.query.saleType;
+    if (saleTypeParam != null) {
+      const saleTypeId = typeof saleTypeParam === "string" ? parseInt(saleTypeParam, 10) : Number(saleTypeParam);
+      if (!Number.isNaN(saleTypeId)) dateOptions.saleTypeId = saleTypeId;
+    }
 
     // ── Fetch report ─────────────────────────────────────────────
     const report = await getCounsellorReport(counsellorId, dateRange, dateOptions);

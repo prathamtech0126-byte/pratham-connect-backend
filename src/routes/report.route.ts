@@ -19,6 +19,11 @@ const router = Router();
 // - GET /api/reports?filter=weekly
 // - GET /api/reports?filter=monthly
 // - GET /api/reports?filter=yearly
+// - GET /api/reports?filter=today&saleTypeId=1
+// - GET /api/reports?filter=monthly&saleTypeId=2
+// - GET /api/reports?filter=weekly&saleTypeId=3
+// - GET /api/reports?filter=yearly&saleTypeId=4
+// - GET /api/reports?filter=custom&startDate=2026-01-01&endDate=2026-01-31&saleTypeId=1
 
 router.get("/", requireAuth, requireRole("admin", "manager", "counsellor"), getReportController);
 

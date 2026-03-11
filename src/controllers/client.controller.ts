@@ -1,15 +1,15 @@
 import { Request, Response } from "express";
-import { saveClient, getClientFullDetailsById,getClientsByCounsellor, getAllCounsellorIds, getAllClientsForAdmin, getAllClientsForManager, getArchivedClientsByCounsellor, getAllArchivedClientsForAdmin, getAllArchivedClientsForManager, updateClientArchiveStatus, getAllClients, updateClientCounsellor } from "../models/client.model";
+import { saveClient, getClientFullDetailsById, getClientsByCounsellor, getAllCounsellorIds, getAllClientsForAdmin, getAllClientsForManager, getArchivedClientsByCounsellor, getAllArchivedClientsForAdmin, getAllArchivedClientsForManager, updateClientArchiveStatus, getAllClients, updateClientCounsellor, getClientsByEnrollmentDateRange } from "../models/client.model";
 import { getProductPaymentsByClientId } from "../models/clientProductPayments.model";
 import { emitToCounsellor, emitToAdmin, emitDashboardUpdate, emitToCounsellors } from "../config/socket";
-import { getDashboardStats } from "../models/dashboard.model";
+import { getDashboardStats, getDateRange, type DashboardFilter } from "../models/dashboard.model";
 import { getLeaderboard, getMonthlyEnrollmentGoal } from "../models/leaderboard.model";
 import { emitManagerTargetUpdateForManager } from "./managerTargets.controller";
 import { logActivity } from "../services/activityLog.service";
 import { db } from "../config/databaseConnection";
 import { clientInformation } from "../schemas/clientInformation.schema";
 import { users } from "../schemas/users.schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { getCounsellorById } from "../models/user.model";
 import { redisDel, redisDelByPrefix, redisGetJson, redisSetJson } from "../config/redis";
 
@@ -303,7 +303,8 @@ export const getClientFullDetailsController = async (req: Request, res: Response
   }
 };
 
-// get all clients (for counsellor / admin) - excludes archived clients
+// GET /counsellor-clients: by role return that user's clients. Response includes user: { id, role } so frontend knows whose data it is.
+// Admin → all clients; Manager → team clients (or all if supervisor); Counsellor → own clients.
 export const getAllClientsController = async (req: Request, res: Response) => {
   try {
     if (!req.user?.id || !req.user?.role) {
@@ -313,110 +314,81 @@ export const getAllClientsController = async (req: Request, res: Response) => {
       });
     }
 
-    const userRole = req.user.role;
-    const userId = req.user.id;
-    let clients;
+    const userRole = req.user.role as string;
+    const userId = req.user.id as number;
+    const userPayload = { id: userId, role: userRole };
 
-    // Step 1: Check if user is admin
+    const allowedRoles = ["admin", "manager", "counsellor"];
+    if (!allowedRoles.includes(userRole)) {
+      return res.status(403).json({
+        success: false,
+        message: "Only admin, manager, or counsellor can access this endpoint",
+      });
+    }
+
+    let clients: unknown;
+
     if (userRole === "admin") {
       const cacheKey = clientCacheKeys.listAll();
-      const cached = await redisGetJson<any>(cacheKey);
+      const cached = await redisGetJson<unknown>(cacheKey);
       if (cached) {
-        return res.status(200).json({ success: true, data: cached, cached: true });
+        return res.status(200).json({ success: true, data: cached, user: userPayload, cached: true });
       }
-      // Admin gets all clients from all counsellors
       clients = await getAllClientsForAdmin();
       await redisSetJson(cacheKey, clients, CLIENT_CACHE_TTL_SECONDS);
-
-      // Emit WebSocket event to admin room
       try {
-        emitToAdmin("clients:fetched", {
-          clients,
-          timestamp: new Date().toISOString(),
-        });
+        emitToAdmin("clients:fetched", { clients, timestamp: new Date().toISOString() });
       } catch (wsError) {
         console.error("WebSocket emit error in getAllClientsController (admin):", wsError);
       }
-    }
-    // Step 2: Check if user is manager
-    else if (userRole === "manager") {
-      // Fetch manager's isSupervisor status from database
+    } else if (userRole === "manager") {
       const [manager] = await db
-        .select({
-          id: users.id,
-          isSupervisor: users.isSupervisor,
-        })
+        .select({ id: users.id, isSupervisor: users.isSupervisor })
         .from(users)
         .where(eq(users.id, userId))
         .limit(1);
 
       if (!manager) {
-        return res.status(404).json({
-          success: false,
-          message: "Manager not found",
-        });
+        return res.status(404).json({ success: false, message: "Manager not found" });
       }
 
-      // Step 3: If supervisor, get all clients (like admin)
       if (manager.isSupervisor) {
         const cacheKey = clientCacheKeys.listAll();
-        const cached = await redisGetJson<any>(cacheKey);
+        const cached = await redisGetJson<unknown>(cacheKey);
         if (cached) {
-          return res.status(200).json({ success: true, data: cached, cached: true });
+          return res.status(200).json({ success: true, data: cached, user: userPayload, cached: true });
         }
         clients = await getAllClientsForAdmin();
         await redisSetJson(cacheKey, clients, CLIENT_CACHE_TTL_SECONDS);
-
-        // Emit WebSocket event to admin room (supervisor sees all)
         try {
-          emitToAdmin("clients:fetched", {
-            clients,
-            timestamp: new Date().toISOString(),
-          });
+          emitToAdmin("clients:fetched", { clients, timestamp: new Date().toISOString() });
         } catch (wsError) {
           console.error("WebSocket emit error in getAllClientsController (supervisor manager):", wsError);
         }
-      }
-      // Step 4: If not supervisor, get clients from their assigned counsellors
-      else {
+      } else {
         const cacheKey = clientCacheKeys.listManager(userId);
-        const cached = await redisGetJson<any>(cacheKey);
+        const cached = await redisGetJson<unknown>(cacheKey);
         if (cached) {
-          return res.status(200).json({ success: true, data: cached, cached: true });
+          return res.status(200).json({ success: true, data: cached, user: userPayload, cached: true });
         }
         clients = await getAllClientsForManager(userId);
         await redisSetJson(cacheKey, clients, CLIENT_CACHE_TTL_SECONDS);
-
-        // Emit WebSocket event to manager's room
         try {
-          emitToCounsellor(userId, "clients:fetched", {
-            counsellorId: userId,
-            clients,
-            timestamp: new Date().toISOString(),
-          });
+          emitToCounsellor(userId, "clients:fetched", { counsellorId: userId, clients, timestamp: new Date().toISOString() });
         } catch (wsError) {
           console.error("WebSocket emit error in getAllClientsController (regular manager):", wsError);
         }
       }
-    }
-    // Step 5: Counsellor gets their own clients
-    else {
-      // Counsellor gets their own clients
+    } else {
       const cacheKey = clientCacheKeys.listCounsellor(userId);
-      const cached = await redisGetJson<any>(cacheKey);
+      const cached = await redisGetJson<unknown>(cacheKey);
       if (cached) {
-        return res.status(200).json({ success: true, data: cached, cached: true });
+        return res.status(200).json({ success: true, data: cached, user: userPayload, cached: true });
       }
       clients = await getClientsByCounsellor(userId);
       await redisSetJson(cacheKey, clients, CLIENT_CACHE_TTL_SECONDS);
-
-      // Emit WebSocket event to counsellor's room
       try {
-        emitToCounsellor(userId, "clients:fetched", {
-          counsellorId: userId,
-          clients,
-          timestamp: new Date().toISOString(),
-        });
+        emitToCounsellor(userId, "clients:fetched", { counsellorId: userId, clients, timestamp: new Date().toISOString() });
       } catch (wsError) {
         console.error("WebSocket emit error in getAllClientsController (counsellor):", wsError);
       }
@@ -425,11 +397,131 @@ export const getAllClientsController = async (req: Request, res: Response) => {
     res.status(200).json({
       success: true,
       data: clients,
+      user: userPayload,
     });
   } catch (error: any) {
     res.status(400).json({
       success: false,
       message: error.message,
+    });
+  }
+};
+
+/**
+ * Filtered clients by date. Accepts id and role (query or body); returns that user's clients.
+ * Query/body: id (or userId), role (admin|manager|counsellor). If omitted, uses logged-in user.
+ * Admin → all clients in range; Manager → own (team) clients; Counsellor → own clients.
+ */
+export const getCounsellorClientsWithFilterController = async (req: Request, res: Response) => {
+  try {
+    if (!req.user?.id || !req.user?.role) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+    const loggedInId = req.user.id as number;
+    const loggedInRole = req.user.role as string;
+    const [loggedInUser] = await db
+      .select({ isSupervisor: users.isSupervisor })
+      .from(users)
+      .where(eq(users.id, loggedInId))
+      .limit(1);
+    const isSupervisorManager = loggedInRole === "manager" && !!loggedInUser?.isSupervisor;
+
+    const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, unknown>;
+    const targetIdParam = req.query.userId ?? req.query.id ?? body.userId ?? body.id;
+    const targetRoleParam = req.query.role ?? body.role;
+    const targetId = targetIdParam != null ? Number(targetIdParam) : NaN;
+    const targetRole = typeof targetRoleParam === "string" ? targetRoleParam.trim().toLowerCase() : "";
+
+    const useTarget = Number.isFinite(targetId) && targetId > 0 && ["admin", "manager", "counsellor"].includes(targetRole);
+    const idToUse = useTarget ? targetId : loggedInId;
+    const roleToUse = useTarget ? targetRole : loggedInRole;
+
+    const filter = (req.query.filter as DashboardFilter) || "monthly";
+    const beforeDate = req.query.beforeDate as string | undefined;
+    const afterDate = req.query.afterDate as string | undefined;
+    const startDateParam = req.query.startDate as string | undefined;
+    const endDateParam = req.query.endDate as string | undefined;
+    let before = beforeDate;
+    let after = afterDate;
+    if (filter === "custom") {
+      if (startDateParam && endDateParam) {
+        before = startDateParam;
+        after = endDateParam;
+      }
+      if (!before || !after) {
+        return res.status(400).json({
+          success: false,
+          message: "Custom filter requires beforeDate & afterDate (or startDate & endDate)",
+        });
+      }
+    }
+
+    let dateRange: { start: Date; end: Date };
+    try {
+      dateRange = getDateRange(filter, before, after);
+    } catch (e: any) {
+      return res.status(400).json({
+        success: false,
+        message: e?.message ?? "Invalid date range",
+      });
+    }
+    const startStr = dateRange.start.toISOString().split("T")[0];
+    const endStr = dateRange.end.toISOString().split("T")[0];
+
+    if (useTarget) {
+      const [targetUser] = await db
+        .select({ id: users.id, role: users.role, managerId: users.managerId, isSupervisor: users.isSupervisor })
+        .from(users)
+        .where(eq(users.id, idToUse))
+        .limit(1);
+      const targetRoleLower = (targetUser?.role ?? "").toString().toLowerCase();
+      if (!targetUser || targetRoleLower !== roleToUse) {
+        return res.status(400).json({
+          success: false,
+          message: "User not found or role does not match",
+        });
+      }
+      if (loggedInRole === "counsellor" && idToUse !== loggedInId) {
+        return res.status(403).json({ success: false, message: "Counsellor can only view own clients" });
+      }
+      if (loggedInRole === "manager" && !isSupervisorManager && loggedInId !== idToUse) {
+        if (roleToUse === "counsellor") {
+          if (targetUser.managerId !== loggedInId) {
+            return res.status(403).json({ success: false, message: "You can only view your team counsellor's clients" });
+          }
+        } else if (roleToUse === "admin" || (roleToUse === "manager" && idToUse !== loggedInId)) {
+          return res.status(403).json({ success: false, message: "Manager can only view own or team counsellor clients" });
+        }
+      }
+    }
+
+    // Own clients only: clients where counsellor_id = this user (admin/manager/counsellor who added the client)
+    const counsellorIds: number[] = [idToUse];
+
+    if (counsellorIds.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+        user: { id: idToUse, role: roleToUse },
+        filter,
+        filter_start_date: startStr,
+        filter_end_date: endStr,
+      });
+    }
+
+    const clients = await getClientsByEnrollmentDateRange(counsellorIds, startStr, endStr);
+    return res.status(200).json({
+      success: true,
+      data: clients,
+      user: { id: idToUse, role: roleToUse },
+      filter,
+      filter_start_date: startStr,
+      filter_end_date: endStr,
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error?.message ?? "Failed to fetch clients",
     });
   }
 };
@@ -552,129 +644,84 @@ export const getClientCompleteDetailsController = async (req: Request, res: Resp
 };
 
 /* ==============================
-   GET ARCHIVED CLIENTS
+   GET ARCHIVED CLIENTS (same pattern as counsellor-clients/filtered)
+   Accept id and role (query or body). Return that user's full archived list (no date filter).
+   Counsellor / Manager / Admin each see their own archived clients (counsellor_id = that user).
 ============================== */
 export const getArchivedClientsController = async (req: Request, res: Response) => {
   try {
     if (!req.user?.id || !req.user?.role) {
-      return res.status(401).json({
-        success: false,
-        message: "Unauthorized",
-      });
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+    const loggedInId = req.user.id as number;
+    const loggedInRole = req.user.role as string;
+    const [loggedInUser] = await db
+      .select({ isSupervisor: users.isSupervisor })
+      .from(users)
+      .where(eq(users.id, loggedInId))
+      .limit(1);
+    const isSupervisorManager = loggedInRole === "manager" && !!loggedInUser?.isSupervisor;
+
+    const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, unknown>;
+    const targetIdParam = req.query.userId ?? req.query.id ?? body.userId ?? body.id;
+    const targetRoleParam = req.query.role ?? body.role;
+    const targetId = targetIdParam != null ? Number(targetIdParam) : NaN;
+    const targetRole = typeof targetRoleParam === "string" ? targetRoleParam.trim().toLowerCase() : "";
+
+    const useTarget = Number.isFinite(targetId) && targetId > 0 && ["admin", "manager", "counsellor"].includes(targetRole);
+    const idToUse = useTarget ? targetId : loggedInId;
+    const roleToUse = useTarget ? targetRole : loggedInRole;
+
+    const allowedRoles = ["admin", "manager", "counsellor"];
+    if (!allowedRoles.includes((loggedInRole || "").toString().toLowerCase())) {
+      return res.status(403).json({ success: false, message: "Only admin, manager, or counsellor can access archived clients" });
     }
 
-    const userRole = req.user.role;
-    const userId = req.user.id;
-    let clients;
-
-    // Step 1: Check if user is admin
-    if (userRole === "admin") {
-      const cacheKey = clientCacheKeys.archivedAll();
-      const cached = await redisGetJson<any>(cacheKey);
-      if (cached) {
-        return res.status(200).json({ success: true, data: cached, cached: true });
-      }
-      // Admin gets all archived clients from all counsellors
-      clients = await getAllArchivedClientsForAdmin();
-      await redisSetJson(cacheKey, clients, CLIENT_CACHE_TTL_SECONDS);
-
-      // Emit WebSocket event to admin room
-      try {
-        emitToAdmin("archived-clients:fetched", {
-          clients,
-          timestamp: new Date().toISOString(),
-        });
-      } catch (wsError) {
-        console.error("WebSocket emit error in getArchivedClientsController (admin):", wsError);
-      }
-    }
-    // Step 2: Check if user is manager
-    else if (userRole === "manager") {
-      // Fetch manager's isSupervisor status from database
-      const [manager] = await db
-        .select({
-          id: users.id,
-          isSupervisor: users.isSupervisor,
-        })
+    if (useTarget) {
+      const [targetUser] = await db
+        .select({ id: users.id, role: users.role, managerId: users.managerId })
         .from(users)
-        .where(eq(users.id, userId))
+        .where(eq(users.id, idToUse))
         .limit(1);
-
-      if (!manager) {
-        return res.status(404).json({
-          success: false,
-          message: "Manager not found",
-        });
+      const targetRoleLower = (targetUser?.role ?? "").toString().toLowerCase();
+      if (!targetUser || targetRoleLower !== roleToUse) {
+        return res.status(400).json({ success: false, message: "User not found or role does not match" });
       }
-
-      // Step 3: If supervisor, get all archived clients (like admin)
-      if (manager.isSupervisor) {
-        const cacheKey = clientCacheKeys.archivedAll();
-        const cached = await redisGetJson<any>(cacheKey);
-        if (cached) {
-          return res.status(200).json({ success: true, data: cached, cached: true });
-        }
-        clients = await getAllArchivedClientsForAdmin();
-        await redisSetJson(cacheKey, clients, CLIENT_CACHE_TTL_SECONDS);
-
-        // Emit WebSocket event to admin room (supervisor sees all)
-        try {
-          emitToAdmin("archived-clients:fetched", {
-            clients,
-            timestamp: new Date().toISOString(),
-          });
-        } catch (wsError) {
-          console.error("WebSocket emit error in getArchivedClientsController (supervisor manager):", wsError);
-        }
+      if (loggedInRole === "counsellor" && idToUse !== loggedInId) {
+        return res.status(403).json({ success: false, message: "Counsellor can only view own archived clients" });
       }
-      // Step 4: If not supervisor, get archived clients from their assigned counsellors
-      else {
-        const cacheKey = clientCacheKeys.archivedManager(userId);
-        const cached = await redisGetJson<any>(cacheKey);
-        if (cached) {
-          return res.status(200).json({ success: true, data: cached, cached: true });
+      if (loggedInRole === "manager" && !isSupervisorManager && loggedInId !== idToUse) {
+        if (roleToUse === "counsellor" && targetUser.managerId !== loggedInId) {
+          return res.status(403).json({ success: false, message: "You can only view your team counsellor's archived clients" });
         }
-        clients = await getAllArchivedClientsForManager(userId);
-        await redisSetJson(cacheKey, clients, CLIENT_CACHE_TTL_SECONDS);
-
-        // Emit WebSocket event to manager's room
-        try {
-          emitToCounsellor(userId, "archived-clients:fetched", {
-            counsellorId: userId,
-            clients,
-            timestamp: new Date().toISOString(),
-          });
-        } catch (wsError) {
-          console.error("WebSocket emit error in getArchivedClientsController (regular manager):", wsError);
+        if (roleToUse === "admin" || (roleToUse === "manager" && idToUse !== loggedInId)) {
+          return res.status(403).json({ success: false, message: "Manager can only view own or team counsellor archived clients" });
         }
       }
     }
-    // Step 5: Counsellor gets their own archived clients
-    else {
-      // Counsellor gets their own archived clients
-      const cacheKey = clientCacheKeys.archivedCounsellor(userId);
-      const cached = await redisGetJson<any>(cacheKey);
-      if (cached) {
-        return res.status(200).json({ success: true, data: cached, cached: true });
-      }
-      clients = await getArchivedClientsByCounsellor(userId);
-      await redisSetJson(cacheKey, clients, CLIENT_CACHE_TTL_SECONDS);
 
-      // Emit WebSocket event to counsellor's room
-      try {
-        emitToCounsellor(userId, "archived-clients:fetched", {
-          counsellorId: userId,
-          clients,
-          timestamp: new Date().toISOString(),
-        });
-      } catch (wsError) {
-        console.error("WebSocket emit error in getArchivedClientsController (counsellor):", wsError);
-      }
+    const cacheKey = clientCacheKeys.archivedCounsellor(idToUse);
+    const cached = await redisGetJson<any>(cacheKey);
+    if (cached) {
+      return res.status(200).json({ success: true, data: cached, user: { id: idToUse, role: roleToUse }, cached: true });
+    }
+    const clients = await getArchivedClientsByCounsellor(idToUse);
+    await redisSetJson(cacheKey, clients, CLIENT_CACHE_TTL_SECONDS);
+
+    try {
+      emitToCounsellor(idToUse, "archived-clients:fetched", {
+        counsellorId: idToUse,
+        clients,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (wsError) {
+      console.error("WebSocket emit error in getArchivedClientsController:", wsError);
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       data: clients,
+      user: { id: idToUse, role: roleToUse },
     });
   } catch (error: any) {
     res.status(400).json({
@@ -878,10 +925,11 @@ export const archiveClientController = async (req: Request, res: Response) => {
   }
 };
 
-// All clients for admin
+// All clients for admin (optional query: search = filter by client name)
 export const getAllClientsForAdminController = async (req: Request, res: Response) => {
   try {
-    const clients = await getAllClients();
+    const search = (req.query.search as string) || (req.query.name as string) || (req.query.q as string) || "";
+    const clients = await getAllClients(search);
     res.status(200).json({
       success: true,
       data: clients,
@@ -894,41 +942,78 @@ export const getAllClientsForAdminController = async (req: Request, res: Respons
   }
 };
 
-// Client Transfer to another counsellor
+// Client Transfer to another counsellor (single or multiple clients)
 export const transferClientController = async (req: Request, res: Response) => {
   try {
-    const { clientId, counsellorId } = req.body;
-    const client = await getClientFullDetailsById(clientId);
-    if (!client) {
-      return res.status(404).json({
+    const { clientId, clientIds, counsellorId } = req.body;
+    // Support both single clientId and array clientIds (prefer clientIds if both sent)
+    const idsToTransfer: number[] = Array.isArray(clientIds) && clientIds.length > 0
+      ? clientIds.map((id: any) => (typeof id === "number" ? id : parseInt(String(id), 10))).filter((n: number) => Number.isFinite(n))
+      : typeof clientId !== "undefined"
+        ? [typeof clientId === "number" ? clientId : parseInt(String(clientId), 10)]
+        : [];
+
+    if (idsToTransfer.length === 0) {
+      return res.status(400).json({
         success: false,
-        message: "Client not found",
+        message: "Provide clientId (single) or clientIds (array) and counsellorId",
       });
     }
-    const counsellor = await getCounsellorById(counsellorId);
+
+    const targetCounsellorId = typeof counsellorId === "number" ? counsellorId : parseInt(String(counsellorId), 10);
+    if (!Number.isFinite(targetCounsellorId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid counsellorId is required",
+      });
+    }
+
+    const counsellor = await getCounsellorById(targetCounsellorId);
     if (!counsellor) {
       return res.status(404).json({
         success: false,
         message: "Counsellor not found",
       });
     }
-    const result = await updateClientCounsellor(clientId, counsellor.id);
 
-    // Invalidate caches for old and new counsellor lists + client details
-    try {
+    const transferred: number[] = [];
+    const failed: { clientId: number; reason: string }[] = [];
+    const affectedCounsellorIds = new Set<number>([counsellor.id]);
+
+    for (const cid of idsToTransfer) {
+      const client = await getClientFullDetailsById(cid);
+      if (!client) {
+        failed.push({ clientId: cid, reason: "Client not found" });
+        continue;
+      }
       const oldCounsellorId = Number(client?.client?.counsellorId);
-      const newCounsellorId = Number(counsellor.id);
-      const ids: number[] = [];
-      if (Number.isFinite(oldCounsellorId)) ids.push(oldCounsellorId);
-      if (Number.isFinite(newCounsellorId)) ids.push(newCounsellorId);
-      await invalidateClientCaches({ clientId: Number(clientId), counsellorIds: ids });
+      if (Number.isFinite(oldCounsellorId)) affectedCounsellorIds.add(oldCounsellorId);
+
+      try {
+        await updateClientCounsellor(cid, counsellor.id);
+        transferred.push(cid);
+      } catch (err: any) {
+        failed.push({ clientId: cid, reason: err?.message || "Transfer failed" });
+      }
+    }
+
+    // Invalidate caches for all affected counsellor lists and transferred client details
+    try {
+      for (const cid of transferred) {
+        await invalidateClientCaches({ clientId: cid, counsellorIds: [...affectedCounsellorIds] });
+      }
     } catch {
       // ignore cache issues
     }
 
     res.status(200).json({
       success: true,
-      data: result,
+      data: {
+        transferred,
+        failed: failed.length ? failed : undefined,
+        transferred_count: transferred.length,
+        failed_count: failed.length,
+      },
     });
   } catch (error: any) {
     res.status(400).json({
