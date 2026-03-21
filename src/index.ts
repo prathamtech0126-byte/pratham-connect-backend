@@ -6,6 +6,7 @@ import helmet from "helmet";
 import compression from "compression";
 import userRoutes from "./routes/user.routes";
 import saleRoute from "./routes/saleType.routes";
+import saleTypeCategoryRoutes from "./routes/saleTypeCategory.routes";
 import leadTypeRoutes from "./routes/leadType.routes";
 import clientRoute from "./routes/client.routes";
 import clientPaymentRoutes from "./routes/clientPayment.routes";
@@ -104,6 +105,7 @@ app.use(requireCsrf);
 // lightweight health check
 app.use("/api/users", userRoutes);
 app.use("/api/sale-types", saleRoute);
+app.use("/api/sale-type-categories", saleTypeCategoryRoutes);
 app.use("/api/lead-types", leadTypeRoutes);
 app.use("/api/clients", clientRoute);
 app.use("/api/client-payments", clientPaymentRoutes);

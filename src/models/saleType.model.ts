@@ -1,5 +1,6 @@
 import { db } from "../config/databaseConnection";
 import { saleTypes } from "../schemas/saleType.schema";
+import { saleTypeCategories } from "../schemas/saleTypeCategory.schema";
 import { eq } from "drizzle-orm";
 
 /* ==============================
@@ -9,12 +10,14 @@ import { eq } from "drizzle-orm";
 interface CreateSaleTypeInput {
   saleType: string;
   amount?: string | null;
+  categoryId?: number | null;
   isCoreProduct?: boolean;
 }
 
 interface UpdateSaleTypeInput {
   saleType?: string;
   amount?: string | null;
+  categoryId?: number | null;
   isCoreProduct?: boolean;
 }
 
@@ -41,6 +44,7 @@ export const createSaleType = async (data: CreateSaleTypeInput) => {
     .values({
       saleType: data.saleType,
       amount: data.amount ?? null,
+      categoryId: data.categoryId ?? null,
       isCoreProduct: data.isCoreProduct ?? false,
     })
     .returning();
@@ -59,10 +63,16 @@ export const getAllSaleTypes = async () => {
       id: saleTypes.saleTypeId,
       saleType: saleTypes.saleType,
       amount: saleTypes.amount,
+      // categoryId: saleTypes.categoryId,
+      categoryName: saleTypeCategories.name,
       isCoreProduct: saleTypes.isCoreProduct,
       createdAt: saleTypes.createdAt,
     })
-    .from(saleTypes);
+    .from(saleTypes)
+    .leftJoin(
+      saleTypeCategories,
+      eq(saleTypes.categoryId, saleTypeCategories.id)
+    );
 };
 
 /* ==============================
@@ -80,6 +90,10 @@ export const updateSaleType = async (
 
   if (data.amount !== undefined) {
     patch.amount = data.amount; // string | null
+  }
+
+  if (data.categoryId !== undefined) {
+    patch.categoryId = data.categoryId;
   }
 
   if (data.isCoreProduct !== undefined) {

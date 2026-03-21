@@ -1,0 +1,131 @@
+{
+  "info": {
+    "name": "Sale Type Categories & Sale Types",
+    "description": "Test Sale Type Categories (student, visitor, spouse) and Sale Types with categoryId. Base URL: {{baseUrl}}/api",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "token", "value": "" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Sale Type Categories",
+      "item": [
+        {
+          "name": "Get all categories",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/sale-type-categories"
+          }
+        },
+        {
+          "name": "Get category by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/sale-type-categories/1"
+          }
+        },
+        {
+          "name": "Create category (Student)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"student\",\n  \"description\": \"Student visa / study\"\n}"
+            },
+            "url": "{{baseUrl}}/api/sale-type-categories"
+          }
+        },
+        {
+          "name": "Create category (Visitor)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"visitor\",\n  \"description\": \"Visitor visa\"\n}"
+            },
+            "url": "{{baseUrl}}/api/sale-type-categories"
+          }
+        },
+        {
+          "name": "Create category (Spouse)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"spouse\",\n  \"description\": \"Spouse / dependent\"\n}"
+            },
+            "url": "{{baseUrl}}/api/sale-type-categories"
+          }
+        },
+        {
+          "name": "Update category",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"student\",\n  \"description\": \"Student visa and study permits\"\n}"
+            },
+            "url": "{{baseUrl}}/api/sale-type-categories/1"
+          }
+        },
+        {
+          "name": "Delete category",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/sale-type-categories/1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Sale Types (with categoryId)",
+      "item": [
+        {
+          "name": "Get all sale types",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/sale-types"
+          }
+        },
+        {
+          "name": "Create sale type with category",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"saleType\": \"Student Visa - Core\",\n  \"amount\": \"50000\",\n  \"categoryId\": 1,\n  \"isCoreProduct\": true\n}"
+            },
+            "url": "{{baseUrl}}/api/sale-types"
+          }
+        },
+        {
+          "name": "Update sale type category",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"categoryId\": 2\n}"
+            },
+            "url": "{{baseUrl}}/api/sale-types/1"
+          }
+        }
+      ]
+    }
+  ]
+}

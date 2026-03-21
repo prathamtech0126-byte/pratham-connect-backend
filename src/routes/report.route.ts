@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../middlewares/auth.middleware";
-import { getReportController } from "../controllers/report.controller";
+import { getReportController, getSaleMetricSeriesController, getSaleReportDashboardController } from "../controllers/report.controller";
 import { getCounsellorReportController } from "../controllers/counsellorReport.controller";
 
 const router = Router();
@@ -25,7 +25,29 @@ const router = Router();
 // - GET /api/reports?filter=yearly&saleTypeId=4
 // - GET /api/reports?filter=custom&startDate=2026-01-01&endDate=2026-01-31&saleTypeId=1
 
-router.get("/", requireAuth, requireRole("admin", "manager", "counsellor"), getReportController);
+router.get("/", requireAuth, requireRole("admin", "manager"), getReportController);
+
+// Sales report dashboard data (cards + categories + charts)
+// - GET /api/reports/sale-dashboard?filter=monthly
+// - GET /api/reports/sale-dashboard?filter=custom&startDate=2026-01-01&endDate=2026-01-31
+// - Admin can scope by managerId, manager can scope by counsellorId
+router.get(
+  "/sale-dashboard",
+  requireAuth,
+  requireRole("admin", "manager"),
+  getSaleReportDashboardController
+);
+
+// Sales metric series for 3-month graph (fixed monthly comparison)
+// - GET /api/reports/sale-graph-report?metric=core_sale
+// - Admin can scope by managerId, manager can scope by counsellorId
+// - metric: client | core_sale | core_product | other_product | overall_revenue
+router.get(
+  "/sale-graph-report",
+  requireAuth,
+  requireRole("admin", "manager"),
+  getSaleMetricSeriesController
+);
 
 // Individual counsellor report
 // - Admin: any counsellor

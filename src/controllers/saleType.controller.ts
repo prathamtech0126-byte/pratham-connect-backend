@@ -18,6 +18,7 @@ export const createSaleTypeController = async (
   res: Response
 ) => {
   try {
+    console.log("createSaleTypeController req.body", req.body);
     const saleType = await createSaleType(req.body);
     try {
       await redisDel(SALE_TYPES_CACHE_KEY);

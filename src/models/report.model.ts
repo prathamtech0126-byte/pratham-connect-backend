@@ -402,13 +402,6 @@ export const getCounsellorPerformanceReport = async (
   const startTs = dateRange.start.toISOString();
   const endTs = dateRange.end.toISOString();
 
-  console.log("[report] getCounsellorPerformanceReport:", {
-    startStr,
-    endStr,
-    saleTypeId,
-    counsellorIds,
-  });
-
   const counsellorList = await db
     .select({
       id: users.id,
@@ -431,10 +424,6 @@ export const getCounsellorPerformanceReport = async (
         )
       : null;
 
-  if (enrollmentCountBySaleType != null) {
-    console.log("[report] enrollmentCountBySaleType map:", [...enrollmentCountBySaleType.entries()]);
-  }
-
   const result: CounsellorPerformanceItem[] = [];
   for (const c of counsellorList) {
     const [enrollments, coreSaleRev, coreMetrics, otherMetrics] = await Promise.all([
@@ -449,8 +438,6 @@ export const getCounsellorPerformanceReport = async (
       enrollmentCountBySaleType != null && saleTypeIdNum != null
         ? Number(enrollmentCountBySaleType.get(c.id) ?? 0)
         : enrollments;
-
-    console.log(`[report] counsellor ${c.id} (${c.fullName}): enrollments=${enrollments}, sale_type_count=${saleTypeCount}, mapValue=${enrollmentCountBySaleType?.get(c.id)}`);
 
     result.push({
       counsellor_id: c.id,

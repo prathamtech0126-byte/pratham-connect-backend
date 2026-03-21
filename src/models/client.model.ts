@@ -746,8 +746,19 @@ export const getAllClients = async (search?: string) => {
     conditions.push(ilike(clientInformation.fullName, `%${escaped}%`));
   }
   const allClients = await db
-    .select()
+    .select({
+      clientId: clientInformation.clientId,
+      counsellorId: clientInformation.counsellorId,
+      counsellorName: users.fullName,
+      fullName: clientInformation.fullName,
+      enrollmentDate: clientInformation.enrollmentDate,
+      passportDetails: clientInformation.passportDetails,
+      leadTypeId: clientInformation.leadTypeId,
+      archived: clientInformation.archived,
+      createdAt: clientInformation.createdAt,
+    })
     .from(clientInformation)
+    .leftJoin(users, eq(clientInformation.counsellorId, users.id))
     .where(and(...conditions))
     .orderBy(desc(clientInformation.enrollmentDate));
   return allClients;

@@ -22,7 +22,11 @@ import {
   getCounsellorCoreProductMetrics,
   getCounsellorOtherProductMetrics,
 } from "./leaderboard.model";
-import { getPendingAmountByCounsellors } from "./dashboard.model";
+import {
+  getPendingAmountByCounsellors,
+  getSaleTypeCategoryCounts,
+  type DateRange,
+} from "./dashboard.model";
 import {
   getRevenueBySaleTypePerCounsellor,
   getEnrollmentCountBySaleTypePerCounsellor,
@@ -169,6 +173,16 @@ export interface CounsellorReportResult {
       };
     };
   };
+  /**
+   * Same logic as dashboard `saleTypeCategoryCounts`: per sale-type category (student/visitor/spouse)
+   * for this counsellor and report date range — count + amount.
+   */
+  sale_type_category_counts: Array<{
+    category_id: number | null;
+    category_name: string;
+    count: number;
+    amount: string;
+  }>;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -659,6 +673,19 @@ export const getCounsellorReport = async (
   const lmStartTs = new Date(lmStart.getFullYear(), lmStart.getMonth(), lmStart.getDate(), 0, 0, 0, 0).toISOString();
   const lmEndTs = new Date(lmEnd.getFullYear(), lmEnd.getMonth(), lmEnd.getDate(), 23, 59, 59, 999).toISOString();
 
+  // Same date window as dashboard `saleTypeCategoryCounts` for this counsellor
+  const [sy, sm, sd] = startStr.split("-").map(Number);
+  const [ey, em, ed] = endStr.split("-").map(Number);
+  const saleTypeCategoryDateRange: DateRange = {
+    start: new Date(sy, sm - 1, sd, 0, 0, 0, 0),
+    end: new Date(ey, em - 1, ed, 23, 59, 59, 999),
+  };
+  const saleTypeCategoryRoleFilter = {
+    userRole: "counsellor" as const,
+    userId: counsellorId,
+    counsellorId,
+  };
+
   // ── Parallel data fetch ────────────────────────────────────────
   let [
     enrollments,
@@ -674,6 +701,7 @@ export const getCounsellorReport = async (
     productBreakdown,
     coreProductClients,
     pendingByCounsellor,
+    saleTypeCategoryRows,
   ] = await Promise.all([
     getEnrollmentBasedAchieved(counsellorId, startStr, endStr),
     getCounsellorCoreSaleAmount(counsellorId, startStr, endStr, startTs, endTs),
@@ -696,6 +724,7 @@ export const getCounsellorReport = async (
     getPerProductBreakdown(counsellorId, startStr, endStr),
     getCoreProductDistinctClientCount(counsellorId, startStr, endStr),
     getPendingAmountByCounsellors([counsellorId]),
+    getSaleTypeCategoryCounts(saleTypeCategoryDateRange, saleTypeCategoryRoleFilter),
   ]);
 
   // ── sale_type_count: when filter used = payment count (client_payment rows) for that sale type only; when no filter = total enrollments ─
@@ -846,5 +875,11 @@ export const getCounsellorReport = async (
         },
       },
     },
+    sale_type_category_counts: saleTypeCategoryRows.map((c) => ({
+      category_id: c.categoryId,
+      category_name: c.categoryName,
+      count: c.count,
+      amount: c.amount,
+    })),
   };
 };

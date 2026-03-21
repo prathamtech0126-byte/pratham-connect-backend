@@ -1,4 +1,4 @@
-import { db } from "../config/databaseConnection";
+import { db, pool } from "../config/databaseConnection";
 import { clientInformation } from "../schemas/clientInformation.schema";
 import { clientPayments } from "../schemas/clientPayment.schema";
 import { clientProductPayments } from "../schemas/clientProductPayments.schema";
@@ -19,6 +19,8 @@ import { users } from "../schemas/users.schema";
 import { leaderBoard } from "../schemas/leaderBoard.schema";
 import { calculateCounsellorRevenue } from "./leaderboard.model";
 import { eq, and, gte, lte, sql, count, inArray, isNotNull } from "drizzle-orm";
+import { saleTypes } from "../schemas/saleType.schema";
+import { saleTypeCategories } from "../schemas/saleTypeCategory.schema";
 
 /* ==============================
    TYPES
@@ -70,6 +72,13 @@ export interface AdminManagerDashboardStats {
     number: number; // Count
     amount: string; // Sum
   };
+  /** Breakdown list for "Other Product" (per product/service). */
+  otherProductBreakdown: Array<{
+    key: string;
+    name: string;
+    count: number;
+    amount: string;
+  }>;
   totalPendingAmount: {
     amount: string;
   };
@@ -79,6 +88,13 @@ export interface AdminManagerDashboardStats {
   revenue: {
     amount: string; // Core Sale Amount + Core Product Amount + Other Product Amount
   };
+  /** Distinct clients with core-sale payments in period, grouped by sale type category. */
+  saleTypeCategoryCounts: Array<{
+    categoryId: number | null;
+    categoryName: string;
+    count: number;
+    amount: string;
+  }>;
   leaderboard: Array<{
     counsellorId: number;
     fullName: string;
@@ -118,12 +134,26 @@ export interface CounsellorDashboardStats {
   otherProduct: {
     number: number; // Count only, no amount
   };
+  /** Breakdown list for "Other Product" (per product/service). */
+  otherProductBreakdown: Array<{
+    key: string;
+    name: string;
+    count: number;
+    amount: string;
+  }>;
   totalPendingAmount: {
     amount: string;
   };
   totalClients: {
     count: number;
   };
+  /** Distinct clients with core-sale payments in period, grouped by sale type category. */
+  saleTypeCategoryCounts: Array<{
+    categoryId: number | null;
+    categoryName: string;
+    count: number;
+    amount: string;
+  }>;
   // newEnrollment: {
   //   count: number;
   // };
@@ -164,6 +194,142 @@ const toLocalDateString = (date: Date) => {
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
+};
+
+/**
+ * Sale type category counts like coreSale.number:
+ * - Same client set: enrollment_date in period + at least one core-stage payment (any date)
+ * - One client counted once
+ * - Category is taken from the client's NEWEST core-stage payment row:
+ *     AFTER_VISA > BEFORE_VISA > INITIAL, then latest payment_date/created_at, then id
+ */
+export const getSaleTypeCategoryCounts = async (
+  dateRange: DateRange,
+  roleFilter?: RoleBasedFilter
+): Promise<Array<{ categoryId: number | null; categoryName: string; count: number; amount: string }>> => {
+  const startDateStr = toLocalDateString(dateRange.start);
+  const endDateStr = toLocalDateString(dateRange.end);
+  const startTimestamp = dateRange.start.toISOString();
+  const endTimestamp = dateRange.end.toISOString();
+
+  const params: (string | number)[] = [startDateStr, endDateStr, startTimestamp, endTimestamp];
+  let counsellorClause = "";
+  if (roleFilter?.userRole === "counsellor" && roleFilter.counsellorId) {
+    counsellorClause = ` AND ci.counsellor_id = $5`;
+    params.push(roleFilter.counsellorId);
+  }
+
+  const query = `
+    WITH clients_in_period AS (
+      SELECT ci.id AS client_id
+      FROM client_information ci
+      WHERE ci.archived = false
+        AND ci.date >= $1::date
+        AND ci.date <= $2::date
+        AND EXISTS (
+          SELECT 1 FROM client_payment cp0
+          WHERE cp0.client_id = ci.id
+            AND cp0.stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
+        )
+        ${counsellorClause}
+    ),
+    eligible_payments AS (
+      SELECT
+        cp.client_id,
+        st.category_id,
+        cp.stage,
+        cp.payment_date,
+        cp.created_at,
+        cp.id AS payment_id
+      FROM client_payment cp
+      INNER JOIN clients_in_period cip ON cip.client_id = cp.client_id
+      INNER JOIN sale_type st ON st.id = cp.sale_type_id
+      WHERE cp.stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
+    ),
+    ranked AS (
+      SELECT
+        client_id,
+        category_id,
+        ROW_NUMBER() OVER (
+          PARTITION BY client_id
+          ORDER BY
+            CASE stage
+              WHEN 'AFTER_VISA' THEN 0
+              WHEN 'BEFORE_VISA' THEN 1
+              WHEN 'INITIAL' THEN 2
+              ELSE 3
+            END,
+            COALESCE(payment_date::timestamp, created_at) DESC NULLS LAST,
+            payment_id DESC
+        ) AS rn
+      FROM eligible_payments
+    )
+    , client_category AS (
+      SELECT client_id, category_id
+      FROM ranked
+      WHERE rn = 1
+    )
+    SELECT
+      cc.category_id,
+      COUNT(DISTINCT cc.client_id)::int AS cnt,
+      COALESCE(SUM(cp.amount::numeric), 0) AS amt
+    FROM client_category cc
+    LEFT JOIN client_payment cp
+      ON cp.client_id = cc.client_id
+      AND cp.stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
+      AND (
+        (cp.payment_date IS NOT NULL AND cp.payment_date >= $1::date AND cp.payment_date <= $2::date)
+        OR (cp.payment_date IS NULL AND cp.created_at >= $3::timestamptz AND cp.created_at <= $4::timestamptz)
+      )
+    GROUP BY cc.category_id
+  `;
+
+  const { rows } = await pool.query<{
+    category_id: string | number | null;
+    cnt: string | number;
+    amt: string | number;
+  }>(
+    query,
+    params
+  );
+
+  const uncategorizedKey = "__uncategorized__";
+  const countsByKey = new Map<string, { count: number; amount: string }>();
+  for (const r of rows) {
+    const key = r.category_id == null ? uncategorizedKey : String(Number(r.category_id));
+    countsByKey.set(key, {
+      count: Number(r.cnt ?? 0),
+      amount: Number(r.amt ?? 0).toFixed(2),
+    });
+  }
+
+  const categories = await db
+    .select({
+      categoryId: saleTypeCategories.id,
+      categoryName: saleTypeCategories.name,
+    })
+    .from(saleTypeCategories)
+    .orderBy(saleTypeCategories.id);
+
+  const out: Array<{ categoryId: number | null; categoryName: string; count: number; amount: string }> =
+    categories.map((c) => ({
+      categoryId: Number(c.categoryId),
+      categoryName: c.categoryName,
+      count: countsByKey.get(String(c.categoryId))?.count ?? 0,
+      amount: countsByKey.get(String(c.categoryId))?.amount ?? "0.00",
+    }));
+
+  const uncategorized = countsByKey.get(uncategorizedKey);
+  if (uncategorized && uncategorized.count > 0) {
+    out.push({
+      categoryId: null,
+      categoryName: "uncategorized",
+      count: uncategorized.count,
+      amount: uncategorized.amount,
+    });
+  }
+
+  return out;
 };
 
 const parseLocalDate = (dateStr: string): Date => {
@@ -369,7 +535,7 @@ const getTotalClients = async (
    So one client with INITIAL + BEFORE_VISA + AFTER_VISA is counted once in the period of their enrollment_date.
    Revenue is unchanged (sum of amounts).
 ============================== */
-const getCoreServiceCount = async (
+export const getCoreServiceCount = async (
   dateRange: DateRange,
   filter?: RoleBasedFilter
 ): Promise<number> => {
@@ -883,7 +1049,7 @@ const getEntityAmountsExcludingCountOnly = async (
    Count and amount both use allFinance date so they stay in sync.
    For monthly/yearly: only paymentDate in range (no last month in current month).
 ============================== */
-const getCoreProductMetrics = async (
+export const getCoreProductMetrics = async (
   dateRange: DateRange,
   roleFilter?: RoleBasedFilter,
   periodFilter?: DashboardFilter
@@ -1157,26 +1323,38 @@ const getEntityBasedOtherProductCountAndAmount = async (
    - Direct rows (amount on client_product_payment): use client_product_payment.paymentDate for filter.
    - Entity-based rows: use ENTITY TABLE date (ielts.enrollmentDate, visaExtension.extensionDate, etc.) for count and sum.
 ============================== */
-const getOtherProductMetrics = async (
+export const getOtherProductMetrics = async (
   dateRange: DateRange,
   roleFilter?: RoleBasedFilter,
   _periodFilter?: DashboardFilter
 ): Promise<{ count: number; amount: number }> => {
   const startDateStr = toLocalDateString(dateRange.start);
   const endDateStr = toLocalDateString(dateRange.end);
+  const startTimestamp = dateRange.start.toISOString();
+  const endTimestamp = dateRange.end.toISOString();
 
-  // 1) Direct: only paymentDate in range (no createdAt) – date only for filter
+  // 1) Direct: paymentDate in range OR (paymentDate null AND createdAt in range)
   const directPaymentDateCondition = sql`(
-    ${clientProductPayments.paymentDate} IS NOT NULL
-    AND ${clientProductPayments.paymentDate} >= ${startDateStr}
-    AND ${clientProductPayments.paymentDate} <= ${endDateStr}
+    (
+      (${clientProductPayments.paymentDate} IS NOT NULL
+        AND ${clientProductPayments.paymentDate} >= ${startDateStr}
+        AND ${clientProductPayments.paymentDate} <= ${endDateStr})
+      OR
+      (${clientProductPayments.paymentDate} IS NULL
+        AND ${clientProductPayments.createdAt} >= ${startTimestamp}
+        AND ${clientProductPayments.createdAt} <= ${endTimestamp})
+    )
   )`;
 
   let directCountQuery = db
     .select({ count: count() })
     .from(clientProductPayments)
     .where(
-      sql`${clientProductPayments.productName} != ${CORE_PRODUCT} AND ${directPaymentDateCondition}`
+      sql`(
+        ${clientProductPayments.entityType} = 'master_only'
+        AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
+        AND ${directPaymentDateCondition}
+      )`
     ) as any;
 
   if (roleFilter?.userRole === "counsellor" && roleFilter.counsellorId) {
@@ -1186,6 +1364,7 @@ const getOtherProductMetrics = async (
         sql`(
           ${clientInformation.counsellorId} = ${roleFilter.counsellorId}
           AND ${clientInformation.archived} = false
+          AND ${clientProductPayments.entityType} = 'master_only'
           AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
           AND ${directPaymentDateCondition}
         )`
@@ -1196,6 +1375,7 @@ const getOtherProductMetrics = async (
       .where(
         sql`(
           ${clientInformation.archived} = false
+          AND ${clientProductPayments.entityType} = 'master_only'
           AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
           AND ${directPaymentDateCondition}
         )`
@@ -1215,6 +1395,7 @@ const getOtherProductMetrics = async (
     .where(
       sql`(
         ${clientProductPayments.amount} IS NOT NULL
+        AND ${clientProductPayments.entityType} = 'master_only'
         AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
         AND ${clientProductPayments.productName} NOT IN (${sql.raw(countOnlyProductsList)})
         AND ${directPaymentDateCondition}
@@ -1229,6 +1410,7 @@ const getOtherProductMetrics = async (
           ${clientInformation.counsellorId} = ${roleFilter.counsellorId}
           AND ${clientInformation.archived} = false
           AND ${clientProductPayments.amount} IS NOT NULL
+          AND ${clientProductPayments.entityType} = 'master_only'
           AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
           AND ${clientProductPayments.productName} NOT IN (${sql.raw(countOnlyProductsList)})
           AND ${directPaymentDateCondition}
@@ -1241,6 +1423,7 @@ const getOtherProductMetrics = async (
         sql`(
           ${clientInformation.archived} = false
           AND ${clientProductPayments.amount} IS NOT NULL
+          AND ${clientProductPayments.entityType} = 'master_only'
           AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
           AND ${clientProductPayments.productName} NOT IN (${sql.raw(countOnlyProductsList)})
           AND ${directPaymentDateCondition}
@@ -1261,11 +1444,172 @@ const getOtherProductMetrics = async (
 };
 
 /* ==============================
+   NEW: Other Product Breakdown List (Count + Amount per product)
+   - Direct rows: group by client_product_payment.productName for payments in range
+   - Entity rows: group by entityType (loan, ielts, etc.) using entity-table date for filter
+============================== */
+const getOtherProductBreakdown = async (
+  dateRange: DateRange,
+  roleFilter?: RoleBasedFilter
+): Promise<Array<{ key: string; name: string; count: number; amount: string }>> => {
+  const startDateStr = toLocalDateString(dateRange.start);
+  const endDateStr = toLocalDateString(dateRange.end);
+  const startTimestamp = dateRange.start.toISOString();
+  const endTimestamp = dateRange.end.toISOString();
+
+  const countOnlyProductsList = COUNT_ONLY_PRODUCTS.map((p) => `'${p}'`).join(", ");
+
+  const directPaymentDateCondition = sql`(
+    (
+      (${clientProductPayments.paymentDate} IS NOT NULL
+        AND ${clientProductPayments.paymentDate} >= ${startDateStr}
+        AND ${clientProductPayments.paymentDate} <= ${endDateStr})
+      OR
+      (${clientProductPayments.paymentDate} IS NULL
+        AND ${clientProductPayments.createdAt} >= ${startTimestamp}
+        AND ${clientProductPayments.createdAt} <= ${endTimestamp})
+    )
+  )`;
+
+  let directQuery = db
+    .select({
+      productName: clientProductPayments.productName,
+      count: sql<number>`COUNT(*)`,
+      amount: sql<string>`COALESCE(SUM(
+        CASE
+          WHEN ${clientProductPayments.productName} IN (${sql.raw(countOnlyProductsList)}) THEN 0
+          ELSE COALESCE(${clientProductPayments.amount}, 0)::numeric
+        END
+      ), 0)`,
+    })
+    .from(clientProductPayments)
+    .innerJoin(clientInformation, eq(clientProductPayments.clientId, clientInformation.clientId))
+    .where(
+      sql`(
+        ${clientInformation.archived} = false
+        AND ${clientProductPayments.entityType} = 'master_only'
+        AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
+        AND ${directPaymentDateCondition}
+      )`
+    )
+    .groupBy(clientProductPayments.productName) as any;
+
+  if (roleFilter?.userRole === "counsellor" && roleFilter.counsellorId) {
+    directQuery = directQuery.where(
+      sql`${clientInformation.counsellorId} = ${roleFilter.counsellorId}`
+    ) as any;
+  }
+
+  const directRows = await directQuery;
+
+  // Entity-based breakdown (loan/ielts/etc.)
+  const entityLabel: Record<string, string> = {
+    visaextension_id: "Visa Extension",
+    newSell_id: "New Sell",
+    ielts_id: "IELTS",
+    loan_id: "Loan",
+    airTicket_id: "Air Ticket",
+    insurance_id: "Insurance",
+    forexCard_id: "Forex Card",
+    forexFees_id: "Forex Fees",
+    tutionFees_id: "Tution Fees",
+    creditCard_id: "Credit Card",
+    simCard_id: "SIM Card",
+    beaconAccount_id: "Beacon Account",
+  };
+
+  const runForEntity = async (
+    entityType: string,
+    entityTable: any,
+    entityIdCol: any,
+    dateCol: any
+  ): Promise<{ key: string; name: string; count: number; amount: string } | null> => {
+    const conditions: any[] = [
+      sql`${clientProductPayments.entityType} = ${entityType}`,
+      sql`${clientProductPayments.productName} != ${CORE_PRODUCT}`,
+      sql`${dateCol} IS NOT NULL`,
+      gte(dateCol, startDateStr),
+      lte(dateCol, endDateStr),
+      eq(clientInformation.archived, false),
+    ];
+    if (roleFilter?.userRole === "counsellor" && roleFilter.counsellorId) {
+      conditions.push(eq(clientInformation.counsellorId, roleFilter.counsellorId));
+    }
+
+    const rows = await db
+      .select({ entityId: clientProductPayments.entityId })
+      .from(clientProductPayments)
+      .innerJoin(entityTable, eq(clientProductPayments.entityId, entityIdCol))
+      .innerJoin(clientInformation, eq(clientProductPayments.clientId, clientInformation.clientId))
+      .where(and(...conditions));
+
+    const count = rows.length;
+    if (count === 0) return null;
+
+    const ids = rows
+      .map((r: { entityId: number | null }) => r.entityId)
+      .filter((id): id is number => id != null);
+    const amountNum = isCountOnlyEntityType(entityType)
+      ? 0
+      : await getEntityAmountsExcludingCountOnly(entityType, ids);
+
+    return {
+      key: entityType,
+      name: entityLabel[entityType] ?? entityType,
+      count,
+      amount: amountNum.toFixed(2),
+    };
+  };
+
+  const entityRuns: Promise<{ key: string; name: string; count: number; amount: string } | null>[] = [
+    runForEntity("visaextension_id", visaExtension, visaExtension.id, visaExtension.extensionDate),
+    runForEntity("newSell_id", newSell, newSell.id, newSell.sellDate),
+    runForEntity("ielts_id", ielts, ielts.id, ielts.enrollmentDate),
+    runForEntity("loan_id", loan, loan.id, loan.disbursmentDate),
+    runForEntity("airTicket_id", airTicket, airTicket.id, airTicket.ticketDate),
+    runForEntity("insurance_id", insurance, insurance.id, insurance.insuranceDate),
+    runForEntity("forexCard_id", forexCard, forexCard.id, forexCard.cardDate),
+    runForEntity("forexFees_id", forexFees, forexFees.id, forexFees.feeDate),
+    runForEntity("tutionFees_id", tutionFees, tutionFees.id, tutionFees.feeDate),
+    runForEntity("creditCard_id", creditCard, creditCard.id, creditCard.cardDate),
+    runForEntity("simCard_id", simCard, simCard.id, simCard.simCardGivingDate),
+    runForEntity("beaconAccount_id", beaconAccount, beaconAccount.id, beaconAccount.openingDate),
+  ];
+
+  const entityRows = (await Promise.all(entityRuns)).filter(
+    (r): r is { key: string; name: string; count: number; amount: string } => r != null
+  );
+
+  const breakdown: Array<{ key: string; name: string; count: number; amount: string }> = [];
+
+  for (const r of directRows as any[]) {
+    const name = String(r.productName ?? "");
+    if (!name) continue;
+    breakdown.push({
+      key: `direct:${name}`,
+      name,
+      count: Number(r.count ?? 0),
+      amount: Number(r.amount ?? 0).toFixed(2),
+    });
+  }
+
+  breakdown.push(...entityRows);
+
+  // Sort by count desc, then amount desc
+  breakdown.sort((a, b) => {
+    if (b.count !== a.count) return b.count - a.count;
+    return Number(b.amount) - Number(a.amount);
+  });
+
+  return breakdown;
+};
+
+/* ==============================
    Get Core Sale Amount
    Sums INITIAL/BEFORE_VISA/AFTER_VISA payments where the payment falls in the period.
    If payment is in current month it counts in current month, even if client was enrolled earlier.
 ============================== */
-const getCoreSaleAmount = async (
+export const getCoreSaleAmount = async (
   dateRange: DateRange,
   filter?: RoleBasedFilter
 ): Promise<number> => {
@@ -1435,16 +1779,8 @@ const getLeaderboardDataForDashboard = async (
   const startTimestamp = dateRange.start.toISOString();
   const endTimestamp = dateRange.end.toISOString();
 
-  // #region agent log
-  fetch("http://127.0.0.1:7243/ingest/d82f0fb7-7505-4c44-b82a-e27972897e19", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ location: "dashboard.model.ts:getLeaderboardDataForDashboard", message: "Dashboard leaderboard date range", data: { startDateStr, endDateStr, startTs: startTimestamp.slice(0, 19), endTs: endTimestamp.slice(0, 19) }, timestamp: Date.now(), hypothesisId: "H1,H5" }) }).catch(() => {});
-  // #endregion
-
-  // Get counsellors: all for admin and counsellor (whole leaderboard), by manager for manager
-  const roleCondition = eq(users.role, "counsellor");
-  const whereCondition =
-    userRole === "manager" && userId != null
-      ? and(roleCondition, eq(users.managerId, userId))
-      : roleCondition;
+  // All roles (admin, manager, counsellor): show full company counsellor leaderboard
+  const whereCondition = eq(users.role, "counsellor");
 
   const counsellorsList = await db
     .select({
@@ -2060,11 +2396,10 @@ export const getDashboardStats = async (
 ): Promise<DashboardStats> => {
   // Get date ranges
   const dateRange = getDateRange(filter, beforeDate, afterDate);
-  const todayOnlyDateRange = getTodayOnlyDateRange();
   const allTimeDateRange = getAllTimeDateRange();
-  // Summary cards (Core Sale, Core Product, Other Product, Total Clients) use this range only.
-  // Today = today only; weekly = Mon–Sun; monthly = current calendar month only; yearly = that period.
-  const summaryDateRange = filter === "today" ? todayOnlyDateRange : dateRange;
+  // Summary cards and revenue: use the same date range for ALL filters (today, weekly, monthly, yearly).
+  // Same logic as monthly: one range → core sale + core product + other product all use it.
+  const summaryDateRange = dateRange;
 
   // Determine role and build filter
   const roleFilter: RoleBasedFilter | undefined =
@@ -2082,8 +2417,10 @@ export const getDashboardStats = async (
       coreSaleCount,
       coreProductMetrics,
       otherProductMetrics,
+      otherProductBreakdown,
       totalPendingAmount,
       totalClientsCount,
+      saleTypeCategoryCounts,
       // newEnrollmentCount,
       leaderboardData,
       individualPerformance,
@@ -2092,8 +2429,10 @@ export const getDashboardStats = async (
       getCoreServiceCount(summaryDateRange, roleFilter),
       getCoreProductMetrics(summaryDateRange, roleFilter, filter),
       getOtherProductMetrics(summaryDateRange, roleFilter, filter),
+      getOtherProductBreakdown(summaryDateRange, roleFilter),
       getPendingAmount(allTimeDateRange, roleFilter),
       getTotalClients(summaryDateRange, roleFilter),
+      getSaleTypeCategoryCounts(summaryDateRange, roleFilter),
       // getNewEnrollments(filter, summaryDateRange, roleFilter),
       getLeaderboardDataForDashboard(summaryDateRange, userId, userRole),
       getIndividualCounsellorPerformance(userId, filter, dateRange),
@@ -2110,12 +2449,14 @@ export const getDashboardStats = async (
       otherProduct: {
         number: otherProductMetrics.count,
       },
+      otherProductBreakdown,
       totalPendingAmount: {
         amount: totalPendingAmount.pendingAmount,
       },
       totalClients: {
         count: totalClientsCount,
       },
+      saleTypeCategoryCounts,
         // newEnrollment: {
         //   count: newEnrollmentCount.count,
         // },
@@ -2135,8 +2476,10 @@ export const getDashboardStats = async (
     coreSaleAmount,
     coreProductMetrics,
     otherProductMetrics,
+    otherProductBreakdown,
     totalPendingAmount,
     totalClientsCount,
+    saleTypeCategoryCounts,
     leaderboardData,
     chartData,
   ] = await Promise.all([
@@ -2145,8 +2488,10 @@ export const getDashboardStats = async (
     getCoreSaleAmount(summaryDateRange, roleFilter),
     getCoreProductMetrics(summaryDateRange, roleFilter, filter),
     getOtherProductMetrics(summaryDateRange, roleFilter, filter),
+    getOtherProductBreakdown(summaryDateRange, roleFilter),
     getPendingAmount(allTimeDateRange, roleFilter),
     getTotalClients(summaryDateRange, roleFilter),
+    getSaleTypeCategoryCounts(summaryDateRange, roleFilter),
     getLeaderboardDataForDashboard(summaryDateRange, userId, userRole),
     getChartData(range || "today", dateRange, roleFilter, filter),
     // getChartData(chartRange, dateRange, roleFilter)
@@ -2173,6 +2518,7 @@ export const getDashboardStats = async (
       number: otherProductMetrics.count,
       amount: otherProductMetrics.amount.toFixed(2),
     },
+    otherProductBreakdown,
     totalPendingAmount: {
       amount: totalPendingAmount.pendingAmount,
     },
@@ -2182,6 +2528,7 @@ export const getDashboardStats = async (
     revenue: {
       amount: totalRevenue.toFixed(2),
     },
+    saleTypeCategoryCounts,
     leaderboard: leaderboardData,
     chartData,
   };
