@@ -92,6 +92,7 @@ export const saveClientPaymentController = async (
     try {
       await redisDel(`client-payments:${clientId}`);
       await redisDelByPrefix("dashboard:");
+      await redisDelByPrefix("reports:");
     } catch {
       // ignore
     }
@@ -290,6 +291,7 @@ export const deleteClientPaymentController = async (
     }
     try {
       await redisDelByPrefix("dashboard:");
+      await redisDelByPrefix("reports:");
     } catch (e) {
       console.error("Redis invalidate dashboard after payment delete failed:", e);
     }

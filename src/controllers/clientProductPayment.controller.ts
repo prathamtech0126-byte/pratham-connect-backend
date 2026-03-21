@@ -359,6 +359,7 @@ export const saveClientProductPaymentController = async (
       await redisDel(`client-product-payments:${clientId}`);
       await redisDel(`clients:complete:${clientId}`);
       await redisDelByPrefix("dashboard:");
+      await redisDelByPrefix("reports:");
     } catch {
       // ignore
     }
@@ -507,6 +508,7 @@ export const deleteClientProductPaymentController = async (
     }
     try {
       await redisDelByPrefix("dashboard:");
+      await redisDelByPrefix("reports:");
     } catch (e) {
       console.error("Redis invalidate dashboard after product payment delete failed:", e);
     }

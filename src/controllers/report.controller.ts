@@ -2,6 +2,10 @@ import { Request, Response } from "express";
 import { getDateRange, type DashboardFilter } from "../models/dashboard.model";
 import { getReport, type ReportUserRole, type ReportScopeOptions } from "../models/report.model";
 import { getSaleMetricSeries, getSaleReportDashboardData, type SaleMetric, type SaleReportFilter } from "../models/saleReport.model";
+import { redisGetJson, redisSetJson } from "../config/redis";
+
+/** Same ballpark as dashboard/leaderboard GET caches */
+const REPORT_CACHE_TTL_SECONDS = 60;
 
 export const getReportController = async (req: Request, res: Response) => {
   try {
@@ -78,8 +82,14 @@ export const getReportController = async (req: Request, res: Response) => {
       throw dateError;
     }
 
-    const report = await getReport(userId, userRole, dateRange, options, saleTypeId);
+    const cacheKey = `reports:main:${userId}:${userRole}:${filter}:${beforeDate ?? ""}:${afterDate ?? ""}:${options.managerId ?? ""}:${options.counsellorId ?? ""}:${saleTypeId ?? ""}`;
+    const cached = await redisGetJson<unknown>(cacheKey);
+    if (cached != null) {
+      return res.json(cached);
+    }
 
+    const report = await getReport(userId, userRole, dateRange, options, saleTypeId);
+    await redisSetJson(cacheKey, report, REPORT_CACHE_TTL_SECONDS);
     return res.json(report);
   } catch (err) {
     console.error("getReportController", err);
@@ -194,6 +204,12 @@ export const getSaleMetricSeriesController = async (req: Request, res: Response)
       options.counsellorId = counsellorId;
     }
 
+    const graphKey = `reports:sale-graph:${userId}:${userRole}:${metric}:${options.managerId ?? ""}:${options.counsellorId ?? ""}`;
+    const graphCached = await redisGetJson<unknown>(graphKey);
+    if (graphCached != null) {
+      return res.json(graphCached);
+    }
+
     const data = await getSaleMetricSeries(
       userId,
       userRole,
@@ -203,6 +219,7 @@ export const getSaleMetricSeriesController = async (req: Request, res: Response)
       undefined,
       options
     );
+    await redisSetJson(graphKey, data, REPORT_CACHE_TTL_SECONDS);
     return res.json(data);
   } catch (err) {
     console.error("getSaleMetricSeriesController", err);

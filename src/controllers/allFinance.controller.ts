@@ -179,6 +179,7 @@ export const approveAllFinanceController = async (
       }
       await redisDelByPrefix("dashboard:");
       await redisDelByPrefix("leaderboard:");
+      await redisDelByPrefix("reports:");
     } catch (cacheError) {
       console.error("Redis invalidate after allFinance approve failed:", cacheError);
     }
@@ -336,6 +337,7 @@ export const rejectAllFinanceController = async (
       }
       await redisDelByPrefix("dashboard:");
       await redisDelByPrefix("leaderboard:");
+      await redisDelByPrefix("reports:");
     } catch (cacheError) {
       console.error("Redis invalidate after allFinance reject failed:", cacheError);
     }

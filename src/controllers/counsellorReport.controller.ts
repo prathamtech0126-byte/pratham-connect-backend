@@ -4,6 +4,9 @@ import {
   canAccessCounsellorReport,
   getCounsellorReport,
 } from "../models/counsellorReport.model";
+import { redisGetJson, redisSetJson } from "../config/redis";
+
+const COUNSELLOR_REPORT_CACHE_TTL_SECONDS = 60;
 
 /**
  * GET /api/reports/counsellor/:counsellorId
@@ -146,8 +149,15 @@ export const getCounsellorReportController = async (req: Request, res: Response)
       if (!Number.isNaN(saleTypeId)) dateOptions.saleTypeId = saleTypeId;
     }
 
+    const cacheKey = `reports:counsellor:${viewerId}:${viewerRole}:${counsellorId}:${dateOptions.filter}:${dateOptions.startDateStr}:${dateOptions.endDateStr}:${dateOptions.saleTypeId ?? ""}`;
+    const cached = await redisGetJson<unknown>(cacheKey);
+    if (cached != null) {
+      return res.json(cached);
+    }
+
     // ── Fetch report ─────────────────────────────────────────────
     const report = await getCounsellorReport(counsellorId, dateRange, dateOptions);
+    await redisSetJson(cacheKey, report, COUNSELLOR_REPORT_CACHE_TTL_SECONDS);
     return res.json(report);
   } catch (err: any) {
     if (err?.message === "Counsellor not found") {

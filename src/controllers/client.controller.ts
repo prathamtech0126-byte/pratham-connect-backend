@@ -53,9 +53,10 @@ const invalidateClientCaches = async (opts: {
   await redisDelByPrefix("clients:list:manager:");
   await redisDelByPrefix("clients:archived:manager:");
 
-  // Dashboard and leaderboard depend on clients; clear so next load is fresh.
+  // Dashboard, leaderboard, and reports depend on clients; clear so next load is fresh.
   await redisDelByPrefix("dashboard:");
   await redisDelByPrefix("leaderboard:");
+  await redisDelByPrefix("reports:");
 };
 
 /* ==============================
