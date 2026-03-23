@@ -24,6 +24,10 @@ export const getDashboardStatsController = async (
   res: Response
 ) => {
   try {
+    const user = (req as any).user;
+    const userId = user?.id ?? "";
+    const userRole = user?.role ?? "";
+
     const filterParam = (req.query.filter as string) || "today";
 
     const validFilters: DashboardFilter[] = ["today", "weekly", "monthly", "yearly", "custom"];
@@ -35,6 +39,14 @@ export const getDashboardStatsController = async (
     }
 
     const filter = filterParam as DashboardFilter;
+
+    // Counsellor dashboard supports only today/weekly/monthly.
+    if (userRole === "counsellor" && (filter === "yearly" || filter === "custom")) {
+      return res.status(400).json({
+        success: false,
+        message: "Counsellor dashboard supports only today, weekly, and monthly filters.",
+      });
+    }
 
     let beforeDate: string | undefined;
     let afterDate: string | undefined;
@@ -70,10 +82,6 @@ export const getDashboardStatsController = async (
       custom: "custom",
     };
     const range = filterToRangeMap[filter];
-
-    const user = (req as any).user;
-    const userId = user?.id ?? "";
-    const userRole = user?.role ?? "";
 
     const cacheKey = `dashboard:stats:${filter}:${beforeDate ?? ""}:${afterDate ?? ""}:${userId}:${userRole}`;
     const cached = await redisGetJson<any>(cacheKey);
