@@ -55,6 +55,11 @@ export const clientInformation = pgTable(
     leadTypeId: serial("lead_type_id")
       .references(() => leadTypes.id)
       .notNull(),
+    
+    transferedToCounsellorId: bigint("transfered_to_counsellor_id", { mode: "number" })
+      .references(() => users.id),
+
+    transferStatus: boolean("transfer_status").default(false),
 
     archived: boolean("archived").default(false),
 

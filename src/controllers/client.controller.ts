@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { saveClient, getClientFullDetailsById, getClientsByCounsellor, getAllCounsellorIds, getAllClientsForAdmin, getAllClientsForManager, getArchivedClientsByCounsellor, getAllArchivedClientsForAdmin, getAllArchivedClientsForManager, updateClientArchiveStatus, getAllClients, updateClientCounsellor, getClientsByEnrollmentDateRange } from "../models/client.model";
+import { saveClient, getClientFullDetailsById, getClientsByCounsellor, getAllCounsellorIds, getAllClientsForAdmin, getAllClientsForManager, getArchivedClientsByCounsellor, getAllArchivedClientsForAdmin, getAllArchivedClientsForManager, updateClientArchiveStatus, getAllClients, updateClientCounsellor, getClientsByEnrollmentDateRange, type ClientTransferType } from "../models/client.model";
 import { getProductPaymentsByClientId } from "../models/clientProductPayments.model";
 import { emitToCounsellor, emitToAdmin, emitDashboardUpdate, emitToCounsellors } from "../config/socket";
 import { getDashboardStats, getDateRange, type DashboardFilter } from "../models/dashboard.model";
@@ -946,7 +946,7 @@ export const getAllClientsForAdminController = async (req: Request, res: Respons
 // Client Transfer to another counsellor (single or multiple clients)
 export const transferClientController = async (req: Request, res: Response) => {
   try {
-    const { clientId, clientIds, counsellorId } = req.body;
+    const { clientId, clientIds, counsellorId, transferType } = req.body;
     // Support both single clientId and array clientIds (prefer clientIds if both sent)
     const idsToTransfer: number[] = Array.isArray(clientIds) && clientIds.length > 0
       ? clientIds.map((id: any) => (typeof id === "number" ? id : parseInt(String(id), 10))).filter((n: number) => Number.isFinite(n))
@@ -969,6 +969,25 @@ export const transferClientController = async (req: Request, res: Response) => {
       });
     }
 
+    const allowedTransferTypes: ClientTransferType[] = [
+      "full_transfer",
+      "owner_only_transfer_flag",
+    ];
+    if (
+      typeof transferType !== "undefined" &&
+      !allowedTransferTypes.includes(transferType)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid transferType. Allowed values: full_transfer, owner_only_transfer_flag",
+      });
+    }
+    const normalizedTransferType: ClientTransferType =
+      transferType === "owner_only_transfer_flag"
+        ? "owner_only_transfer_flag"
+        : "full_transfer";
+
     const counsellor = await getCounsellorById(targetCounsellorId);
     if (!counsellor) {
       return res.status(404).json({
@@ -987,12 +1006,54 @@ export const transferClientController = async (req: Request, res: Response) => {
         failed.push({ clientId: cid, reason: "Client not found" });
         continue;
       }
-      const oldCounsellorId = Number(client?.client?.counsellorId);
+      const oldCounsellorId = Number(
+        client?.client?.transferStatus && client?.client?.transferedToCounsellorId
+          ? client.client.transferedToCounsellorId
+          : client?.client?.counsellorId
+      );
       if (Number.isFinite(oldCounsellorId)) affectedCounsellorIds.add(oldCounsellorId);
 
       try {
-        await updateClientCounsellor(cid, counsellor.id);
+        await updateClientCounsellor(cid, counsellor.id, normalizedTransferType);
         transferred.push(cid);
+
+        try {
+          await logActivity(req, {
+            entityType: "client",
+            entityId: cid,
+            clientId: cid,
+            action: "UPDATE",
+            oldValue: {
+              counsellorId: client.client.counsellorId,
+              transferedToCounsellorId: client.client.transferedToCounsellorId,
+              transferStatus: client.client.transferStatus,
+            },
+            newValue:
+              normalizedTransferType === "full_transfer"
+                ? {
+                    counsellorId: counsellor.id,
+                    transferedToCounsellorId: null,
+                    transferStatus: false,
+                  }
+                : {
+                    counsellorId: client.client.counsellorId,
+                    transferedToCounsellorId: counsellor.id,
+                    transferStatus: true,
+                  },
+            description:
+              normalizedTransferType === "full_transfer"
+                ? `Client full transfer to counsellor ${counsellor.fullName}`
+                : `Client transferred as owner-only flag to counsellor ${counsellor.fullName}`,
+            metadata: {
+              transferType: normalizedTransferType,
+              targetCounsellorId: counsellor.id,
+              targetCounsellorName: counsellor.fullName,
+            },
+            performedBy: req.user!.id,
+          });
+        } catch {
+          // ignore activity log failures
+        }
       } catch (err: any) {
         failed.push({ clientId: cid, reason: err?.message || "Transfer failed" });
       }
@@ -1012,6 +1073,7 @@ export const transferClientController = async (req: Request, res: Response) => {
       data: {
         transferred,
         failed: failed.length ? failed : undefined,
+        transfer_type: normalizedTransferType,
         transferred_count: transferred.length,
         failed_count: failed.length,
       },

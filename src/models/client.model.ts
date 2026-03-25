@@ -4,7 +4,7 @@ import { clientInformation } from "../schemas/clientInformation.schema";
 import { clientPayments } from "../schemas/clientPayment.schema";
 import { clientProductPayments } from "../schemas/clientProductPayments.schema";
 import { users } from "../schemas/users.schema";
-import { eq, desc, inArray, and, gte, lte, ilike } from "drizzle-orm";
+import { eq, desc, inArray, and, or, gte, lte, ilike, sql } from "drizzle-orm";
 import { Request, Response } from "express";
 import { getPaymentsByClientId } from "./clientPayment.model";
 import { getProductPaymentsByClientId } from "./clientProductPayments.model";
@@ -337,10 +337,21 @@ export const getClientFullDetailsById = async (clientId: number) => {
 
 // get all clients by counsellor (exclude archived)
 export const getClientsByCounsellor = async (counsellorId: number) => {
+  const ownerCounsellorCondition = eq(clientInformation.counsellorId, counsellorId);
+  const transferredCounsellorCondition = and(
+    eq(clientInformation.transferStatus, true),
+    eq(clientInformation.transferedToCounsellorId, counsellorId)
+  );
+
   const clients = await db
     .select()
     .from(clientInformation)
-    .where(and(eq(clientInformation.counsellorId, counsellorId), eq(clientInformation.archived, false)))
+    .where(
+      and(
+        or(ownerCounsellorCondition, transferredCounsellorCondition),
+        eq(clientInformation.archived, false)
+      )
+    )
     .orderBy(desc(clientInformation.enrollmentDate));
 
   // Get counsellor information (id, name, designation)
@@ -497,6 +508,12 @@ export const getClientsByEnrollmentDateRange = async (
   startDateStr: string,
   endDateStr: string
 ) => {
+  const originalCounsellorCondition = inArray(clientInformation.counsellorId, counsellorIds);
+  const transferredCounsellorCondition = and(
+    eq(clientInformation.transferStatus, true),
+    inArray(clientInformation.transferedToCounsellorId, counsellorIds)
+  );
+
   const clients = await db
     .select()
     .from(clientInformation)
@@ -505,7 +522,7 @@ export const getClientsByEnrollmentDateRange = async (
         eq(clientInformation.archived, false),
         gte(clientInformation.enrollmentDate, startDateStr),
         lte(clientInformation.enrollmentDate, endDateStr),
-        inArray(clientInformation.counsellorId, counsellorIds)
+        or(originalCounsellorCondition, transferredCounsellorCondition)
       )
     )
     .orderBy(desc(clientInformation.enrollmentDate));
@@ -764,12 +781,35 @@ export const getAllClients = async (search?: string) => {
   return allClients;
 };
 
-export const updateClientCounsellor = async (clientId: number, counsellorId: number) => {
+export type ClientTransferType = "full_transfer" | "owner_only_transfer_flag";
+
+export const updateClientCounsellor = async (
+  clientId: number,
+  counsellorId: number,
+  transferType: ClientTransferType = "full_transfer"
+) => {
+  const updatePayload =
+    transferType === "full_transfer"
+      ? {
+          counsellorId,
+          transferedToCounsellorId: null,
+          transferStatus: false,
+        }
+      : {
+          transferedToCounsellorId: counsellorId,
+          transferStatus: true,
+        };
+
   const result = await db
     .update(clientInformation)
-    .set({ counsellorId: counsellorId })
+    .set(updatePayload)
     .where(eq(clientInformation.clientId, clientId))
-    .returning({ clientId: clientInformation.clientId, counsellorId: clientInformation.counsellorId });
+    .returning({
+      clientId: clientInformation.clientId,
+      counsellorId: clientInformation.counsellorId,
+      transferedToCounsellorId: clientInformation.transferedToCounsellorId,
+      transferStatus: clientInformation.transferStatus,
+    });
   return result;
 };
 
@@ -945,10 +985,21 @@ export const getAllClientsForAdmin = async () => {
    Returns: array of client objects with counsellor, leadType, payments, productPayments
 ============================== */
 export const getArchivedClientsByCounsellor = async (counsellorId: number) => {
+  const ownerCounsellorCondition = eq(clientInformation.counsellorId, counsellorId);
+  const transferredCounsellorCondition = and(
+    eq(clientInformation.transferStatus, true),
+    eq(clientInformation.transferedToCounsellorId, counsellorId)
+  );
+
   const clients = await db
     .select()
     .from(clientInformation)
-    .where(and(eq(clientInformation.counsellorId, counsellorId), eq(clientInformation.archived, true)))
+    .where(
+      and(
+        or(ownerCounsellorCondition, transferredCounsellorCondition),
+        eq(clientInformation.archived, true)
+      )
+    )
     .orderBy(desc(clientInformation.enrollmentDate));
 
   const counsellorData = await db

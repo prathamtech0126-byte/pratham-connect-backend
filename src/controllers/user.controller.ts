@@ -147,6 +147,10 @@ export const login = async (req: Request, res: Response) => {
     return res.status(401).json({ message: "Invalid credentials" });
   }
 
+  if (user.status === false) {
+    return res.status(401).json({ message: "User is inactive. Contact admin." });
+  }
+
   const isMatch = await bcrypt.compare(password, user.passwordHash);
   if (!isMatch) {
     return res.status(401).json({ message: "Invalid credentials" });
@@ -568,6 +572,16 @@ export const updateUserController = async (req: Request, res: Response) => {
     if (value === null || value === undefined || value === "") return undefined;
     return value;
   };
+  const normalizeOptionalBoolean = (value: any): boolean | undefined => {
+    if (value === null || value === undefined || value === "") return undefined;
+    if (typeof value === "boolean") return value;
+    if (typeof value === "string") {
+      const v = value.trim().toLowerCase();
+      if (v === "true") return true;
+      if (v === "false") return false;
+    }
+    return Boolean(value);
+  };
 
   const payload = {
     fullName: body.fullName ?? body.full_name,
@@ -587,6 +601,7 @@ export const updateUserController = async (req: Request, res: Response) => {
     ),
     designation: normalizeOptional(body.designation),
     isSupervisor: body.isSupervisor ?? body.is_supervisor,
+    status: normalizeOptionalBoolean(body.status),
   };
 
   try {
@@ -606,6 +621,7 @@ export const updateUserController = async (req: Request, res: Response) => {
           officePhone: users.officePhone,
           personalPhone: users.personalPhone,
           designation: users.designation,
+          status: users.status,
         })
         .from(users)
         .where(eq(users.id, userId));
@@ -632,6 +648,7 @@ export const updateUserController = async (req: Request, res: Response) => {
           fullName: updatedUser.fullName,
           role: updatedUser.role,
           managerId: updatedUser.managerId,
+          status: updatedUser.status,
         },
         description: `User updated: ${updatedUser.fullName} (${updatedUser.role})`,
         performedBy: authReq.user.id,

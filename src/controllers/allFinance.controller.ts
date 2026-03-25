@@ -3,6 +3,7 @@ import {
   getPendingAllFinanceApprovals,
   approveAllFinancePayment,
   rejectAllFinancePayment,
+  getAllFinanceApprovalHistory,
 } from "../models/clientProductPayments.model";
 import { logActivity } from "../services/activityLog.service";
 import { emitToAdmin, emitToRoles, emitToCounsellor } from "../config/socket";
@@ -12,7 +13,9 @@ import { clientProductPayments } from "../schemas/clientProductPayments.schema";
 import { clientInformation } from "../schemas/clientInformation.schema";
 import { users } from "../schemas/users.schema";
 import { eq,and } from "drizzle-orm";
-import { redisDel, redisDelByPrefix } from "../config/redis";
+import { redisDel, redisDelByPrefix, redisGetJson, redisSetJson } from "../config/redis";
+
+const ALL_FINANCE_HISTORY_CACHE_TTL_SECONDS = 60;
 
 /**
  * Get pending all finance approvals
@@ -180,6 +183,7 @@ export const approveAllFinanceController = async (
       await redisDelByPrefix("dashboard:");
       await redisDelByPrefix("leaderboard:");
       await redisDelByPrefix("reports:");
+      await redisDelByPrefix("all-finance:history:");
     } catch (cacheError) {
       console.error("Redis invalidate after allFinance approve failed:", cacheError);
     }
@@ -338,6 +342,7 @@ export const rejectAllFinanceController = async (
       await redisDelByPrefix("dashboard:");
       await redisDelByPrefix("leaderboard:");
       await redisDelByPrefix("reports:");
+      await redisDelByPrefix("all-finance:history:");
     } catch (cacheError) {
       console.error("Redis invalidate after allFinance reject failed:", cacheError);
     }
@@ -368,6 +373,71 @@ export const rejectAllFinanceController = async (
     return res.status(400).json({
       success: false,
       message: error.message || "Failed to reject payment",
+    });
+  }
+};
+
+/**
+ * Get approval/rejection history
+ * GET /api/all-finance/history
+ * Access: admin, manager
+ * - Admin: sees all approved/rejected records.
+ * - Manager: sees all except their own approvals/rejections.
+ */
+export const getApprovalHistoryController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const userRole = req.user.role;
+    if (userRole !== "admin" && userRole !== "manager") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admins and managers can view approval history",
+      });
+    }
+
+    const userId = req.user.id as number;
+
+    let isSupervisor = false;
+    if (userRole === "manager") {
+      const [mgr] = await db
+        .select({ isSupervisor: users.isSupervisor })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      isSupervisor = mgr?.isSupervisor ?? false;
+    }
+
+    const cacheKey = `all-finance:history:${userId}:${userRole}:${isSupervisor}`;
+    const cached = await redisGetJson<unknown>(cacheKey);
+    if (cached != null) {
+      return res.status(200).json({ success: true, data: cached, cached: true });
+    }
+
+    let history;
+    if (userRole === "admin" || isSupervisor) {
+      history = await getAllFinanceApprovalHistory();
+    } else {
+      history = await getAllFinanceApprovalHistory(undefined, userId);
+    }
+
+    await redisSetJson(cacheKey, history, ALL_FINANCE_HISTORY_CACHE_TTL_SECONDS);
+
+    return res.status(200).json({
+      success: true,
+      data: history,
+      count: history.length,
+    });
+  } catch (error: any) {
+    console.error("Error getting approval history:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to get approval history",
     });
   }
 };

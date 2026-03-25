@@ -166,11 +166,16 @@ const entityTypeToTable: Record<EntityType, any> = {
 /** Return type for activity log: amount, remarks, paymentDate, invoiceNo (and allFinance anotherPayment*) from entity tables */
 export interface EntityDisplayData {
   amount?: string | null;
+  totalAmount?: string | null;
   remarks?: string | null;
   paymentDate?: string | Date | null;
   invoiceNo?: string | null;
   anotherPaymentAmount?: string | null;
   anotherPaymentDate?: string | Date | null;
+  anotherPaymentAmount2?: string | null;
+  anotherPaymentDate2?: string | Date | null;
+  anotherPaymentAmount3?: string | null;
+  anotherPaymentDate3?: string | Date | null;
 }
 
 /**
@@ -193,6 +198,8 @@ export const getEntityDisplayDataForActivityLog = async (
 
     const out: EntityDisplayData = {};
     if ("amount" in row && row.amount != null) out.amount = String(row.amount);
+    if ("totalAmount" in row && (row as any).totalAmount != null)
+      out.totalAmount = String((row as any).totalAmount);
     if ("remarks" in row && row.remarks != null) out.remarks = String(row.remarks);
     if ("remark" in row && row.remark != null) out.remarks = String(row.remark);
     if ("paymentDate" in row && row.paymentDate != null) out.paymentDate = row.paymentDate;
@@ -205,6 +212,14 @@ export const getEntityDisplayDataForActivityLog = async (
       out.anotherPaymentAmount = String((row as any).anotherPaymentAmount);
     if ("anotherPaymentDate" in row && (row as any).anotherPaymentDate != null)
       out.anotherPaymentDate = (row as any).anotherPaymentDate;
+    if ("anotherPaymentAmount2" in row && (row as any).anotherPaymentAmount2 != null)
+      out.anotherPaymentAmount2 = String((row as any).anotherPaymentAmount2);
+    if ("anotherPaymentDate2" in row && (row as any).anotherPaymentDate2 != null)
+      out.anotherPaymentDate2 = (row as any).anotherPaymentDate2;
+    if ("anotherPaymentAmount3" in row && (row as any).anotherPaymentAmount3 != null)
+      out.anotherPaymentAmount3 = String((row as any).anotherPaymentAmount3);
+    if ("anotherPaymentDate3" in row && (row as any).anotherPaymentDate3 != null)
+      out.anotherPaymentDate3 = (row as any).anotherPaymentDate3;
     // Entities like beacon_account use fundingDate/openingDate instead of paymentDate
     if (out.paymentDate == null) {
       const fundingDate = (row as any).fundingDate ?? (row as any).funding_date;
@@ -294,6 +309,7 @@ interface CreditCardData {
 
 interface AllFinanceData {
   amount: number | string;
+  totalAmount?: number | string;
   paymentDate?: string;
   invoiceNo?: string;
   partialPayment?: boolean;
@@ -302,7 +318,54 @@ interface AllFinanceData {
   remarks?: string;
   anotherPaymentAmount?: number | string;
   anotherPaymentDate?: string;
+  anotherPaymentAmount2?: number | string;
+  anotherPaymentDate2?: string;
+  anotherPaymentAmount3?: number | string;
+  anotherPaymentDate3?: string;
 }
+
+const parseOptionalPositiveAmount = (v: unknown): number | null => {
+  if (v === undefined || v === null || v === "") return null;
+  const n = typeof v === "string" ? parseFloat(v) : Number(v);
+  return isFinite(n) && n > 0 ? n : null;
+};
+
+const parseAllFinanceExtraSlots = (data: AllFinanceData) => {
+  const pairs: [unknown, unknown][] = [
+    [data.anotherPaymentAmount, data.anotherPaymentDate],
+    [data.anotherPaymentAmount2, data.anotherPaymentDate2],
+    [data.anotherPaymentAmount3, data.anotherPaymentDate3],
+  ];
+  const label = ["anotherPayment", "anotherPayment2", "anotherPayment3"];
+
+  return pairs.map((pair, idx) => {
+    const [amtRaw, dateRaw] = pair;
+    const amount = parseOptionalPositiveAmount(amtRaw);
+    const date = dateRaw ? parseFrontendDate(String(dateRaw)) ?? null : null;
+    const base = label[idx];
+    if (amount != null && !date) {
+      throw new Error(`${base}Date is required when ${base}Amount is set`);
+    }
+    if (amount == null && date) {
+      throw new Error(`${base}Amount is required when ${base}Date is set`);
+    }
+    return { amount: amount != null ? amount : null, date: amount != null ? date : null };
+  });
+};
+
+const allFinanceExtraSlotsToColumns = (
+  slots: ReturnType<typeof parseAllFinanceExtraSlots>
+) => ({
+  anotherPaymentAmount: slots[0].amount != null ? slots[0].amount.toString() : null,
+  anotherPaymentDate: slots[0].date,
+  anotherPaymentAmount2: slots[1].amount != null ? slots[1].amount.toString() : null,
+  anotherPaymentDate2: slots[1].date,
+  anotherPaymentAmount3: slots[2].amount != null ? slots[2].amount.toString() : null,
+  anotherPaymentDate3: slots[2].date,
+});
+
+const sumAllFinanceExtraSlots = (slots: ReturnType<typeof parseAllFinanceExtraSlots>) =>
+  slots.reduce((sum, s) => sum + (s.amount ?? 0), 0);
 
 interface VisaExtensionData {
   type: string;
@@ -556,37 +619,45 @@ const createEntityRecord = async (
       // If partialPayment is false, status is "approved" (auto-approved)
       const approvalStatus = data.partialPayment === true ? "pending" : (data.approvalStatus || "approved");
 
+      const normalizedInvoiceNo =
+        data.invoiceNo && data.invoiceNo.trim() !== "" ? data.invoiceNo.trim() : null;
+
       // Check for duplicate invoiceNo if provided
-      if (data.invoiceNo) {
+      if (normalizedInvoiceNo) {
         const [duplicateCheck] = await db
           .select({ financeId: allFinance.financeId })
           .from(allFinance)
-          .where(eq(allFinance.invoiceNo, data.invoiceNo))
+          .where(eq(allFinance.invoiceNo, normalizedInvoiceNo))
           .limit(1);
 
         if (duplicateCheck) {
-          throw new Error(`Invoice number "${data.invoiceNo}" already exists. Please use a different invoice number.`);
+          throw new Error(`Invoice number "${normalizedInvoiceNo}" already exists. Please use a different invoice number.`);
         }
       }
 
-      const anotherAmount =
-        data.anotherPaymentAmount !== undefined && data.anotherPaymentAmount !== null && data.anotherPaymentAmount !== ""
-          ? (typeof data.anotherPaymentAmount === "string" ? parseFloat(data.anotherPaymentAmount) : data.anotherPaymentAmount)
-          : null;
-      const anotherDate = data.anotherPaymentDate ? parseFrontendDate(data.anotherPaymentDate) ?? null : null;
+      const extraSlots = parseAllFinanceExtraSlots(data);
+      const extraCols = allFinanceExtraSlotsToColumns(extraSlots);
+      const extraSum = sumAllFinanceExtraSlots(extraSlots);
+      const totalAmountValue =
+        data.totalAmount !== undefined && data.totalAmount !== null && data.totalAmount !== ""
+          ? (typeof data.totalAmount === "string" ? parseFloat(data.totalAmount) : data.totalAmount)
+          : amountValue + extraSum;
+      if (!isFinite(totalAmountValue) || totalAmountValue <= 0) {
+        throw new Error("Valid totalAmount is required for all finance");
+      }
 
       const [record] = await db
         .insert(allFinance)
         .values({
+          totalAmount: totalAmountValue.toString(),
           amount: amountValue.toString(),
           paymentDate: paymentDateParsed,
-          invoiceNo: data.invoiceNo && data.invoiceNo.trim() !== "" ? data.invoiceNo.trim() : null,
+          invoiceNo: normalizedInvoiceNo,
           partialPayment: data.partialPayment ?? false,
           approvalStatus: approvalStatus as "pending" | "approved" | "rejected",
           approvedBy: data.approvedBy && approvalStatus === "approved" ? data.approvedBy : null,
           remarks: data.remarks && data.remarks.trim() !== "" ? data.remarks.trim() : null,
-          anotherPaymentAmount: anotherAmount != null && isFinite(anotherAmount) ? anotherAmount.toString() : null,
-          anotherPaymentDate: anotherDate,
+          ...extraCols,
         })
         .returning();
       return record.financeId;
@@ -775,16 +846,19 @@ export const saveClientProductPayment = async (
 
           const approvalStatus = data.partialPayment === true ? "pending" : (data.approvalStatus || "approved");
 
+          const normalizedInvoiceNo =
+            data.invoiceNo && data.invoiceNo.trim() !== "" ? data.invoiceNo.trim() : null;
+
           // Check for duplicate invoiceNo if provided
-          if (data.invoiceNo) {
+          if (normalizedInvoiceNo) {
             const [duplicateCheck] = await db
               .select({ financeId: allFinance.financeId })
               .from(allFinance)
-              .where(eq(allFinance.invoiceNo, data.invoiceNo))
+              .where(eq(allFinance.invoiceNo, normalizedInvoiceNo))
               .limit(1);
 
             if (duplicateCheck) {
-              throw new Error(`Invoice number "${data.invoiceNo}" already exists. Please use a different invoice number.`);
+              throw new Error(`Invoice number "${normalizedInvoiceNo}" already exists. Please use a different invoice number.`);
             }
           }
 
@@ -792,24 +866,29 @@ export const saveClientProductPayment = async (
           if (!newPaymentDateParsed) {
             throw new Error("paymentDate is required for all finance");
           }
-          const anotherAmount =
-            data.anotherPaymentAmount !== undefined && data.anotherPaymentAmount !== null && data.anotherPaymentAmount !== ""
-              ? (typeof data.anotherPaymentAmount === "string" ? parseFloat(data.anotherPaymentAmount) : data.anotherPaymentAmount)
-              : null;
-          const anotherDate = data.anotherPaymentDate ? parseFrontendDate(data.anotherPaymentDate) ?? null : null;
+          const extraSlots = parseAllFinanceExtraSlots(data);
+          const extraCols = allFinanceExtraSlotsToColumns(extraSlots);
+          const extraSum = sumAllFinanceExtraSlots(extraSlots);
+          const totalAmountValue =
+            data.totalAmount !== undefined && data.totalAmount !== null && data.totalAmount !== ""
+              ? (typeof data.totalAmount === "string" ? parseFloat(data.totalAmount) : data.totalAmount)
+              : amountValue + extraSum;
+          if (!isFinite(totalAmountValue) || totalAmountValue <= 0) {
+            throw new Error("Valid totalAmount is required for all finance");
+          }
 
           const [newAllFinance] = await db
             .insert(allFinance)
             .values({
+              totalAmount: totalAmountValue.toString(),
               amount: amountValue.toString(),
               paymentDate: newPaymentDateParsed,
-              invoiceNo: data.invoiceNo && data.invoiceNo.trim() !== "" ? data.invoiceNo.trim() : null,
+              invoiceNo: normalizedInvoiceNo,
               partialPayment: data.partialPayment ?? false,
               approvalStatus: approvalStatus as "pending" | "approved" | "rejected",
               approvedBy: data.approvedBy && approvalStatus === "approved" ? data.approvedBy : null,
               remarks: data.remarks && data.remarks.trim() !== "" ? data.remarks.trim() : null,
-              anotherPaymentAmount: anotherAmount != null && isFinite(anotherAmount) ? anotherAmount.toString() : null,
-              anotherPaymentDate: anotherDate,
+              ...extraCols,
             })
             .returning();
 
@@ -846,6 +925,17 @@ export const saveClientProductPayment = async (
               throw new Error("Invalid amount for all finance");
             }
             updateData.amount = amountValue.toString();
+          }
+
+          if (data.totalAmount !== undefined) {
+            const totalAmountValue =
+              data.totalAmount !== null && data.totalAmount !== ""
+                ? (typeof data.totalAmount === "string" ? parseFloat(data.totalAmount) : data.totalAmount)
+                : NaN;
+            if (!isFinite(totalAmountValue) || totalAmountValue <= 0) {
+              throw new Error("Invalid totalAmount for all finance");
+            }
+            updateData.totalAmount = totalAmountValue.toString();
           }
 
           if (data.paymentDate !== undefined) {
@@ -885,9 +975,67 @@ export const saveClientProductPayment = async (
                 ? (typeof data.anotherPaymentAmount === "string" ? parseFloat(data.anotherPaymentAmount) : data.anotherPaymentAmount)
                 : null;
             updateData.anotherPaymentAmount = anotherAmount != null && isFinite(anotherAmount) ? anotherAmount.toString() : null;
+            if (anotherAmount == null || !isFinite(anotherAmount)) {
+              updateData.anotherPaymentDate = null;
+            }
           }
           if (data.anotherPaymentDate !== undefined) {
             updateData.anotherPaymentDate = data.anotherPaymentDate ? parseFrontendDate(data.anotherPaymentDate) ?? null : null;
+          }
+
+          if (data.anotherPaymentAmount2 !== undefined) {
+            const anotherAmount =
+              data.anotherPaymentAmount2 !== null && data.anotherPaymentAmount2 !== ""
+                ? (typeof data.anotherPaymentAmount2 === "string" ? parseFloat(data.anotherPaymentAmount2) : data.anotherPaymentAmount2)
+                : null;
+            updateData.anotherPaymentAmount2 = anotherAmount != null && isFinite(anotherAmount) ? anotherAmount.toString() : null;
+            if (anotherAmount == null || !isFinite(anotherAmount)) {
+              updateData.anotherPaymentDate2 = null;
+            }
+          }
+          if (data.anotherPaymentDate2 !== undefined) {
+            updateData.anotherPaymentDate2 = data.anotherPaymentDate2 ? parseFrontendDate(data.anotherPaymentDate2) ?? null : null;
+          }
+
+          if (data.anotherPaymentAmount3 !== undefined) {
+            const anotherAmount =
+              data.anotherPaymentAmount3 !== null && data.anotherPaymentAmount3 !== ""
+                ? (typeof data.anotherPaymentAmount3 === "string" ? parseFloat(data.anotherPaymentAmount3) : data.anotherPaymentAmount3)
+                : null;
+            updateData.anotherPaymentAmount3 = anotherAmount != null && isFinite(anotherAmount) ? anotherAmount.toString() : null;
+            if (anotherAmount == null || !isFinite(anotherAmount)) {
+              updateData.anotherPaymentDate3 = null;
+            }
+          }
+          if (data.anotherPaymentDate3 !== undefined) {
+            updateData.anotherPaymentDate3 = data.anotherPaymentDate3 ? parseFrontendDate(data.anotherPaymentDate3) ?? null : null;
+          }
+
+          const paymentFieldsTouched =
+            data.amount !== undefined ||
+            data.anotherPaymentAmount !== undefined ||
+            data.anotherPaymentDate !== undefined ||
+            data.anotherPaymentAmount2 !== undefined ||
+            data.anotherPaymentDate2 !== undefined ||
+            data.anotherPaymentAmount3 !== undefined ||
+            data.anotherPaymentDate3 !== undefined;
+
+          if (paymentFieldsTouched && data.totalAmount === undefined) {
+            const merged = { ...existingAllFinance, ...updateData } as typeof existingAllFinance;
+            const mergedForSlots: AllFinanceData = {
+              amount: merged.amount!,
+              anotherPaymentAmount: merged.anotherPaymentAmount ?? undefined,
+              anotherPaymentDate: merged.anotherPaymentDate as string | undefined,
+              anotherPaymentAmount2: merged.anotherPaymentAmount2 ?? undefined,
+              anotherPaymentDate2: merged.anotherPaymentDate2 as string | undefined,
+              anotherPaymentAmount3: merged.anotherPaymentAmount3 ?? undefined,
+              anotherPaymentDate3: merged.anotherPaymentDate3 as string | undefined,
+            };
+            const primaryAmt = parseFloat(String(merged.amount));
+            if (isFinite(primaryAmt) && primaryAmt > 0) {
+              const slots = parseAllFinanceExtraSlots(mergedForSlots);
+              updateData.totalAmount = (primaryAmt + sumAllFinanceExtraSlots(slots)).toString();
+            }
           }
 
           // If the payment was previously rejected, editing it resubmits it for approval (reset to pending)
@@ -1338,6 +1486,7 @@ export const getPendingAllFinanceApprovals = async () => {
   const pendingFinance = await db
     .select({
       financeId: allFinance.financeId,
+      totalAmount: allFinance.totalAmount,
       amount: allFinance.amount,
       paymentDate: allFinance.paymentDate,
       invoiceNo: allFinance.invoiceNo,
@@ -1347,6 +1496,10 @@ export const getPendingAllFinanceApprovals = async () => {
       remarks: allFinance.remarks,
       anotherPaymentAmount: allFinance.anotherPaymentAmount,
       anotherPaymentDate: allFinance.anotherPaymentDate,
+      anotherPaymentAmount2: allFinance.anotherPaymentAmount2,
+      anotherPaymentDate2: allFinance.anotherPaymentDate2,
+      anotherPaymentAmount3: allFinance.anotherPaymentAmount3,
+      anotherPaymentDate3: allFinance.anotherPaymentDate3,
       createdAt: allFinance.createdAt,
     })
     .from(allFinance)
@@ -1490,6 +1643,7 @@ export const approveAllFinancePayment = async (
     .set({
       approvalStatus: "approved",
       approvedBy: approvedBy,
+      approvedAt: new Date(),
     })
     .where(eq(allFinance.financeId, financeId))
     .returning();
@@ -1553,6 +1707,7 @@ export const rejectAllFinancePayment = async (
     .set({
       approvalStatus: "rejected",
       approvedBy: approvedBy,
+      approvedAt: new Date(),
     })
     .where(eq(allFinance.financeId, financeId))
     .returning();
@@ -1586,6 +1741,149 @@ export const rejectAllFinancePayment = async (
   };
 };
 
+
+/* ================================
+   ALL FINANCE APPROVAL HISTORY
+   Returns approved/rejected records with approver details, client info, etc.
+   When excludeApproverId is set, rows where approved_by === excludeApproverId are hidden.
+================================ */
+
+export const getAllFinanceApprovalHistory = async (
+  excludeApproverId?: number,
+  onlyApproverId?: number
+) => {
+  const conditions: any[] = [
+    sql`${allFinance.approvalStatus} IN ('approved', 'rejected')`,
+    eq(allFinance.partialPayment, true),
+  ];
+
+  if (excludeApproverId != null) {
+    conditions.push(ne(allFinance.approvedBy, excludeApproverId));
+  }
+
+  if (onlyApproverId != null) {
+    conditions.push(eq(allFinance.approvedBy, onlyApproverId));
+  }
+
+  const records = await db
+    .select({
+      financeId: allFinance.financeId,
+      totalAmount: allFinance.totalAmount,
+      amount: allFinance.amount,
+      paymentDate: allFinance.paymentDate,
+      invoiceNo: allFinance.invoiceNo,
+      partialPayment: allFinance.partialPayment,
+      approvalStatus: allFinance.approvalStatus,
+      approvedBy: allFinance.approvedBy,
+      approvedAt: allFinance.approvedAt,
+      anotherPaymentAmount: allFinance.anotherPaymentAmount,
+      anotherPaymentDate: allFinance.anotherPaymentDate,
+      anotherPaymentAmount2: allFinance.anotherPaymentAmount2,
+      anotherPaymentDate2: allFinance.anotherPaymentDate2,
+      anotherPaymentAmount3: allFinance.anotherPaymentAmount3,
+      anotherPaymentDate3: allFinance.anotherPaymentDate3,
+      remarks: allFinance.remarks,
+      createdAt: allFinance.createdAt,
+    })
+    .from(allFinance)
+    .where(and(...conditions))
+    .orderBy(
+      desc(sql`COALESCE(${allFinance.approvedAt}, ${allFinance.createdAt})`),
+      desc(allFinance.createdAt)
+    );
+
+  if (records.length === 0) return [];
+
+  const financeIds = records.map((r) => r.financeId);
+
+  const productPayments = await db
+    .select({
+      productPaymentId: clientProductPayments.productPaymentId,
+      clientId: clientProductPayments.clientId,
+      entityId: clientProductPayments.entityId,
+    })
+    .from(clientProductPayments)
+    .where(
+      and(
+        eq(clientProductPayments.productName, "ALL_FINANCE_EMPLOYEMENT"),
+        inArray(clientProductPayments.entityId, financeIds)
+      )
+    );
+
+  const financeToPaymentMap = new Map(productPayments.map((p) => [p.entityId, p]));
+
+  const clientIds = [...new Set(productPayments.map((p) => p.clientId))];
+  const clients =
+    clientIds.length > 0
+      ? await db
+          .select({
+            clientId: clientInformation.clientId,
+            fullName: clientInformation.fullName,
+            counsellorId: clientInformation.counsellorId,
+          })
+          .from(clientInformation)
+          .where(inArray(clientInformation.clientId, clientIds))
+      : [];
+  const clientMap = new Map(clients.map((c) => [c.clientId, c]));
+
+  // Resolve counsellor names for the clients
+  const counsellorIds = [...new Set(
+    clients.map((c) => c.counsellorId).filter((id): id is number => id != null)
+  )];
+
+  // Fetch both approvers and counsellors in one pass over the users table
+  const allUserIds = [...new Set([
+    ...records
+      .map((r) => r.approvedBy)
+      .filter((id): id is number => typeof id === "number" && !isNaN(id)),
+    ...counsellorIds,
+  ])];
+
+  const userRows =
+    allUserIds.length > 0
+      ? await db
+          .select({
+            id: users.id,
+            fullName: users.fullName,
+            designation: users.designation,
+            role: users.role,
+          })
+          .from(users)
+          .where(inArray(users.id, allUserIds))
+      : [];
+  const userMap = new Map(userRows.map((u) => [u.id, u]));
+
+  return records
+    .map((record) => {
+      const productPayment = financeToPaymentMap.get(record.financeId);
+      const clientId = productPayment?.clientId;
+      const client = clientId ? clientMap.get(clientId) : null;
+
+      // Skip orphaned records with no client link
+      if (!client) return null;
+
+      const approver = record.approvedBy ? userMap.get(record.approvedBy) : null;
+      const counsellor = client.counsellorId ? userMap.get(client.counsellorId) : null;
+
+      return {
+        ...record,
+        productPaymentId: productPayment?.productPaymentId ?? null,
+        client: { clientId: client.clientId, fullName: client.fullName },
+        counsellor: counsellor
+          ? { id: counsellor.id, fullName: counsellor.fullName }
+          : null,
+        approver: approver
+          ? {
+              id: approver.id,
+              name: approver.fullName,
+              designation: approver.designation,
+              role: approver.role,
+            }
+          : null,
+      };
+    })
+    .filter((r): r is NonNullable<typeof r> => r !== null);
+};
 
 /**
  * Delete a client product payment by id. Also deletes the linked entity row

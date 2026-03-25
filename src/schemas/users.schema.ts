@@ -58,6 +58,8 @@ export const users = pgTable(
 
     isSupervisor: boolean("is_supervisor").default(false).notNull(),
 
+    status: boolean("status").default(true).notNull(),
+
     createdAt: timestamp("created_at").defaultNow(),
   },
   (table) => ({

@@ -4,6 +4,7 @@ import {
   getPendingApprovalsController,
   approveAllFinanceController,
   rejectAllFinanceController,
+  getApprovalHistoryController,
 } from "../controllers/allFinance.controller";
 
 const router = Router();
@@ -42,6 +43,20 @@ router.post(
   requireAuth,
   requireRole("admin", "manager"),
   rejectAllFinanceController
+);
+
+/**
+ * Get approval/rejection history
+ * GET /api/all-finance/history
+ * Access: admin, manager
+ * - Admin: all records
+ * - Manager: all except their own approvals/rejections
+ */
+router.get(
+  "/history",
+  requireAuth,
+  requireRole("admin", "manager"),
+  getApprovalHistoryController
 );
 
 export default router;

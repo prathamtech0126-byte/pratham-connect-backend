@@ -36,6 +36,7 @@ interface UpdateUserInput {
   personalPhone?: string;
   designation?: string;
   isSupervisor?: boolean;
+  status?: boolean;
 }
 
 /* ================================
@@ -174,6 +175,7 @@ export const getAllUsers = async () => {
       managerId: users.managerId,
       designation: users.designation,
       isSupervisor: users.isSupervisor,
+      status: users.status,
       createdAt: users.createdAt,
     })
     .from(users)
@@ -439,6 +441,7 @@ export const updateUserByAdmin = async (
         personalPhone: data.personalPhone,
         designation: data.designation,
         isSupervisor: finalIsSupervisor ?? false,
+        status: data.status,
       })
       .where(eq(users.id, userId))
       .returning({
@@ -448,6 +451,7 @@ export const updateUserByAdmin = async (
         role: users.role,
         managerId: users.managerId,
         isSupervisor: users.isSupervisor,
+        status: users.status,
       });
 
     return updatedUser;

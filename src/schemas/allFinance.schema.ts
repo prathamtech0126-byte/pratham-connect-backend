@@ -25,6 +25,8 @@ export const allFinance = pgTable(
   {
     financeId: bigserial("id", { mode: "number" }).primaryKey(),
 
+    totalAmount: decimal("total_amount", { precision: 12, scale: 2 }),
+
     // Common fields
     amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
 
@@ -41,11 +43,26 @@ export const allFinance = pgTable(
     approvedBy: bigint("approved_by", { mode: "number" })
       .references(() => users.id),
 
+    // When the payment was approved or rejected
+    approvedAt: timestamp("approved_at"),
+
     // Another payment amount and date
     anotherPaymentAmount: decimal("another_payment_amount", { precision: 12, scale: 2 }),
     
     // Another payment date
     anotherPaymentDate: date("another_payment_date"),
+
+    // Another payment amount and date
+    anotherPaymentAmount2: decimal("another_payment_amount2", { precision: 12, scale: 2 }),
+    
+    // Another payment date
+    anotherPaymentDate2: date("another_payment_date2"),
+
+    // Another payment amount and date
+    anotherPaymentAmount3: decimal("another_payment_amount3", { precision: 12, scale: 2 }),
+    
+    // Another payment date
+    anotherPaymentDate3: date("another_payment_date3"),
 
     // Remarks for the payment
     remarks: text("remarks"),

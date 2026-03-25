@@ -369,7 +369,13 @@ const buildCounsellorFilter = (
   clientTable: any
 ): any => {
   if (filter.userRole === "counsellor" && filter.counsellorId) {
-    return eq(clientTable.counsellorId, filter.counsellorId);
+    return sql`(
+      CASE
+        WHEN ${clientTable.transferStatus} = true AND ${clientTable.transferedToCounsellorId} IS NOT NULL
+        THEN ${clientTable.transferedToCounsellorId}
+        ELSE ${clientTable.counsellorId}
+      END
+    ) = ${filter.counsellorId}`;
   }
   return undefined; // No filter for admin/manager
 };
@@ -552,7 +558,15 @@ export const getCoreServiceCount = async (
     )`,
   ];
   if (filter?.userRole === "counsellor" && filter.counsellorId) {
-    conditions.push(eq(clientInformation.counsellorId, filter.counsellorId));
+    conditions.push(
+      sql`(
+        CASE
+          WHEN ${clientInformation.transferStatus} = true AND ${clientInformation.transferedToCounsellorId} IS NOT NULL
+          THEN ${clientInformation.transferedToCounsellorId}
+          ELSE ${clientInformation.counsellorId}
+        END
+      ) = ${filter.counsellorId}`
+    );
   }
 
   const [result] = await db
@@ -1280,7 +1294,15 @@ const getEntityBasedOtherProductCountAndAmount = async (
       eq(clientInformation.archived, false),
     ];
     if (roleFilter?.userRole === "counsellor" && roleFilter.counsellorId) {
-      conditions.push(eq(clientInformation.counsellorId, roleFilter.counsellorId));
+      conditions.push(
+        sql`(
+          CASE
+            WHEN ${clientInformation.transferStatus} = true AND ${clientInformation.transferedToCounsellorId} IS NOT NULL
+            THEN ${clientInformation.transferedToCounsellorId}
+            ELSE ${clientInformation.counsellorId}
+          END
+        ) = ${roleFilter.counsellorId}`
+      );
     }
     const rows = await db
       .select({ entityId: clientProductPayments.entityId })
@@ -1533,7 +1555,15 @@ const getOtherProductBreakdown = async (
       eq(clientInformation.archived, false),
     ];
     if (roleFilter?.userRole === "counsellor" && roleFilter.counsellorId) {
-      conditions.push(eq(clientInformation.counsellorId, roleFilter.counsellorId));
+      conditions.push(
+        sql`(
+          CASE
+            WHEN ${clientInformation.transferStatus} = true AND ${clientInformation.transferedToCounsellorId} IS NOT NULL
+            THEN ${clientInformation.transferedToCounsellorId}
+            ELSE ${clientInformation.counsellorId}
+          END
+        ) = ${roleFilter.counsellorId}`
+      );
     }
 
     const rows = await db
