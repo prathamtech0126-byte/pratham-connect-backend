@@ -343,6 +343,48 @@ export const updateUserByAdmin = async (
     data.email = newEmail;
   }
 
+  if (data.officePhone !== undefined) {
+    const normalizedOfficePhone =
+      data.officePhone && data.officePhone.trim() !== ""
+        ? data.officePhone.trim()
+        : undefined;
+
+    if (normalizedOfficePhone) {
+      const existingOfficePhone = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.officePhone, normalizedOfficePhone), ne(users.id, userId)))
+        .limit(1);
+
+      if (existingOfficePhone.length > 0) {
+        throw new Error("Office phone already exists");
+      }
+    }
+
+    data.officePhone = normalizedOfficePhone;
+  }
+
+  if (data.personalPhone !== undefined) {
+    const normalizedPersonalPhone =
+      data.personalPhone && data.personalPhone.trim() !== ""
+        ? data.personalPhone.trim()
+        : undefined;
+
+    if (normalizedPersonalPhone) {
+      const existingPersonalPhone = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.personalPhone, normalizedPersonalPhone), ne(users.id, userId)))
+        .limit(1);
+
+      if (existingPersonalPhone.length > 0) {
+        throw new Error("Personal phone already exists");
+      }
+    }
+
+    data.personalPhone = normalizedPersonalPhone;
+  }
+
   // Track if empId was originally provided and normalize it
   let normalizedEmpIdValue: string | null | undefined = undefined;
   if (data.empId !== undefined) {

@@ -730,7 +730,8 @@ const createEntityRecord = async (
 
 
 export const saveClientProductPayment = async (
-  data: SaveClientProductPaymentInput
+  data: SaveClientProductPaymentInput,
+  handledBy: number
 ) => {
   // Normalize IDs - convert strings to numbers if needed
   const productPaymentId = data.productPaymentId ? Number(data.productPaymentId) : undefined;
@@ -750,6 +751,9 @@ export const saveClientProductPayment = async (
 
   if (!productName) {
     throw new Error("productName is required");
+  }
+  if (!Number.isFinite(handledBy) || handledBy <= 0) {
+    throw new Error("Valid handledBy is required");
   }
 
   const entityType = productToEntityTypeMap[productName];
@@ -1234,6 +1238,7 @@ export const saveClientProductPayment = async (
                 ? (remarks !== null && String(remarks).trim() !== "" ? String(remarks).trim() : null)
                 : existing.remarks)
             : null,
+        handledBy,
       })
       .where(eq(clientProductPayments.productPaymentId, productPaymentId))
       .returning();
@@ -1299,6 +1304,7 @@ export const saveClientProductPayment = async (
         entityType === "master_only"
           ? (remarks !== undefined && remarks !== null && String(remarks).trim() !== "" ? String(remarks).trim() : null)
           : null,
+      handledBy,
     })
     .returning();
 

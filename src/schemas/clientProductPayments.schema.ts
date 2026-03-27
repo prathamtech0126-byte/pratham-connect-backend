@@ -11,6 +11,7 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 import { clientInformation } from "./clientInformation.schema";
+import { users } from "./users.schema";
 
 // Product type enum - all available products
 export const productTypeEnum = pgEnum("product_type_enum", [
@@ -91,6 +92,9 @@ export const clientProductPayments = pgTable(
 
     remarks: text("remark"),
 
+    handledBy: bigint("handled_by", { mode: "number" })
+      .references(() => users.id),
+
     createdAt: timestamp("created_at").defaultNow(),
   },
   (table) => ({
@@ -108,6 +112,8 @@ export const clientProductPayments = pgTable(
     ),
 
     createdAtIdx: index("idx_product_payment_created_at").on(table.createdAt),
+
+    handledByIdx: index("idx_product_payment_handled_by").on(table.handledBy),
 
     clientProductIdx: index("idx_product_payment_client_product").on(
       table.clientId,

@@ -55,6 +55,9 @@ const COUNT_ONLY_ENTITY_TYPES = [
   "forexFees_id",
 ] as const;
 
+const attributedCounsellorByClientPaymentSql = sql<number>`COALESCE(${clientPayments.handledBy}, ${clientInformation.counsellorId})`;
+const attributedCounsellorByProductPaymentSql = sql<number>`COALESCE(${clientProductPayments.handledBy}, ${clientInformation.counsellorId})`;
+
 // Admin/Manager Dashboard Stats
 export interface AdminManagerDashboardStats {
   // newEnrollment: {
@@ -1098,7 +1101,7 @@ export const getCoreProductMetrics = async (
       )
       .where(
         sql`(
-          ${clientInformation.counsellorId} = ${roleFilter.counsellorId}
+          ${attributedCounsellorByProductPaymentSql} = ${roleFilter.counsellorId}
           AND ${clientInformation.archived} = false
           AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
           AND ${allFinanceDateCondition}
@@ -1143,7 +1146,7 @@ export const getCoreProductMetrics = async (
       )
       .where(
         sql`(
-          ${clientInformation.counsellorId} = ${roleFilter.counsellorId}
+          ${attributedCounsellorByProductPaymentSql} = ${roleFilter.counsellorId}
           AND ${clientInformation.archived} = false
           AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
           AND ${allFinanceDateCondition}
@@ -1191,7 +1194,7 @@ export const getCoreProductMetrics = async (
       )
       .where(
         sql`(
-          ${clientInformation.counsellorId} = ${roleFilter.counsellorId}
+          ${attributedCounsellorByProductPaymentSql} = ${roleFilter.counsellorId}
           AND ${clientInformation.archived} = false
           AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
           AND ${anotherDateCondition}
@@ -1233,7 +1236,7 @@ export const getCoreProductMetrics = async (
       )
       .where(
         sql`(
-          ${clientInformation.counsellorId} = ${roleFilter.counsellorId}
+          ${attributedCounsellorByProductPaymentSql} = ${roleFilter.counsellorId}
           AND ${clientInformation.archived} = false
           AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
           AND ${anotherDateCondition}
@@ -1384,7 +1387,7 @@ export const getOtherProductMetrics = async (
       .innerJoin(clientInformation, eq(clientProductPayments.clientId, clientInformation.clientId))
       .where(
         sql`(
-          ${clientInformation.counsellorId} = ${roleFilter.counsellorId}
+          ${attributedCounsellorByProductPaymentSql} = ${roleFilter.counsellorId}
           AND ${clientInformation.archived} = false
           AND ${clientProductPayments.entityType} = 'master_only'
           AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
@@ -1429,7 +1432,7 @@ export const getOtherProductMetrics = async (
       .innerJoin(clientInformation, eq(clientProductPayments.clientId, clientInformation.clientId))
       .where(
         sql`(
-          ${clientInformation.counsellorId} = ${roleFilter.counsellorId}
+          ${attributedCounsellorByProductPaymentSql} = ${roleFilter.counsellorId}
           AND ${clientInformation.archived} = false
           AND ${clientProductPayments.amount} IS NOT NULL
           AND ${clientProductPayments.entityType} = 'master_only'
@@ -1518,7 +1521,7 @@ const getOtherProductBreakdown = async (
 
   if (roleFilter?.userRole === "counsellor" && roleFilter.counsellorId) {
     directQuery = directQuery.where(
-      sql`${clientInformation.counsellorId} = ${roleFilter.counsellorId}`
+      sql`${attributedCounsellorByProductPaymentSql} = ${roleFilter.counsellorId}`
     ) as any;
   }
 
@@ -1674,7 +1677,7 @@ export const getCoreSaleAmount = async (
 
   if (filter?.userRole === "counsellor" && filter.counsellorId) {
     query = query.where(
-      sql`${baseConditions} AND ${clientInformation.counsellorId} = ${filter.counsellorId}`
+      sql`${baseConditions} AND ${attributedCounsellorByClientPaymentSql} = ${filter.counsellorId}`
     ) as any;
   } else {
     query = query.where(baseConditions) as any;
@@ -1724,7 +1727,7 @@ const getCoreServiceCountByPaymentDate = async (
 
   if (filter?.userRole === "counsellor" && filter.counsellorId) {
     query = query.where(
-      sql`${paymentDateCondition} AND ${clientInformation.counsellorId} = ${filter.counsellorId}`
+      sql`${paymentDateCondition} AND ${attributedCounsellorByClientPaymentSql} = ${filter.counsellorId}`
     ) as any;
   } else {
     query = query.where(paymentDateCondition) as any;
@@ -1769,7 +1772,7 @@ const getCoreSaleAmountByPaymentDate = async (
 
   if (filter?.userRole === "counsellor" && filter.counsellorId) {
     query = query.where(
-      sql`${baseConditions} AND ${clientInformation.counsellorId} = ${filter.counsellorId}`
+      sql`${baseConditions} AND ${attributedCounsellorByClientPaymentSql} = ${filter.counsellorId}`
     ) as any;
   } else {
     query = query.where(baseConditions) as any;

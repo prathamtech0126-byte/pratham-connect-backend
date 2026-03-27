@@ -10,7 +10,7 @@ import {
 } from "./leaderboard.model";
 import { getPendingAmountByCounsellors } from "./dashboard.model";
 import { getAllSaleTypes } from "./saleType.model";
-import { eq, and, count, sql, inArray } from "drizzle-orm";
+import { eq, and, count, sql, inArray, or, isNull } from "drizzle-orm";
 
 export type ReportUserRole = "admin" | "manager" | "counsellor";
 
@@ -56,6 +56,8 @@ export interface ReportResult {
   total_company_revenue: number;
   counsellor_performance: CounsellorPerformanceItem[];
 }
+
+const paymentAttributedCounsellorSql = sql<number>`COALESCE(${clientPayments.handledBy}, ${clientInformation.counsellorId})`;
 
 /**
  * Resolve which counsellors and managers the user can see.
@@ -179,7 +181,7 @@ export const getRevenueBySaleTypePerCounsellor = async (
   if (counsellorIds.length === 0) return new Map();
   const rows = await db
     .select({
-      counsellorId: clientInformation.counsellorId,
+      counsellorId: paymentAttributedCounsellorSql,
       saleTypeId: clientPayments.saleTypeId,
       total: sql<string>`COALESCE(SUM(${clientPayments.amount}::numeric), 0)`,
     })
@@ -190,14 +192,20 @@ export const getRevenueBySaleTypePerCounsellor = async (
     )
     .where(
       and(
-        inArray(clientInformation.counsellorId, counsellorIds),
+        or(
+          inArray(clientPayments.handledBy, counsellorIds),
+          and(
+            isNull(clientPayments.handledBy),
+            inArray(clientInformation.counsellorId, counsellorIds)
+          )
+        ),
         sql`(${clientInformation.archived} = false OR ${clientInformation.archived} IS NULL)`,
         sql`${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')`,
         sql`${clientPayments.paymentDate} >= ${startStr}`,
         sql`${clientPayments.paymentDate} <= ${endStr}`
       )
     )
-    .groupBy(clientInformation.counsellorId, clientPayments.saleTypeId);
+    .groupBy(paymentAttributedCounsellorSql, clientPayments.saleTypeId);
   const map = new Map<number, Map<number, number>>();
   for (const r of rows) {
     let inner = map.get(Number(r.counsellorId));
@@ -230,7 +238,7 @@ export const getEnrollmentCountBySaleTypePerCounsellor = async (
 
   const rows = await db
     .select({
-      counsellorId: clientInformation.counsellorId,
+      counsellorId: paymentAttributedCounsellorSql,
       count: sql<number>`COUNT(DISTINCT ${clientInformation.clientId})`,
     })
     .from(clientPayments)
@@ -240,7 +248,13 @@ export const getEnrollmentCountBySaleTypePerCounsellor = async (
     )
     .where(
       and(
-        inArray(clientInformation.counsellorId, counsellorIds),
+        or(
+          inArray(clientPayments.handledBy, counsellorIds),
+          and(
+            isNull(clientPayments.handledBy),
+            inArray(clientInformation.counsellorId, counsellorIds)
+          )
+        ),
         sql`(${clientInformation.archived} = false OR ${clientInformation.archived} IS NULL)`,
         sql`${clientInformation.enrollmentDate} >= ${startStr}`,
         sql`${clientInformation.enrollmentDate} <= ${endStr}`,
@@ -250,7 +264,7 @@ export const getEnrollmentCountBySaleTypePerCounsellor = async (
         sql`${clientPayments.paymentDate} <= ${endStr}`
       )
     )
-    .groupBy(clientInformation.counsellorId);
+    .groupBy(paymentAttributedCounsellorSql);
 
   console.log("[sale_type_count] getEnrollmentCountBySaleTypePerCounsellor results:", rows);
 
@@ -273,7 +287,7 @@ export const getCountBySaleTypePerCounsellor = async (
   if (counsellorIds.length === 0) return new Map();
   const rows = await db
     .select({
-      counsellorId: clientInformation.counsellorId,
+      counsellorId: paymentAttributedCounsellorSql,
       saleTypeId: clientPayments.saleTypeId,
       count: count(clientPayments.paymentId),
     })
@@ -284,14 +298,20 @@ export const getCountBySaleTypePerCounsellor = async (
     )
     .where(
       and(
-        inArray(clientInformation.counsellorId, counsellorIds),
+        or(
+          inArray(clientPayments.handledBy, counsellorIds),
+          and(
+            isNull(clientPayments.handledBy),
+            inArray(clientInformation.counsellorId, counsellorIds)
+          )
+        ),
         sql`(${clientInformation.archived} = false OR ${clientInformation.archived} IS NULL)`,
         sql`${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')`,
         sql`${clientPayments.paymentDate} >= ${startStr}`,
         sql`${clientPayments.paymentDate} <= ${endStr}`
       )
     )
-    .groupBy(clientInformation.counsellorId, clientPayments.saleTypeId);
+    .groupBy(paymentAttributedCounsellorSql, clientPayments.saleTypeId);
   const map = new Map<number, Map<number, number>>();
   for (const r of rows) {
     let inner = map.get(Number(r.counsellorId));

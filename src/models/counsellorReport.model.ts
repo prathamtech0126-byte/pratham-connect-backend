@@ -39,6 +39,7 @@ import { eq, and, count, sql, inArray, gte, lte } from "drizzle-orm";
    ═══════════════════════════════════════════════════════════════════ */
 
 const CORE_PRODUCT = "ALL_FINANCE_EMPLOYEMENT";
+const attributedCounsellorByProductPaymentSql = sql<number>`COALESCE(${clientProductPayments.handledBy}, ${clientInformation.counsellorId})`;
 
 const COUNT_ONLY_PRODUCTS: readonly string[] = [
   "LOAN_DETAILS",
@@ -328,7 +329,7 @@ const getCoreProductDistinctClientCount = async (
     )
     .where(
       sql`(
-        ${clientInformation.counsellorId} = ${counsellorId}
+        ${attributedCounsellorByProductPaymentSql} = ${counsellorId}
         AND ${clientInformation.archived} = false
         AND (${clientProductPayments.productName})::text = ${CORE_PRODUCT}
         AND (
@@ -457,7 +458,7 @@ const getPerProductBreakdown = async (
     )
     .where(
       and(
-        eq(clientInformation.counsellorId, counsellorId),
+        sql`${attributedCounsellorByProductPaymentSql} = ${counsellorId}`,
         eq(clientInformation.archived, false),
         sql`(${clientProductPayments.entityType})::text = 'master_only'`,
         sql`(${clientProductPayments.productName})::text != ${CORE_PRODUCT}`,
@@ -514,7 +515,7 @@ const getPerProductBreakdown = async (
       )
       .where(
         and(
-          eq(clientInformation.counsellorId, counsellorId),
+          sql`${attributedCounsellorByProductPaymentSql} = ${counsellorId}`,
           eq(clientInformation.archived, false),
           sql`${clientProductPayments.entityType} = ${type}`,
           sql`(${clientProductPayments.productName})::text != ${CORE_PRODUCT}`,

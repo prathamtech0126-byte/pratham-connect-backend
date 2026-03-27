@@ -292,6 +292,16 @@ export const getClientFullDetailsById = async (clientId: number) => {
 
   if (!leadType) return null;
 
+  let transferedToCounsellorName: string | null = null;
+  if (client.transferedToCounsellorId) {
+    const [transferedCounsellor] = await db
+      .select({ fullName: users.fullName })
+      .from(users)
+      .where(eq(users.id, client.transferedToCounsellorId))
+      .limit(1);
+    transferedToCounsellorName = transferedCounsellor?.fullName ?? null;
+  }
+
   // 3. Get enhanced product payments with entity data
   const productPayments = await getProductPaymentsByClientId(clientId);
 
@@ -325,7 +335,10 @@ export const getClientFullDetailsById = async (clientId: number) => {
     .orderBy(desc(clientPayments.paymentDate));
 
   return {
-    client,
+    client: {
+      ...client,
+      transferedToCounsellorName,
+    },
     leadType: {
       id: leadType.id,
       leadType: leadType.leadType,
@@ -353,6 +366,26 @@ export const getClientsByCounsellor = async (counsellorId: number) => {
       )
     )
     .orderBy(desc(clientInformation.enrollmentDate));
+
+  const transferredCounsellorIds = [
+    ...new Set(
+      clients
+        .map((client) => client.transferedToCounsellorId)
+        .filter((id): id is number => typeof id === "number")
+    ),
+  ];
+
+  const transferredCounsellorsData =
+    transferredCounsellorIds.length > 0
+      ? await db
+          .select({ id: users.id, name: users.fullName })
+          .from(users)
+          .where(inArray(users.id, transferredCounsellorIds))
+      : [];
+
+  const transferredCounsellorMap = new Map(
+    transferredCounsellorsData.map((c) => [c.id, c.name])
+  );
 
   // Get counsellor information (id, name, designation)
   const counsellorData = await db
@@ -392,6 +425,9 @@ export const getClientsByCounsellor = async (counsellorId: number) => {
         const enrollmentYearMonth = getEnrollmentYearMonth(client.enrollmentDate);
         return {
           ...client,
+          transferedToCounsellorName: client.transferedToCounsellorId
+            ? transferredCounsellorMap.get(client.transferedToCounsellorId) ?? null
+            : null,
           enrollmentDate: formatDateToDDMMYYYY(client.enrollmentDate),
           enrollmentYear: enrollmentYearMonth?.year ?? null,
           enrollmentMonth: enrollmentYearMonth?.month ?? null,
@@ -409,6 +445,9 @@ export const getClientsByCounsellor = async (counsellorId: number) => {
         const enrollmentYearMonth = getEnrollmentYearMonth(client.enrollmentDate);
         return {
           ...client,
+          transferedToCounsellorName: client.transferedToCounsellorId
+            ? transferredCounsellorMap.get(client.transferedToCounsellorId) ?? null
+            : null,
           enrollmentDate: formatDateToDDMMYYYY(client.enrollmentDate),
           enrollmentYear: enrollmentYearMonth?.year ?? null,
           enrollmentMonth: enrollmentYearMonth?.month ?? null,
@@ -537,6 +576,23 @@ export const getClientsByEnrollmentDateRange = async (
   const counsellorMap = new Map(
     counsellorsData.map((c) => [c.id, { id: c.id, name: c.name, designation: c.designation || null }])
   );
+  const transferredCounsellorIds = [
+    ...new Set(
+      clients
+        .map((c) => c.transferedToCounsellorId)
+        .filter((id): id is number => typeof id === "number")
+    ),
+  ];
+  const transferredCounsellorsData =
+    transferredCounsellorIds.length > 0
+      ? await db
+          .select({ id: users.id, name: users.fullName })
+          .from(users)
+          .where(inArray(users.id, transferredCounsellorIds))
+      : [];
+  const transferredCounsellorMap = new Map(
+    transferredCounsellorsData.map((c) => [c.id, c.name])
+  );
   const uniqueLeadTypeIds = [...new Set(clients.map((c) => c.leadTypeId))];
   const leadTypesData =
     uniqueLeadTypeIds.length > 0
@@ -552,6 +608,9 @@ export const getClientsByEnrollmentDateRange = async (
       const counsellor = counsellorMap.get(client.counsellorId) || null;
       return {
         ...client,
+        transferedToCounsellorName: client.transferedToCounsellorId
+          ? transferredCounsellorMap.get(client.transferedToCounsellorId) ?? null
+          : null,
         enrollmentDate: formatDateToDDMMYYYY(client.enrollmentDate),
         enrollmentYear: enrolmentYearMonth?.year ?? null,
         enrollmentMonth: enrolmentYearMonth?.month ?? null,

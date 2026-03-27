@@ -53,6 +53,9 @@ const COUNT_ONLY_ENTITY_TYPES = [
 const isCountOnlyEntityType = (entityType: string): boolean =>
   (COUNT_ONLY_ENTITY_TYPES as readonly string[]).includes(entityType);
 
+const attributedCounsellorByClientPaymentSql = sql<number>`COALESCE(${clientPayments.handledBy}, ${clientInformation.counsellorId})`;
+const attributedCounsellorByProductPaymentSql = sql<number>`COALESCE(${clientProductPayments.handledBy}, ${clientInformation.counsellorId})`;
+
 // Helper function to get entity amounts (same as dashboard model)
 const getEntityAmounts = async (
   entityType: string,
@@ -145,7 +148,7 @@ export const calculateCounsellorRevenue = async (
     )
     .where(
       sql`(
-        ${clientInformation.counsellorId} = ${counsellorId}
+        ${attributedCounsellorByClientPaymentSql} = ${counsellorId}
         AND ${clientInformation.archived} = false
         AND ${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
         AND (
@@ -172,7 +175,7 @@ export const calculateCounsellorRevenue = async (
     )
     .where(
       sql`(
-        ${clientInformation.counsellorId} = ${counsellorId}
+        ${attributedCounsellorByProductPaymentSql} = ${counsellorId}
         AND ${clientInformation.archived} = false
         AND ${clientProductPayments.amount} IS NOT NULL
         AND LOWER((${clientProductPayments.productName})::text) NOT IN (${sql.raw(COUNT_ONLY_PRODUCTS_LOWER)})
@@ -201,7 +204,7 @@ export const calculateCounsellorRevenue = async (
     )
     .where(
       sql`(
-        ${clientInformation.counsellorId} = ${counsellorId}
+        ${attributedCounsellorByProductPaymentSql} = ${counsellorId}
         AND ${clientInformation.archived} = false
         AND ${clientProductPayments.amount} IS NULL
         AND ${clientProductPayments.entityId} IS NOT NULL
@@ -263,7 +266,7 @@ export const getCounsellorCoreSaleClientCount = async (
     )
     .where(
       sql`(
-        ${clientInformation.counsellorId} = ${counsellorId}
+        ${attributedCounsellorByClientPaymentSql} = ${counsellorId}
         AND ${clientInformation.archived} = false
         AND ${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
         AND (
@@ -324,7 +327,7 @@ export const getCounsellorCoreSaleAmount = async (
     )
     .where(
       sql`(
-        ${clientInformation.counsellorId} = ${counsellorId}
+        ${attributedCounsellorByClientPaymentSql} = ${counsellorId}
         AND ${clientInformation.archived} = false
         AND ${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
         AND (
@@ -365,7 +368,7 @@ export const getCounsellorCoreProductMetrics = async (
     )
     .where(
       sql`(
-        ${clientInformation.counsellorId} = ${counsellorId}
+        ${attributedCounsellorByProductPaymentSql} = ${counsellorId}
         AND ${clientInformation.archived} = false
         AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
         AND ${allFinanceDateCondition}
@@ -386,7 +389,7 @@ export const getCounsellorCoreProductMetrics = async (
     )
     .where(
       sql`(
-        ${clientInformation.counsellorId} = ${counsellorId}
+        ${attributedCounsellorByProductPaymentSql} = ${counsellorId}
         AND ${clientInformation.archived} = false
         AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
         AND ${allFinanceDateCondition}
@@ -413,7 +416,7 @@ export const getCounsellorCoreProductMetrics = async (
     )
     .where(
       sql`(
-        ${clientInformation.counsellorId} = ${counsellorId}
+        ${attributedCounsellorByProductPaymentSql} = ${counsellorId}
         AND ${clientInformation.archived} = false
         AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
         AND ${anotherDateCondition}
@@ -434,7 +437,7 @@ export const getCounsellorCoreProductMetrics = async (
     )
     .where(
       sql`(
-        ${clientInformation.counsellorId} = ${counsellorId}
+        ${attributedCounsellorByProductPaymentSql} = ${counsellorId}
         AND ${clientInformation.archived} = false
         AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
         AND ${anotherDateCondition}
@@ -473,7 +476,7 @@ export const getCounsellorOtherProductMetrics = async (
     )
     .where(
       sql`(
-        ${clientInformation.counsellorId} = ${counsellorId}
+        ${attributedCounsellorByProductPaymentSql} = ${counsellorId}
         AND ${clientInformation.archived} = false
         AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
         AND ${directCondition}
@@ -490,7 +493,7 @@ export const getCounsellorOtherProductMetrics = async (
     )
     .where(
       sql`(
-        ${clientInformation.counsellorId} = ${counsellorId}
+        ${attributedCounsellorByProductPaymentSql} = ${counsellorId}
         AND ${clientInformation.archived} = false
         AND ${clientProductPayments.amount} IS NOT NULL
         AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
@@ -532,7 +535,7 @@ export const getCounsellorOtherProductMetrics = async (
           gte(dateCol, startDateStr),
           lte(dateCol, endDateStr),
           eq(clientInformation.archived, false),
-          eq(clientInformation.counsellorId, counsellorId)
+          sql`${attributedCounsellorByProductPaymentSql} = ${counsellorId}`
         )
       );
     directCount += rows.length;
@@ -1055,7 +1058,7 @@ export const setTarget = async (
     )
     .where(
       sql`(
-        ${clientInformation.counsellorId} = ${counsellorId}
+        ${attributedCounsellorByClientPaymentSql} = ${counsellorId}
         AND ${clientInformation.archived} = false
         AND ${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
         AND (
@@ -1161,7 +1164,7 @@ export const updateTarget = async (targetId: number, target: number) => {
     )
     .where(
       sql`(
-        ${clientInformation.counsellorId} = ${existingTarget.counsellor_id}
+        ${attributedCounsellorByClientPaymentSql} = ${existingTarget.counsellor_id}
         AND ${clientInformation.archived} = false
         AND ${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
         AND (
@@ -1271,7 +1274,7 @@ export const getMonthlyEnrollmentGoal = async (
     )
     .where(
       sql`(
-        ${clientInformation.counsellorId} = ${counsellorId}
+        ${attributedCounsellorByClientPaymentSql} = ${counsellorId}
         AND ${clientInformation.archived} = false
         AND ${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
         AND (

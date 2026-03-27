@@ -12,7 +12,7 @@ import { db } from "../config/databaseConnection";
 import { clientInformation } from "../schemas/clientInformation.schema";
 import { clientPayments } from "../schemas/clientPayment.schema";
 import { users } from "../schemas/users.schema";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { logActivity } from "../services/activityLog.service";
 import { redisDel, redisDelByPrefix, redisGetJson, redisSetJson } from "../config/redis";
 
@@ -44,6 +44,52 @@ function normalizePaymentForActivityLog(payment: any): Record<string, unknown> |
   };
 }
 
+const canUserTouchClient = async (
+  clientId: number,
+  userId: number,
+  role: string
+): Promise<boolean> => {
+  if (role === "admin") return true;
+
+  const [client] = await db
+    .select({
+      counsellorId: clientInformation.counsellorId,
+      transferStatus: clientInformation.transferStatus,
+      transferedToCounsellorId: clientInformation.transferedToCounsellorId,
+    })
+    .from(clientInformation)
+    .where(eq(clientInformation.clientId, clientId))
+    .limit(1);
+
+  if (!client) return false;
+
+  if (role === "counsellor") {
+    return (
+      client.counsellorId === userId ||
+      (client.transferStatus === true &&
+        client.transferedToCounsellorId === userId)
+    );
+  }
+
+  if (role === "manager") {
+    const candidateCounsellorIds = [
+      client.counsellorId,
+      client.transferStatus ? client.transferedToCounsellorId : null,
+    ].filter((id): id is number => Number.isFinite(id));
+
+    if (candidateCounsellorIds.length === 0) return false;
+
+    const counsellors = await db
+      .select({ id: users.id, managerId: users.managerId })
+      .from(users)
+      .where(inArray(users.id, candidateCounsellorIds));
+
+    return counsellors.some((c) => c.managerId === userId);
+  }
+
+  return false;
+};
+
 /**
  * Create client payment
  */
@@ -52,6 +98,15 @@ export const saveClientPaymentController = async (
   res: Response
 ) => {
   try {
+    if (!req.user?.id || !req.user?.role) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
+    let targetClientId = Number(req.body.clientId);
+
     // Fetch old value if updating
     let oldValue = null;
     if (req.body.paymentId) {
@@ -63,14 +118,36 @@ export const saveClientPaymentController = async (
           .where(eq(clientPayments.paymentId, paymentId));
         if (oldPayment) {
           oldValue = normalizePaymentForActivityLog(oldPayment);
+          if (!Number.isFinite(targetClientId)) {
+            targetClientId = Number(oldPayment.clientId);
+          }
         }
       } catch (error) {
         console.error("Error fetching old payment value:", error);
       }
     }
 
+    if (!Number.isFinite(targetClientId) || targetClientId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid clientId is required",
+      });
+    }
+
+    const hasAccess = await canUserTouchClient(
+      targetClientId,
+      req.user.id,
+      req.user.role
+    );
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message: "You do not have permission to modify payment for this client",
+      });
+    }
+
     console.log("req.body client payment", req.body);
-    const result = await saveClientPayment(req.body);
+    const result = await saveClientPayment(req.body, req.user.id);
     const clientId = Number(result.payment.clientId);
 
     // Get counsellorId from clientId
@@ -118,6 +195,7 @@ export const saveClientPaymentController = async (
               stage: result.payment.stage,
               amount: result.payment.amount != null ? String(result.payment.amount) : null,
               totalPayment: result.payment.totalPayment != null ? String(result.payment.totalPayment) : null,
+              handledBy: result.payment.handledBy ?? req.user.id,
             },
             performedBy: req.user.id,
           });
@@ -258,6 +336,13 @@ export const deleteClientPaymentController = async (
   res: Response
 ) => {
   try {
+    if (!req.user?.id || !req.user?.role) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
     const paymentId = Number(req.params.paymentId);
 
     // 1. Validate ID
@@ -265,6 +350,31 @@ export const deleteClientPaymentController = async (
       return res.status(400).json({
         success: false,
         message: "Invalid paymentId",
+      });
+    }
+
+    const [existingPayment] = await db
+      .select({ clientId: clientPayments.clientId })
+      .from(clientPayments)
+      .where(eq(clientPayments.paymentId, paymentId))
+      .limit(1);
+
+    if (!existingPayment) {
+      return res.status(404).json({
+        success: false,
+        message: "Payment not found",
+      });
+    }
+
+    const hasAccess = await canUserTouchClient(
+      Number(existingPayment.clientId),
+      req.user.id,
+      req.user.role
+    );
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message: "You do not have permission to delete payment for this client",
       });
     }
 

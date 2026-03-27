@@ -125,14 +125,19 @@ export const getActivityLogs = async (filters: GetActivityLogsFilters) => {
   } else if (userRole === "counsellor" && userId) {
     // Counsellor sees:
     // 1. Their own activities
-    // 2. Manager activities on their clients
+    // 2. Any activities on clients they can access (owned or shared-to)
     conditions.push(
       or(
         eq(activityLog.performedBy, userId),
         and(
           isNotNull(activityLog.clientId),
-          eq(clientInformation.counsellorId, userId),
-          eq(users.role, "manager")
+          or(
+            eq(clientInformation.counsellorId, userId),
+            and(
+              eq(clientInformation.transferStatus, true),
+              eq(clientInformation.transferedToCounsellorId, userId)
+            )
+          )
         )
       )
     );
@@ -215,8 +220,13 @@ export const getActivityLogsCount = async (filters: GetActivityLogsFilters) => {
         eq(activityLog.performedBy, userId),
         and(
           isNotNull(activityLog.clientId),
-          eq(clientInformation.counsellorId, userId),
-          eq(users.role, "manager")
+          or(
+            eq(clientInformation.counsellorId, userId),
+            and(
+              eq(clientInformation.transferStatus, true),
+              eq(clientInformation.transferedToCounsellorId, userId)
+            )
+          )
         )
       )
     );

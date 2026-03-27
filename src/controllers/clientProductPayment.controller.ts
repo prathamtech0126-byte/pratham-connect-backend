@@ -15,7 +15,7 @@ import { db } from "../config/databaseConnection";
 import { clientInformation } from "../schemas/clientInformation.schema";
 import { clientProductPayments } from "../schemas/clientProductPayments.schema";
 import { users } from "../schemas/users.schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { logActivity } from "../services/activityLog.service";
 import { createIndividualMessage } from "../models/message.model";
 import { parseFrontendDate } from "../utils/date";
@@ -60,6 +60,52 @@ function normalizeProductPaymentForActivityLog(record: any): Record<string, unkn
     ...(fundingDateVal != null ? { fundingDate: toDateStr(fundingDateVal) ?? fundingDateVal } : {}),
   };
 }
+
+const canUserTouchClient = async (
+  clientId: number,
+  userId: number,
+  role: string
+): Promise<boolean> => {
+  if (role === "admin") return true;
+
+  const [client] = await db
+    .select({
+      counsellorId: clientInformation.counsellorId,
+      transferStatus: clientInformation.transferStatus,
+      transferedToCounsellorId: clientInformation.transferedToCounsellorId,
+    })
+    .from(clientInformation)
+    .where(eq(clientInformation.clientId, clientId))
+    .limit(1);
+
+  if (!client) return false;
+
+  if (role === "counsellor") {
+    return (
+      client.counsellorId === userId ||
+      (client.transferStatus === true &&
+        client.transferedToCounsellorId === userId)
+    );
+  }
+
+  if (role === "manager") {
+    const candidateCounsellorIds = [
+      client.counsellorId,
+      client.transferStatus ? client.transferedToCounsellorId : null,
+    ].filter((id): id is number => Number.isFinite(id));
+
+    if (candidateCounsellorIds.length === 0) return false;
+
+    const counsellors = await db
+      .select({ id: users.id, managerId: users.managerId })
+      .from(users)
+      .where(inArray(users.id, candidateCounsellorIds));
+
+    return counsellors.some((c) => c.managerId === userId);
+  }
+
+  return false;
+};
 
 // export const createClientProductPaymentController = async (
 //   req: Request,
@@ -128,6 +174,15 @@ export const saveClientProductPaymentController = async (
   res: Response
 ) => {
   try {
+    if (!req.user?.id || !req.user?.role) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
+    let targetClientId = Number(req.body.clientId);
+
     // Fetch old value if updating (before save)
     let oldValue: Record<string, unknown> | null = null;
     let oldEntityDisplay: EntityDisplayData = {};
@@ -140,6 +195,9 @@ export const saveClientProductPaymentController = async (
           .where(eq(clientProductPayments.productPaymentId, productPaymentId));
         if (oldProductPayment) {
           oldValue = normalizeProductPaymentForActivityLog(oldProductPayment);
+          if (!Number.isFinite(targetClientId)) {
+            targetClientId = Number(oldProductPayment.clientId);
+          }
           // Fetch entity data BEFORE save so we capture true previous state (amount, remarks, etc.)
           if (oldProductPayment.entityId && oldProductPayment.entityType) {
             oldEntityDisplay = await getEntityDisplayDataForActivityLog(
@@ -153,8 +211,28 @@ export const saveClientProductPaymentController = async (
       }
     }
 
+    if (!Number.isFinite(targetClientId) || targetClientId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid clientId is required",
+      });
+    }
+
+    const hasAccess = await canUserTouchClient(
+      targetClientId,
+      req.user.id,
+      req.user.role
+    );
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "You do not have permission to modify product payment for this client",
+      });
+    }
+
     console.log("req.body client product payment", req.body);
-    const result = await saveClientProductPayment(req.body);
+    const result = await saveClientProductPayment(req.body, req.user.id);
 
     const clientId = Number(result.record.clientId);
 
@@ -282,7 +360,6 @@ export const saveClientProductPaymentController = async (
     try {
       if (req.user?.id) {
         const action = result.action === "CREATED" ? "PRODUCT_ADDED" : "PRODUCT_UPDATED";
-        const entityType = result.record.entityType || "client_product_payment";
         const body = req.body || {};
         const entityData = body.entityData || body.entity_data || {};
 
@@ -328,7 +405,7 @@ export const saveClientProductPaymentController = async (
         const amountText =
           amount != null && amount !== "" ? `$${Number(amount).toFixed(2)}` : "—";
         await logActivity(req, {
-          entityType: entityType,
+          entityType: "clientProductPayment",
           entityId: Number(result.record.entityId ?? result.record.productPaymentId),
           clientId: clientId,
           action: action,
@@ -345,6 +422,7 @@ export const saveClientProductPaymentController = async (
             entityId: result.record.entityId,
             ...(amount != null && amount !== "" && newValueForLog && { amount: newValueForLog.amount }),
             isPartialPayment: isPartialPayment,
+            handledBy: result.record.handledBy ?? req.user.id,
           },
           performedBy: req.user.id,
         });
@@ -477,12 +555,45 @@ export const deleteClientProductPaymentController = async (
   res: Response
 ) => {
   try {
+    if (!req.user?.id || !req.user?.role) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
     const productPaymentId = Number(req.params.productPaymentId);
 
     if (!Number.isInteger(productPaymentId) || productPaymentId <= 0) {
       return res.status(400).json({
         success: false,
         message: "Invalid productPaymentId",
+      });
+    }
+
+    const [existingPayment] = await db
+      .select({ clientId: clientProductPayments.clientId })
+      .from(clientProductPayments)
+      .where(eq(clientProductPayments.productPaymentId, productPaymentId))
+      .limit(1);
+
+    if (!existingPayment) {
+      return res.status(404).json({
+        success: false,
+        message: "Product payment not found",
+      });
+    }
+
+    const hasAccess = await canUserTouchClient(
+      Number(existingPayment.clientId),
+      req.user.id,
+      req.user.role
+    );
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "You do not have permission to delete product payment for this client",
       });
     }
 

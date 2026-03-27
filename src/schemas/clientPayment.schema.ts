@@ -63,6 +63,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { clientInformation } from "./clientInformation.schema";
 import { saleTypes } from "./saleType.schema";
+import { users } from "./users.schema";
 
 export const stageEnum = pgEnum("stage_enum", [
   "INITIAL",
@@ -99,6 +100,9 @@ export const clientPayments = pgTable(
 
     remarks: text("remarks"),
 
+    handledBy: bigint("handled_by", { mode: "number" })
+      .references(() => users.id),
+
     createdAt: timestamp("created_at").defaultNow(),
   },
   (table) => ({
@@ -111,6 +115,8 @@ export const clientPayments = pgTable(
     paymentDateIdx: index("idx_payment_date").on(table.paymentDate),
 
     createdAtIdx: index("idx_payment_created_at").on(table.createdAt),
+
+    handledByIdx: index("idx_payment_handled_by").on(table.handledBy),
 
     clientPaymentDateIdx: index("idx_payment_client_date").on(
       table.clientId,

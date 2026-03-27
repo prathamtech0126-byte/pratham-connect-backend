@@ -25,7 +25,8 @@ interface SaveClientPaymentInput {
 }
 
 export const saveClientPayment = async (
-  data: SaveClientPaymentInput
+  data: SaveClientPaymentInput,
+  handledBy: number
 ) => {
   // Normalize IDs - convert strings to numbers if needed
   const paymentId = data.paymentId ? Number(data.paymentId) : undefined;
@@ -46,6 +47,9 @@ export const saveClientPayment = async (
 
   if (!saleTypeId || !Number.isFinite(saleTypeId) || saleTypeId <= 0) {
     throw new Error("Valid saleTypeId is required");
+  }
+  if (!Number.isFinite(handledBy) || handledBy <= 0) {
+    throw new Error("Valid handledBy is required");
   }
 
   if (!stage || !amount || !totalPayment) {
@@ -129,8 +133,8 @@ export const saveClientPayment = async (
     ? `
       WITH updated AS (
         INSERT INTO client_payment (
-          id, client_id, sale_type_id, total_payment, stage, amount, payment_date, invoice_no, remarks
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          id, client_id, sale_type_id, total_payment, stage, amount, payment_date, invoice_no, remarks, handled_by
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         ON CONFLICT (id) DO UPDATE SET
           client_id = EXCLUDED.client_id,
           sale_type_id = EXCLUDED.sale_type_id,
@@ -139,7 +143,8 @@ export const saveClientPayment = async (
           amount = EXCLUDED.amount,
           payment_date = EXCLUDED.payment_date,
           invoice_no = EXCLUDED.invoice_no,
-          remarks = EXCLUDED.remarks
+          remarks = EXCLUDED.remarks,
+          handled_by = EXCLUDED.handled_by
         WHERE (
           client_payment.client_id IS DISTINCT FROM EXCLUDED.client_id
           OR client_payment.sale_type_id IS DISTINCT FROM EXCLUDED.sale_type_id
@@ -149,26 +154,27 @@ export const saveClientPayment = async (
           OR client_payment.payment_date IS DISTINCT FROM EXCLUDED.payment_date
           OR client_payment.invoice_no IS DISTINCT FROM EXCLUDED.invoice_no
           OR client_payment.remarks IS DISTINCT FROM EXCLUDED.remarks
+          OR client_payment.handled_by IS DISTINCT FROM EXCLUDED.handled_by
         )
-        RETURNING id, client_id, sale_type_id, total_payment, stage, amount, payment_date, invoice_no, remarks, created_at
+        RETURNING id, client_id, sale_type_id, total_payment, stage, amount, payment_date, invoice_no, remarks, handled_by, created_at
       )
       SELECT * FROM updated
       UNION ALL
-      SELECT id, client_id, sale_type_id, total_payment, stage, amount, payment_date, invoice_no, remarks, created_at
+      SELECT id, client_id, sale_type_id, total_payment, stage, amount, payment_date, invoice_no, remarks, handled_by, created_at
       FROM client_payment
       WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM updated)
       LIMIT 1;
     `
     : `
       INSERT INTO client_payment (
-        client_id, sale_type_id, total_payment, stage, amount, payment_date, invoice_no, remarks
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING id, client_id, sale_type_id, total_payment, stage, amount, payment_date, invoice_no, remarks, created_at;
+        client_id, sale_type_id, total_payment, stage, amount, payment_date, invoice_no, remarks, handled_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING id, client_id, sale_type_id, total_payment, stage, amount, payment_date, invoice_no, remarks, handled_by, created_at;
     `;
 
   const values = paymentId && Number.isFinite(paymentId) && paymentId > 0
-    ? [paymentId, clientId, saleTypeId, normalizedTotalPayment, stage, normalizedAmount, finalPaymentDate, normalizedInvoiceNo, normalizedRemarks]
-    : [clientId, saleTypeId, normalizedTotalPayment, stage, normalizedAmount, finalPaymentDate, normalizedInvoiceNo, normalizedRemarks];
+    ? [paymentId, clientId, saleTypeId, normalizedTotalPayment, stage, normalizedAmount, finalPaymentDate, normalizedInvoiceNo, normalizedRemarks, handledBy]
+    : [clientId, saleTypeId, normalizedTotalPayment, stage, normalizedAmount, finalPaymentDate, normalizedInvoiceNo, normalizedRemarks, handledBy];
 
   try {
     const result = await pool.query(upsertQuery, values);
@@ -201,6 +207,7 @@ export const saveClientPayment = async (
         paymentDate: row.payment_date,
         invoiceNo: row.invoice_no,
         remarks: row.remarks,
+        handledBy: row.handled_by,
         createdAt: row.created_at,
       },
       rowCount, // Include rowCount so controller can check if real change occurred
@@ -232,6 +239,7 @@ export const getPaymentsByClientId = async (clientId: number) => {
       paymentDate: clientPayments.paymentDate,
       invoiceNo: clientPayments.invoiceNo,
       remarks: clientPayments.remarks,
+      handledBy: clientPayments.handledBy,
       createdAt: clientPayments.createdAt,
       // Sale type information
       saleType: saleTypes.saleType,
@@ -257,6 +265,7 @@ export const getPaymentsByClientId = async (clientId: number) => {
     paymentDate: payment.paymentDate,
     invoiceNo: payment.invoiceNo,
     remarks: payment.remarks,
+    handledBy: payment.handledBy,
     createdAt: payment.createdAt,
   }));
 };

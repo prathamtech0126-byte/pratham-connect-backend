@@ -20,7 +20,7 @@ import { clientPayments } from "../schemas/clientPayment.schema";
 import { clientProductPayments } from "../schemas/clientProductPayments.schema";
 import { saleTypes } from "../schemas/saleType.schema";
 import { saleTypeCategories } from "../schemas/saleTypeCategory.schema";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql, or, isNull } from "drizzle-orm";
 
 export type SaleReportFilter = "today" | "weekly" | "monthly" | "yearly" | "custom";
 
@@ -549,7 +549,13 @@ const getOtherProductBreakdown = async (
     .innerJoin(clientInformation, eq(clientProductPayments.clientId, clientInformation.clientId))
     .where(
       and(
-        inArray(clientInformation.counsellorId, counsellorIds),
+        or(
+          inArray(clientProductPayments.handledBy, counsellorIds),
+          and(
+            isNull(clientProductPayments.handledBy),
+            inArray(clientInformation.counsellorId, counsellorIds)
+          )
+        ),
         eq(clientInformation.archived, false),
         sql`${clientProductPayments.productName} != 'ALL_FINANCE_EMPLOYEMENT'`,
         sql`(

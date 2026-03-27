@@ -1,6 +1,7 @@
 import { Request } from "express";
 import { db } from "../config/databaseConnection";
 import { activityLog } from "../schemas/activityLog.schema";
+import { redisDelByPrefix } from "../config/redis";
 
 /**
  * Activity Log Service
@@ -41,6 +42,13 @@ export const createActivityLog = async (input: CreateActivityLogInput): Promise<
       ipAddress: input.ipAddress ?? null,
       userAgent: input.userAgent ?? null,
     });
+
+    // Ensure new activity appears immediately for all users (avoid stale 90s cache).
+    try {
+      await redisDelByPrefix("activity-logs:");
+    } catch {
+      // ignore cache invalidation issues
+    }
   } catch (error) {
     // Fail silently - don't break the main operation
     console.error("Failed to create activity log:", error);
