@@ -88,11 +88,11 @@ export const clientPayments = pgTable(
     totalPayment: decimal("total_payment", {
       precision: 12,
       scale: 2,
-    }).notNull(),
+    }).default('0'),
 
-    stage: stageEnum("stage").notNull(),
+    stage: stageEnum("stage").default('INITIAL'),
 
-    amount: decimal("amount", { precision: 12, scale: 2 }),
+    amount: decimal("amount", { precision: 12, scale: 2 }).default('0'),
 
     paymentDate: date("payment_date").notNull(),
 

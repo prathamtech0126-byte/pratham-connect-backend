@@ -321,6 +321,7 @@ export const getClientFullDetailsById = async (clientId: number) => {
     paymentDate: clientPayments.paymentDate,
     invoiceNo: clientPayments.invoiceNo,
     remarks: clientPayments.remarks,
+    handledBy: clientPayments.handledBy,
     saleType: {
       id: saleTypes.saleTypeId,
       saleType: saleTypes.saleType,
