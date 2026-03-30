@@ -133,8 +133,8 @@ export const calculateCounsellorRevenue = async (
   counsellorId: number,
   startDateStr: string,
   endDateStr: string,
-  startTimestamp: string,
-  endTimestamp: string
+  _startTimestamp: string,
+  _endTimestamp: string
 ): Promise<number> => {
   // 1. Client payments (core products) for this counsellor's clients
   const [clientPaymentsResult] = await db
@@ -151,15 +151,9 @@ export const calculateCounsellorRevenue = async (
         ${attributedCounsellorByClientPaymentSql} = ${counsellorId}
         AND ${clientInformation.archived} = false
         AND ${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
-        AND (
-          (${clientPayments.paymentDate} IS NOT NULL
-            AND ${clientPayments.paymentDate} >= ${startDateStr}
-            AND ${clientPayments.paymentDate} <= ${endDateStr})
-          OR
-          (${clientPayments.paymentDate} IS NULL
-            AND ${clientPayments.createdAt} >= ${startTimestamp}
-            AND ${clientPayments.createdAt} <= ${endTimestamp})
-        )
+        AND ${clientPayments.paymentDate} IS NOT NULL
+        AND ${clientPayments.paymentDate} >= ${startDateStr}
+        AND ${clientPayments.paymentDate} <= ${endDateStr}
       )`
     );
 
@@ -179,15 +173,9 @@ export const calculateCounsellorRevenue = async (
         AND ${clientInformation.archived} = false
         AND ${clientProductPayments.amount} IS NOT NULL
         AND LOWER((${clientProductPayments.productName})::text) NOT IN (${sql.raw(COUNT_ONLY_PRODUCTS_LOWER)})
-        AND (
-          (${clientProductPayments.paymentDate} IS NOT NULL
-            AND ${clientProductPayments.paymentDate} >= ${startDateStr}
-            AND ${clientProductPayments.paymentDate} <= ${endDateStr})
-          OR
-          (${clientProductPayments.paymentDate} IS NULL
-            AND ${clientProductPayments.createdAt} >= ${startTimestamp}
-            AND ${clientProductPayments.createdAt} <= ${endTimestamp})
-        )
+        AND ${clientProductPayments.paymentDate} IS NOT NULL
+        AND ${clientProductPayments.paymentDate} >= ${startDateStr}
+        AND ${clientProductPayments.paymentDate} <= ${endDateStr}
       )`
     );
 
@@ -208,15 +196,9 @@ export const calculateCounsellorRevenue = async (
         AND ${clientInformation.archived} = false
         AND ${clientProductPayments.amount} IS NULL
         AND ${clientProductPayments.entityId} IS NOT NULL
-        AND (
-          (${clientProductPayments.paymentDate} IS NOT NULL
-            AND ${clientProductPayments.paymentDate} >= ${startDateStr}
-            AND ${clientProductPayments.paymentDate} <= ${endDateStr})
-          OR
-          (${clientProductPayments.paymentDate} IS NULL
-            AND ${clientProductPayments.createdAt} >= ${startTimestamp}
-            AND ${clientProductPayments.createdAt} <= ${endTimestamp})
-        )
+        AND ${clientProductPayments.paymentDate} IS NOT NULL
+        AND ${clientProductPayments.paymentDate} >= ${startDateStr}
+        AND ${clientProductPayments.paymentDate} <= ${endDateStr}
       )`
     );
 
@@ -252,8 +234,8 @@ export const getCounsellorCoreSaleClientCount = async (
   counsellorId: number,
   startDateStr: string,
   endDateStr: string,
-  startTimestamp: string,
-  endTimestamp: string
+  _startTimestamp: string,
+  _endTimestamp: string
 ): Promise<number> => {
   const [result] = await db
     .select({
@@ -269,15 +251,9 @@ export const getCounsellorCoreSaleClientCount = async (
         ${attributedCounsellorByClientPaymentSql} = ${counsellorId}
         AND ${clientInformation.archived} = false
         AND ${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
-        AND (
-          (${clientPayments.paymentDate} IS NOT NULL
-            AND ${clientPayments.paymentDate} >= ${startDateStr}
-            AND ${clientPayments.paymentDate} <= ${endDateStr})
-          OR
-          (${clientPayments.paymentDate} IS NULL
-            AND ${clientPayments.createdAt} >= ${startTimestamp}
-            AND ${clientPayments.createdAt} <= ${endTimestamp})
-        )
+        AND ${clientPayments.paymentDate} IS NOT NULL
+        AND ${clientPayments.paymentDate} >= ${startDateStr}
+        AND ${clientPayments.paymentDate} <= ${endDateStr}
       )`
     );
   return Number(result?.count ?? 0);
@@ -313,8 +289,8 @@ export const getCounsellorCoreSaleAmount = async (
   counsellorId: number,
   startDateStr: string,
   endDateStr: string,
-  startTimestamp: string,
-  endTimestamp: string
+  _startTimestamp: string,
+  _endTimestamp: string
 ): Promise<number> => {
   const [result] = await db
     .select({
@@ -330,15 +306,9 @@ export const getCounsellorCoreSaleAmount = async (
         ${attributedCounsellorByClientPaymentSql} = ${counsellorId}
         AND ${clientInformation.archived} = false
         AND ${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
-        AND (
-          (${clientPayments.paymentDate} IS NOT NULL
-            AND ${clientPayments.paymentDate} >= ${startDateStr}
-            AND ${clientPayments.paymentDate} <= ${endDateStr})
-          OR
-          (${clientPayments.paymentDate} IS NULL
-            AND ${clientPayments.createdAt} >= ${startTimestamp}
-            AND ${clientPayments.createdAt} <= ${endTimestamp})
-        )
+        AND ${clientPayments.paymentDate} IS NOT NULL
+        AND ${clientPayments.paymentDate} >= ${startDateStr}
+        AND ${clientPayments.paymentDate} <= ${endDateStr}
       )`
     );
   return parseFloat(result?.total || "0");
@@ -656,7 +626,13 @@ export const getLeaderboard = async (
 
       // Per-counsellor breakdown: Core Sale, Core Product, Other Product (same definitions as dashboard)
       const [coreSaleAmount, coreProductMetrics, otherProductMetrics] = await Promise.all([
-        getCounsellorCoreSaleAmount(counsellor.id, startDateStr, endDateStr, startTimestamp, endTimestamp),
+        getCounsellorCoreSaleAmount(
+          counsellor.id,
+          startDateStr,
+          endDateStr,
+          startTimestamp,
+          endTimestamp
+        ),
         getCounsellorCoreProductMetrics(counsellor.id, startDateStr, endDateStr),
         getCounsellorOtherProductMetrics(counsellor.id, startDateStr, endDateStr),
       ]);

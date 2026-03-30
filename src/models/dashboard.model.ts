@@ -17,7 +17,13 @@ import { tutionFees } from "../schemas/tutionFees.schema";
 import { allFinance } from "../schemas/allFinance.schema";
 import { users } from "../schemas/users.schema";
 import { leaderBoard } from "../schemas/leaderBoard.schema";
-import { calculateCounsellorRevenue } from "./leaderboard.model";
+import {
+  calculateCounsellorRevenue,
+  getCounsellorCoreProductMetrics,
+  getCounsellorCoreSaleAmount,
+  getCounsellorEnrollmentCountByEnrollmentDate,
+  getCounsellorOtherProductMetrics,
+} from "./leaderboard.model";
 import { eq, and, gte, lte, sql, count, inArray, isNotNull } from "drizzle-orm";
 import { saleTypes } from "../schemas/saleType.schema";
 import { saleTypeCategories } from "../schemas/saleTypeCategory.schema";
@@ -89,7 +95,7 @@ export interface AdminManagerDashboardStats {
     count: number; // Distinct clients with INITIAL/BEFORE_VISA/AFTER_VISA payment in period
   };
   revenue: {
-    amount: string; // Core Sale Amount + Core Product Amount + Other Product Amount
+    amount: string; // Sum of per-counsellor revenue (same attribution logic as report/leaderboard)
   };
   /** Distinct clients with core-sale payments in period, grouped by sale type category. */
   saleTypeCategoryCounts: Array<{
@@ -218,7 +224,13 @@ export const getSaleTypeCategoryCounts = async (
   const params: (string | number)[] = [startDateStr, endDateStr, startTimestamp, endTimestamp];
   let counsellorClause = "";
   if (roleFilter?.userRole === "counsellor" && roleFilter.counsellorId) {
-    counsellorClause = ` AND ci.counsellor_id = $5`;
+    counsellorClause = ` AND EXISTS (
+      SELECT 1
+      FROM client_payment cpo
+      WHERE cpo.client_id = ci.id
+        AND cpo.stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
+        AND COALESCE(cpo.handled_by, ci.counsellor_id) = $5
+    )`;
     params.push(roleFilter.counsellorId);
   }
 
@@ -372,13 +384,15 @@ const buildCounsellorFilter = (
   clientTable: any
 ): any => {
   if (filter.userRole === "counsellor" && filter.counsellorId) {
-    return sql`(
-      CASE
-        WHEN ${clientTable.transferStatus} = true AND ${clientTable.transferedToCounsellorId} IS NOT NULL
-        THEN ${clientTable.transferedToCounsellorId}
-        ELSE ${clientTable.counsellorId}
-      END
-    ) = ${filter.counsellorId}`;
+    // Counsellor ownership is attributed by handledBy (fallback to client counsellor)
+    // so dashboard filters stay consistent with revenue attribution.
+    return sql`EXISTS (
+      SELECT 1
+      FROM ${clientPayments} cp
+      WHERE cp.client_id = ${clientTable.clientId}
+        AND cp.stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
+        AND COALESCE(cp.handled_by, ${clientTable.counsellorId}) = ${filter.counsellorId}
+    )`;
   }
   return undefined; // No filter for admin/manager
 };
@@ -562,13 +576,13 @@ export const getCoreServiceCount = async (
   ];
   if (filter?.userRole === "counsellor" && filter.counsellorId) {
     conditions.push(
-      sql`(
-        CASE
-          WHEN ${clientInformation.transferStatus} = true AND ${clientInformation.transferedToCounsellorId} IS NOT NULL
-          THEN ${clientInformation.transferedToCounsellorId}
-          ELSE ${clientInformation.counsellorId}
-        END
-      ) = ${filter.counsellorId}`
+      sql`EXISTS (
+        SELECT 1
+        FROM ${clientPayments} cp
+        WHERE cp.client_id = ${clientInformation.clientId}
+          AND cp.stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
+          AND COALESCE(cp.handled_by, ${clientInformation.counsellorId}) = ${filter.counsellorId}
+      )`
     );
   }
 
@@ -872,8 +886,8 @@ export const getPendingAmountByCounsellors = async (
 const calculateMonthlyRevenue = async (
   monthStartStr: string,
   monthEndStr: string,
-  monthStartTimestamp: string,
-  monthEndTimestamp: string
+  _monthStartTimestamp: string,
+  _monthEndTimestamp: string
 ): Promise<number> => {
   // 1. Client payments for this month (exclude archived clients)
   const [clientPaymentsResult] = await db
@@ -889,11 +903,9 @@ const calculateMonthlyRevenue = async (
       sql`(
         ${clientInformation.archived} = false
         AND ${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
-        AND (
-          (${clientPayments.paymentDate} IS NOT NULL AND ${clientPayments.paymentDate} >= ${monthStartStr} AND ${clientPayments.paymentDate} <= ${monthEndStr})
-          OR
-          (${clientPayments.paymentDate} IS NULL AND ${clientPayments.createdAt} >= ${monthStartTimestamp} AND ${clientPayments.createdAt} <= ${monthEndTimestamp})
-        )
+        AND ${clientPayments.paymentDate} IS NOT NULL
+        AND ${clientPayments.paymentDate} >= ${monthStartStr}
+        AND ${clientPayments.paymentDate} <= ${monthEndStr}
       )`
     );
 
@@ -911,11 +923,9 @@ const calculateMonthlyRevenue = async (
       sql`(
         ${clientInformation.archived} = false
         AND ${clientProductPayments.amount} IS NOT NULL
-        AND (
-          (${clientProductPayments.paymentDate} IS NOT NULL AND ${clientProductPayments.paymentDate} >= ${monthStartStr} AND ${clientProductPayments.paymentDate} <= ${monthEndStr})
-          OR
-          (${clientProductPayments.paymentDate} IS NULL AND ${clientProductPayments.createdAt} >= ${monthStartTimestamp} AND ${clientProductPayments.createdAt} <= ${monthEndTimestamp})
-        )
+        AND ${clientProductPayments.paymentDate} IS NOT NULL
+        AND ${clientProductPayments.paymentDate} >= ${monthStartStr}
+        AND ${clientProductPayments.paymentDate} <= ${monthEndStr}
       )`
     );
 
@@ -935,11 +945,9 @@ const calculateMonthlyRevenue = async (
         ${clientInformation.archived} = false
         AND ${clientProductPayments.amount} IS NULL
         AND ${clientProductPayments.entityId} IS NOT NULL
-        AND (
-          (${clientProductPayments.paymentDate} IS NOT NULL AND ${clientProductPayments.paymentDate} >= ${monthStartStr} AND ${clientProductPayments.paymentDate} <= ${monthEndStr})
-          OR
-          (${clientProductPayments.paymentDate} IS NULL AND ${clientProductPayments.createdAt} >= ${monthStartTimestamp} AND ${clientProductPayments.createdAt} <= ${monthEndTimestamp})
-        )
+        AND ${clientProductPayments.paymentDate} IS NOT NULL
+        AND ${clientProductPayments.paymentDate} >= ${monthStartStr}
+        AND ${clientProductPayments.paymentDate} <= ${monthEndStr}
       )`
     );
 
@@ -1169,99 +1177,125 @@ export const getCoreProductMetrics = async (
 
   const [amountResult] = await amountQuery;
 
-  // Another payment: count and amount by anotherPaymentDate (partial/second payment in all_finance)
-  const anotherDateCondition = sql`(
-    ${allFinance.anotherPaymentDate} IS NOT NULL
-    AND ${allFinance.anotherPaymentDate} >= ${startDateStr}
-    AND ${allFinance.anotherPaymentDate} <= ${endDateStr}
-    AND ${allFinance.anotherPaymentAmount} IS NOT NULL
-  )`;
-  let countAnotherQuery = db
-    .select({ count: count() })
-    .from(clientProductPayments)
-    .innerJoin(
-      allFinance,
-      sql`${clientProductPayments.entityId} = ${allFinance.financeId} AND ${clientProductPayments.entityType} = 'allFinance_id'`
-    )
-    .where(
-      sql`${clientProductPayments.productName} = ${CORE_PRODUCT} AND ${anotherDateCondition}`
-    ) as any;
-  if (roleFilter?.userRole === "counsellor" && roleFilter.counsellorId) {
-    countAnotherQuery = countAnotherQuery
-      .innerJoin(
-        clientInformation,
-        eq(clientProductPayments.clientId, clientInformation.clientId)
-      )
-      .where(
-        sql`(
-          ${attributedCounsellorByProductPaymentSql} = ${roleFilter.counsellorId}
-          AND ${clientInformation.archived} = false
-          AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
-          AND ${anotherDateCondition}
-        )`
-      ) as any;
-  } else {
-    countAnotherQuery = countAnotherQuery
-      .innerJoin(
-        clientInformation,
-        eq(clientProductPayments.clientId, clientInformation.clientId)
-      )
-      .where(
-        sql`(
-          ${clientInformation.archived} = false
-          AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
-          AND ${anotherDateCondition}
-        )`
-      ) as any;
-  }
-  const [countAnotherResult] = await countAnotherQuery;
+  const getAdditionalCoreProductMetrics = async (
+    dateColumn: any,
+    amountColumn: any
+  ): Promise<{ count: number; amount: number }> => {
+    const dateCondition = sql`(
+      ${dateColumn} IS NOT NULL
+      AND ${dateColumn} >= ${startDateStr}
+      AND ${dateColumn} <= ${endDateStr}
+      AND ${amountColumn} IS NOT NULL
+    )`;
 
-  let amountAnotherQuery = db
-    .select({
-      total: sql<string>`COALESCE(SUM(${allFinance.anotherPaymentAmount}::numeric), 0)`,
-    })
-    .from(allFinance)
-    .innerJoin(
-      clientProductPayments,
-      sql`${clientProductPayments.entityId} = ${allFinance.financeId} AND ${clientProductPayments.entityType} = 'allFinance_id'`
-    )
-    .where(
-      sql`${clientProductPayments.productName} = ${CORE_PRODUCT} AND ${anotherDateCondition}`
-    ) as any;
-  if (roleFilter?.userRole === "counsellor" && roleFilter.counsellorId) {
-    amountAnotherQuery = amountAnotherQuery
+    let countQuery = db
+      .select({ count: count() })
+      .from(clientProductPayments)
       .innerJoin(
-        clientInformation,
-        eq(clientProductPayments.clientId, clientInformation.clientId)
+        allFinance,
+        sql`${clientProductPayments.entityId} = ${allFinance.financeId} AND ${clientProductPayments.entityType} = 'allFinance_id'`
       )
       .where(
-        sql`(
-          ${attributedCounsellorByProductPaymentSql} = ${roleFilter.counsellorId}
-          AND ${clientInformation.archived} = false
-          AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
-          AND ${anotherDateCondition}
-        )`
+        sql`${clientProductPayments.productName} = ${CORE_PRODUCT} AND ${dateCondition}`
       ) as any;
-  } else {
-    amountAnotherQuery = amountAnotherQuery
+
+    if (roleFilter?.userRole === "counsellor" && roleFilter.counsellorId) {
+      countQuery = countQuery
+        .innerJoin(
+          clientInformation,
+          eq(clientProductPayments.clientId, clientInformation.clientId)
+        )
+        .where(
+          sql`(
+            ${attributedCounsellorByProductPaymentSql} = ${roleFilter.counsellorId}
+            AND ${clientInformation.archived} = false
+            AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
+            AND ${dateCondition}
+          )`
+        ) as any;
+    } else {
+      countQuery = countQuery
+        .innerJoin(
+          clientInformation,
+          eq(clientProductPayments.clientId, clientInformation.clientId)
+        )
+        .where(
+          sql`(
+            ${clientInformation.archived} = false
+            AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
+            AND ${dateCondition}
+          )`
+        ) as any;
+    }
+    const [countResultLocal] = await countQuery;
+
+    let amountQuery = db
+      .select({
+        total: sql<string>`COALESCE(SUM(${amountColumn}::numeric), 0)`,
+      })
+      .from(allFinance)
       .innerJoin(
-        clientInformation,
-        eq(clientProductPayments.clientId, clientInformation.clientId)
+        clientProductPayments,
+        sql`${clientProductPayments.entityId} = ${allFinance.financeId} AND ${clientProductPayments.entityType} = 'allFinance_id'`
       )
       .where(
-        sql`(
-          ${clientInformation.archived} = false
-          AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
-          AND ${anotherDateCondition}
-        )`
+        sql`${clientProductPayments.productName} = ${CORE_PRODUCT} AND ${dateCondition}`
       ) as any;
-  }
-  const [amountAnotherResult] = await amountAnotherQuery;
+    if (roleFilter?.userRole === "counsellor" && roleFilter.counsellorId) {
+      amountQuery = amountQuery
+        .innerJoin(
+          clientInformation,
+          eq(clientProductPayments.clientId, clientInformation.clientId)
+        )
+        .where(
+          sql`(
+            ${attributedCounsellorByProductPaymentSql} = ${roleFilter.counsellorId}
+            AND ${clientInformation.archived} = false
+            AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
+            AND ${dateCondition}
+          )`
+        ) as any;
+    } else {
+      amountQuery = amountQuery
+        .innerJoin(
+          clientInformation,
+          eq(clientProductPayments.clientId, clientInformation.clientId)
+        )
+        .where(
+          sql`(
+            ${clientInformation.archived} = false
+            AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
+            AND ${dateCondition}
+          )`
+        ) as any;
+    }
+    const [amountResultLocal] = await amountQuery;
+
+    return {
+      count: Number(countResultLocal?.count || 0),
+      amount: parseFloat(amountResultLocal?.total || "0"),
+    };
+  };
+
+  const [another1, another2, another3] = await Promise.all([
+    getAdditionalCoreProductMetrics(
+      allFinance.anotherPaymentDate,
+      allFinance.anotherPaymentAmount
+    ),
+    getAdditionalCoreProductMetrics(
+      allFinance.anotherPaymentDate2,
+      allFinance.anotherPaymentAmount2
+    ),
+    getAdditionalCoreProductMetrics(
+      allFinance.anotherPaymentDate3,
+      allFinance.anotherPaymentAmount3
+    ),
+  ]);
 
   const mainCount = countResult?.count || 0;
   const mainAmount = parseFloat(amountResult?.total || "0");
-  const anotherCount = countAnotherResult?.count || 0;
-  const anotherAmount = parseFloat(amountAnotherResult?.total || "0");
+  const anotherCount = another1.count + another2.count + another3.count;
+  const anotherAmount = another1.amount + another2.amount + another3.amount;
 
   return {
     count: mainCount + anotherCount,
@@ -1330,7 +1364,7 @@ const getEntityBasedOtherProductCountAndAmount = async (
   runs.push(runForEntity("forexCard_id", forexCard, forexCard.id, forexCard.cardDate));
   runs.push(runForEntity("forexFees_id", forexFees, forexFees.id, forexFees.feeDate));
   runs.push(runForEntity("tutionFees_id", tutionFees, tutionFees.id, tutionFees.feeDate));
-  runs.push(runForEntity("creditCard_id", creditCard, creditCard.id, creditCard.cardDate));
+  runs.push(runForEntity("creditCard_id", creditCard, creditCard.id, creditCard.cardGivingDate));
   runs.push(runForEntity("simCard_id", simCard, simCard.id, simCard.simCardGivingDate));
   runs.push(runForEntity("beaconAccount_id", beaconAccount, beaconAccount.id, beaconAccount.openingDate));
 
@@ -1358,17 +1392,11 @@ export const getOtherProductMetrics = async (
   const startTimestamp = dateRange.start.toISOString();
   const endTimestamp = dateRange.end.toISOString();
 
-  // 1) Direct: paymentDate in range OR (paymentDate null AND createdAt in range)
+  // 1) Direct: only user-entered paymentDate in range
   const directPaymentDateCondition = sql`(
-    (
-      (${clientProductPayments.paymentDate} IS NOT NULL
-        AND ${clientProductPayments.paymentDate} >= ${startDateStr}
-        AND ${clientProductPayments.paymentDate} <= ${endDateStr})
-      OR
-      (${clientProductPayments.paymentDate} IS NULL
-        AND ${clientProductPayments.createdAt} >= ${startTimestamp}
-        AND ${clientProductPayments.createdAt} <= ${endTimestamp})
-    )
+    ${clientProductPayments.paymentDate} IS NOT NULL
+    AND ${clientProductPayments.paymentDate} >= ${startDateStr}
+    AND ${clientProductPayments.paymentDate} <= ${endDateStr}
   )`;
 
   let directCountQuery = db
@@ -1479,21 +1507,15 @@ const getOtherProductBreakdown = async (
 ): Promise<Array<{ key: string; name: string; count: number; amount: string }>> => {
   const startDateStr = toLocalDateString(dateRange.start);
   const endDateStr = toLocalDateString(dateRange.end);
-  const startTimestamp = dateRange.start.toISOString();
-  const endTimestamp = dateRange.end.toISOString();
+  const _startTimestamp = dateRange.start.toISOString();
+  const _endTimestamp = dateRange.end.toISOString();
 
   const countOnlyProductsList = COUNT_ONLY_PRODUCTS.map((p) => `'${p}'`).join(", ");
 
   const directPaymentDateCondition = sql`(
-    (
-      (${clientProductPayments.paymentDate} IS NOT NULL
-        AND ${clientProductPayments.paymentDate} >= ${startDateStr}
-        AND ${clientProductPayments.paymentDate} <= ${endDateStr})
-      OR
-      (${clientProductPayments.paymentDate} IS NULL
-        AND ${clientProductPayments.createdAt} >= ${startTimestamp}
-        AND ${clientProductPayments.createdAt} <= ${endTimestamp})
-    )
+    ${clientProductPayments.paymentDate} IS NOT NULL
+    AND ${clientProductPayments.paymentDate} >= ${startDateStr}
+    AND ${clientProductPayments.paymentDate} <= ${endDateStr}
   )`;
 
   let directQuery = db
@@ -1604,7 +1626,7 @@ const getOtherProductBreakdown = async (
     runForEntity("forexCard_id", forexCard, forexCard.id, forexCard.cardDate),
     runForEntity("forexFees_id", forexFees, forexFees.id, forexFees.feeDate),
     runForEntity("tutionFees_id", tutionFees, tutionFees.id, tutionFees.feeDate),
-    runForEntity("creditCard_id", creditCard, creditCard.id, creditCard.cardDate),
+    runForEntity("creditCard_id", creditCard, creditCard.id, creditCard.cardGivingDate),
     runForEntity("simCard_id", simCard, simCard.id, simCard.simCardGivingDate),
     runForEntity("beaconAccount_id", beaconAccount, beaconAccount.id, beaconAccount.openingDate),
   ];
@@ -1654,15 +1676,9 @@ export const getCoreSaleAmount = async (
   const baseConditions = sql`(
     ${clientInformation.archived} = false
     AND ${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
-    AND (
-      (${clientPayments.paymentDate} IS NOT NULL
-        AND ${clientPayments.paymentDate} >= ${startDateStr}
-        AND ${clientPayments.paymentDate} <= ${endDateStr})
-      OR
-      (${clientPayments.paymentDate} IS NULL
-        AND ${clientPayments.createdAt} >= ${startTimestamp}
-        AND ${clientPayments.createdAt} <= ${endTimestamp})
-    )
+    AND ${clientPayments.paymentDate} IS NOT NULL
+    AND ${clientPayments.paymentDate} >= ${startDateStr}
+    AND ${clientPayments.paymentDate} <= ${endDateStr}
   )`;
 
   let query = db
@@ -1704,15 +1720,9 @@ const getCoreServiceCountByPaymentDate = async (
   const paymentDateCondition = sql`(
     ${clientInformation.archived} = false
     AND ${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
-    AND (
-      (${clientPayments.paymentDate} IS NOT NULL
-        AND ${clientPayments.paymentDate} >= ${startDateStr}
-        AND ${clientPayments.paymentDate} <= ${endDateStr})
-      OR
-      (${clientPayments.paymentDate} IS NULL
-        AND ${clientPayments.createdAt} >= ${startTimestamp}
-        AND ${clientPayments.createdAt} <= ${endTimestamp})
-    )
+    AND ${clientPayments.paymentDate} IS NOT NULL
+    AND ${clientPayments.paymentDate} >= ${startDateStr}
+    AND ${clientPayments.paymentDate} <= ${endDateStr}
   )`;
 
   let query = db
@@ -1749,15 +1759,9 @@ const getCoreSaleAmountByPaymentDate = async (
   const baseConditions = sql`(
     ${clientInformation.archived} = false
     AND ${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
-    AND (
-      (${clientPayments.paymentDate} IS NOT NULL
-        AND ${clientPayments.paymentDate} >= ${startDateStr}
-        AND ${clientPayments.paymentDate} <= ${endDateStr})
-      OR
-      (${clientPayments.paymentDate} IS NULL
-        AND ${clientPayments.createdAt} >= ${startTimestamp}
-        AND ${clientPayments.createdAt} <= ${endTimestamp})
-    )
+    AND ${clientPayments.paymentDate} IS NOT NULL
+    AND ${clientPayments.paymentDate} >= ${startDateStr}
+    AND ${clientPayments.paymentDate} <= ${endDateStr}
   )`;
 
   let query = db
@@ -2472,6 +2476,11 @@ export const getDashboardStats = async (
       getChartDataCounsellor(range || "today", dateRange, roleFilter!),
     ]);
 
+    const individualLeaderboard =
+      leaderboardData.find((row) => row.counsellorId === userId) != null
+        ? leaderboardData.filter((row) => row.counsellorId === userId)
+        : [];
+
     const counsellorStats: CounsellorDashboardStats = {
       coreSale: {
         number: coreSaleCount,
@@ -2493,7 +2502,7 @@ export const getDashboardStats = async (
         // newEnrollment: {
         //   count: newEnrollmentCount.count,
         // },
-      leaderboard: leaderboardData, // Same full leaderboard array as admin/manager
+      leaderboard: individualLeaderboard, // Counsellor dashboard shows only logged-in counsellor row
       individualPerformance,
       chartData,
     };
@@ -2505,10 +2514,6 @@ export const getDashboardStats = async (
   // Summary cards use summaryDateRange (filter-based). totalPendingAmount = all clients. totalClients = filter-based (like counsellor).
   const [
     // newEnrollmentCount,
-    coreSaleCount,
-    coreSaleAmount,
-    coreProductMetrics,
-    otherProductMetrics,
     otherProductBreakdown,
     totalPendingAmount,
     totalClientsCount,
@@ -2517,10 +2522,6 @@ export const getDashboardStats = async (
     chartData,
   ] = await Promise.all([
     // getNewEnrollments(filter, summaryDateRange, roleFilter),
-    getCoreServiceCount(summaryDateRange, roleFilter),
-    getCoreSaleAmount(summaryDateRange, roleFilter),
-    getCoreProductMetrics(summaryDateRange, roleFilter, filter),
-    getOtherProductMetrics(summaryDateRange, roleFilter, filter),
     getOtherProductBreakdown(summaryDateRange, roleFilter),
     getPendingAmount(allTimeDateRange, roleFilter),
     getTotalClients(summaryDateRange, roleFilter),
@@ -2531,25 +2532,78 @@ export const getDashboardStats = async (
 
   ]);
 
-  // Revenue: use same period as cards (today = today only; chart stays 7-day/weekly)
+  // Align top cards with report-style "all counsellors" aggregation from individual counsellor metrics.
+  const startDateStr = toLocalDateString(summaryDateRange.start);
+  const endDateStr = toLocalDateString(summaryDateRange.end);
+  const startTimestamp = summaryDateRange.start.toISOString();
+  const endTimestamp = summaryDateRange.end.toISOString();
+
+  const perCounsellorTotals = await Promise.all(
+    leaderboardData.map(async (row) => {
+      const [enrollments, coreSale, coreProduct, otherProduct] = await Promise.all([
+        getCounsellorEnrollmentCountByEnrollmentDate(row.counsellorId, startDateStr, endDateStr),
+        getCounsellorCoreSaleAmount(
+          row.counsellorId,
+          startDateStr,
+          endDateStr,
+          startTimestamp,
+          endTimestamp
+        ),
+        getCounsellorCoreProductMetrics(row.counsellorId, startDateStr, endDateStr),
+        getCounsellorOtherProductMetrics(row.counsellorId, startDateStr, endDateStr),
+      ]);
+
+      return {
+        enrollments,
+        coreSale,
+        coreProductCount: coreProduct.count,
+        coreProductAmount: coreProduct.amount,
+        otherProductCount: otherProduct.count,
+        otherProductAmount: otherProduct.amount,
+      };
+    })
+  );
+
+  const aggregateCards = perCounsellorTotals.reduce(
+    (acc, item) => {
+      acc.coreSaleCount += item.enrollments;
+      acc.coreSaleAmount += item.coreSale;
+      acc.coreProductCount += item.coreProductCount;
+      acc.coreProductAmount += item.coreProductAmount;
+      acc.otherProductCount += item.otherProductCount;
+      acc.otherProductAmount += item.otherProductAmount;
+      return acc;
+    },
+    {
+      coreSaleCount: 0,
+      coreSaleAmount: 0,
+      coreProductCount: 0,
+      coreProductAmount: 0,
+      otherProductCount: 0,
+      otherProductAmount: 0,
+    }
+  );
+
   const totalRevenue =
-    coreSaleAmount + coreProductMetrics.amount + otherProductMetrics.amount;
+    aggregateCards.coreSaleAmount +
+    aggregateCards.coreProductAmount +
+    aggregateCards.otherProductAmount;
 
   const adminManagerStats: AdminManagerDashboardStats = {
     // newEnrollment: {
     //   count: newEnrollmentCount.count,
     // },
     coreSale: {
-      number: coreSaleCount,
-      amount: coreSaleAmount.toFixed(2),
+      number: aggregateCards.coreSaleCount,
+      amount: aggregateCards.coreSaleAmount.toFixed(2),
     },
     coreProduct: {
-      number: coreProductMetrics.count,
-      amount: coreProductMetrics.amount.toFixed(2),
+      number: aggregateCards.coreProductCount,
+      amount: aggregateCards.coreProductAmount.toFixed(2),
     },
     otherProduct: {
-      number: otherProductMetrics.count,
-      amount: otherProductMetrics.amount.toFixed(2),
+      number: aggregateCards.otherProductCount,
+      amount: aggregateCards.otherProductAmount.toFixed(2),
     },
     otherProductBreakdown,
     totalPendingAmount: {
