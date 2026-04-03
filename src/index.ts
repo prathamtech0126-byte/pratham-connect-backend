@@ -33,20 +33,28 @@ const parseOrigins = (raw?: string): string[] =>
     .filter(Boolean);
 
 /**
- * Production CORS allowlist.
+ * CORS allowlist used when NODE_ENV=production (see cors callback below).
  *
- * Configure via:
- * - FRONTEND_URL=https://connect.easyvisa.ai
- * - CORS_ORIGINS=https://connect.easyvisa.ai,https://other-frontend.com
+ * - Development: localhost + LAN dev URLs + FRONTEND_URL + CORS_ORIGINS (so local / network dev works).
+ * - Production: FRONTEND_URL only — set in env (no hardcoded dev origins).
  */
+const devDefaultOrigins = [
+  "http://localhost:5000",
+  "http://192.168.68.142:5000",
+  "http://192.168.29.105:5000",
+];
+
 const allowedOrigins = Array.from(
   new Set(
-    [
-      // Keep existing deployed frontend (safe default if you forget to set env)
-      "http://localhost:5000", "http://192.168.68.142:5000", "http://192.168.29.105:5000",
-      process.env.FRONTEND_URL,
-      ...parseOrigins(process.env.CORS_ORIGINS),
-    ].filter(Boolean) as string[]
+    (
+      isProduction
+        ? [process.env.FRONTEND_URL]
+        : [
+            ...devDefaultOrigins,
+            process.env.FRONTEND_URL,
+            ...parseOrigins(process.env.CORS_ORIGINS),
+          ]
+    ).filter(Boolean) as string[]
   )
 );
 
