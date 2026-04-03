@@ -43,7 +43,7 @@ const allowedOrigins = Array.from(
   new Set(
     [
       // Keep existing deployed frontend (safe default if you forget to set env)
-      "https://connect.easyvisa.ai",
+      "http://localhost:5000", "http://192.168.68.142:5000", "http://192.168.29.105:5000",
       process.env.FRONTEND_URL,
       ...parseOrigins(process.env.CORS_ORIGINS),
     ].filter(Boolean) as string[]
