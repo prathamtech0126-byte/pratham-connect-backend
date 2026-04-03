@@ -182,15 +182,8 @@ export const getAllUsers = async () => {
     .where(ne(users.role, "admin"));
 };
 
-/** All users with manager details: include admin; only include non-admin if they have at least one client (counsellorId in client_information). */
+/** All users with manager details: admin, every manager, every counsellor (including 0 clients). */
 export const getAllUsersWithManagerDetails = async () => {
-  const counsellorIdsWithClients = await db
-    .selectDistinct({ counsellorId: clientInformation.counsellorId })
-    .from(clientInformation);
-  const idsWithClients = counsellorIdsWithClients
-    .map((r) => r.counsellorId)
-    .filter((id): id is number => id != null);
-
   const list = await db
     .select({
       id: users.id,
@@ -204,9 +197,11 @@ export const getAllUsersWithManagerDetails = async () => {
     })
     .from(users)
     .where(
-      idsWithClients.length === 0
-        ? eq(users.role, "admin")
-        : or(eq(users.role, "admin"), inArray(users.id, idsWithClients))
+      or(
+        eq(users.role, "admin"),
+        eq(users.role, "manager"),
+        eq(users.role, "counsellor")
+      )
     );
 
   const managerIds = [...new Set(list.map((u) => u.managerId).filter((id): id is number => id != null))];
@@ -230,15 +225,8 @@ export const getAllUsersWithManagerDetails = async () => {
   }));
 };
 
-/** All users with manager details but exclude admin. Used for manager (isSupervisor): managers + counsellors with at least one client. */
+/** All users with manager details but exclude admin. Used for manager (isSupervisor): every manager + every counsellor (including 0 clients). */
 export const getAllUsersWithManagerDetailsExcludeAdmin = async () => {
-  const counsellorIdsWithClients = await db
-    .selectDistinct({ counsellorId: clientInformation.counsellorId })
-    .from(clientInformation);
-  const idsWithClients = counsellorIdsWithClients
-    .map((r) => r.counsellorId)
-    .filter((id): id is number => id != null);
-
   const list = await db
     .select({
       id: users.id,
@@ -254,9 +242,7 @@ export const getAllUsersWithManagerDetailsExcludeAdmin = async () => {
     .where(
       and(
         ne(users.role, "admin"),
-        idsWithClients.length === 0
-          ? eq(users.role, "manager")
-          : or(eq(users.role, "manager"), inArray(users.id, idsWithClients))
+        or(eq(users.role, "manager"), eq(users.role, "counsellor"))
       )
     );
 

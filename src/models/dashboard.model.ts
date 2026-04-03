@@ -1816,8 +1816,8 @@ const getLeaderboardDataForDashboard = async (
   const startTimestamp = dateRange.start.toISOString();
   const endTimestamp = dateRange.end.toISOString();
 
-  // All roles (admin, manager, counsellor): show full company counsellor leaderboard
-  const whereCondition = eq(users.role, "counsellor");
+  // All roles (admin, manager, counsellor): show full company counsellor leaderboard (active only)
+  const whereCondition = and(eq(users.role, "counsellor"), eq(users.status, true));
 
   const counsellorsList = await db
     .select({
