@@ -50,7 +50,8 @@ export const users = pgTable(
     managerId: bigint("manager_id", { mode: "number" })
       .references((): AnyPgColumn => users.id), // ✅ nullable by default
 
-    officePhone: varchar("office_phone", { length: 10 }).unique(),
+    /** Shared office line: same number may be used on multiple users (not unique). */
+    officePhone: varchar("office_phone", { length: 10 }),
 
     personalPhone: varchar("personal_phone", { length: 10 }).unique(),
 

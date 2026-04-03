@@ -8,6 +8,30 @@ import { activityLog } from "./../schemas/activityLog.schema";
 import { eq, ne, and, count, inArray, or } from "drizzle-orm";
 import { ROLES, Role, isRole } from "../types/role";
 
+/**
+ * Postgres unique_violation (23505) → clear API message for email, emp_id, personal_phone.
+ * (office_phone is not unique — duplicates allowed.)
+ */
+function throwFriendlyUniqueViolation(err: unknown): never {
+  const e = err as { code?: string; constraint?: string; detail?: string };
+  if (e?.code !== "23505") {
+    throw err;
+  }
+  const detail = String(e.detail ?? "");
+  const constraint = String(e.constraint ?? "").toLowerCase();
+  // e.g. Key (personal_phone)=(1234567890) already exists.
+  if (/\(personal_phone\)/i.test(detail) || constraint.includes("personal_phone")) {
+    throw new Error("Personal phone number already exists");
+  }
+  if (/\(emp_id\)/i.test(detail) || constraint.includes("emp_id")) {
+    throw new Error("Employee ID already exists");
+  }
+  if (/\(email\)/i.test(detail) || (constraint.includes("email") && !constraint.includes("personal"))) {
+    throw new Error("Email already exists");
+  }
+  throw new Error("This value already exists. Please use a different one.");
+}
+
 /* ================================
    TYPES
 ================================ */
@@ -132,30 +156,45 @@ export const createUser = async (
     throw new Error("Personal phone must be 10 characters or less");
   }
 
-  const [user] = await db
-    .insert(users)
-    .values({
-      fullName: data.fullName,
-      email: email,
-      emp_id: data.empId || null, // Use || to convert empty strings to null
-      passwordHash,
-      role: finalRole,
-      managerId: roleRequiresManager ? data.managerId : null,
-      officePhone,
-      personalPhone,
-      designation,
-      isSupervisor: finalRole === "manager" ? (data.isSupervisor ?? false) : false,
-    })
-    .returning({
-      id: users.id,
-      fullName: users.fullName,
-      email: users.email,
-      role: users.role,
-      managerId: users.managerId,
-      isSupervisor: users.isSupervisor,
-    });
+  if (personalPhone) {
+    const [dupPersonal] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.personalPhone, personalPhone))
+      .limit(1);
+    if (dupPersonal) {
+      throw new Error("Personal phone number already exists");
+    }
+  }
 
-  return user;
+  try {
+    const [user] = await db
+      .insert(users)
+      .values({
+        fullName: data.fullName,
+        email: email,
+        emp_id: data.empId || null, // Use || to convert empty strings to null
+        passwordHash,
+        role: finalRole,
+        managerId: roleRequiresManager ? data.managerId : null,
+        officePhone,
+        personalPhone,
+        designation,
+        isSupervisor: finalRole === "manager" ? (data.isSupervisor ?? false) : false,
+      })
+      .returning({
+        id: users.id,
+        fullName: users.fullName,
+        email: users.email,
+        role: users.role,
+        managerId: users.managerId,
+        isSupervisor: users.isSupervisor,
+      });
+
+    return user;
+  } catch (err) {
+    throwFriendlyUniqueViolation(err);
+  }
 };
 
 /* ================================
@@ -334,19 +373,6 @@ export const updateUserByAdmin = async (
       data.officePhone && data.officePhone.trim() !== ""
         ? data.officePhone.trim()
         : undefined;
-
-    if (normalizedOfficePhone) {
-      const existingOfficePhone = await db
-        .select({ id: users.id })
-        .from(users)
-        .where(and(eq(users.officePhone, normalizedOfficePhone), ne(users.id, userId)))
-        .limit(1);
-
-      if (existingOfficePhone.length > 0) {
-        throw new Error("Office phone already exists");
-      }
-    }
-
     data.officePhone = normalizedOfficePhone;
   }
 
@@ -484,22 +510,7 @@ export const updateUserByAdmin = async (
 
     return updatedUser;
   } catch (err: any) {
-    // Map Postgres unique constraint violations to friendly errors
-    if (err?.code === "23505") {
-      const constraint = String(err.constraint ?? err.detail ?? err.message ?? "");
-
-      if (/emp(_|\b|\.)?id/i.test(constraint) || /emp_id/i.test(constraint)) {
-        throw new Error("Employee ID already exists");
-      }
-
-      if (/email/i.test(constraint)) {
-        throw new Error("Email already exists");
-      }
-
-      throw new Error("Unique constraint violation");
-    }
-
-    throw err;
+    throwFriendlyUniqueViolation(err);
   }
 };
 
