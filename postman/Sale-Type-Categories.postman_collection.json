@@ -124,7 +124,62 @@
             },
             "url": "{{baseUrl}}/api/sale-types/1"
           }
+        },
+        {
+          "name": "Team Management",
+          "item": [
+            {
+              "name": "Get all team members",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{baseUrl}}/api/team"
+              }
+            },
+            {
+              "name": "Get team member by ID",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{baseUrl}}/api/team?id=1"
+              }
+            },
+            {
+              "name": "Create team member",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"John Doe\",\n  \"role\": \"Senior Developer\",\n  \"email\": \"john@example.com\",\n  \"phone\": \"+1234567890\",\n  \"department\": \"Engineering\"\n}"
+                },
+                "url": "{{baseUrl}}/api/team"
+              }
+            },
+            {
+              "name": "Update team member",
+              "request": {
+                "method": "PUT",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"role\": \"Lead Developer\",\n  \"department\": \"Product Engineering\"\n}"
+                },
+                "url": "{{baseUrl}}/api/team/1"
+              }
+            },
+            {
+              "name": "Delete team member",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": "{{baseUrl}}/api/team/1"
+              }
+            }
+          ]
         }
+
+        
       ]
     }
   ]
