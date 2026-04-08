@@ -1791,10 +1791,9 @@ const getCoreSaleAmountByPaymentDate = async (
    Uses client + client_payment stage (INITIAL, BEFORE_VISA, AFTER_VISA) for
    enrollments and revenue. Optional target from leader_board for display.
 ============================== */
+/** Full company leaderboard: active counsellors only (same for admin, manager, counsellor). */
 const getLeaderboardDataForDashboard = async (
-  dateRange: DateRange,
-  userId?: number,
-  userRole?: UserRole
+  dateRange: DateRange
 ): Promise<
   Array<{
     counsellorId: number;
@@ -1816,8 +1815,59 @@ const getLeaderboardDataForDashboard = async (
   const startTimestamp = dateRange.start.toISOString();
   const endTimestamp = dateRange.end.toISOString();
 
-  // All roles (admin, manager, counsellor): show full company counsellor leaderboard
-  const whereCondition = eq(users.role, "counsellor");
+  // Active counsellors only (same filter as leaderboard API)
+  const activeCounsellorWhere = and(eq(users.role, "counsellor"), eq(users.status, true));
+
+  type CounsellorRow = {
+    id: number;
+    fullName: string;
+    email: string;
+    empId: string | null;
+    managerId: number | null;
+    designation: string | null;
+  };
+
+  const buildStatsForCounsellor = async (c: CounsellorRow) => {
+    const [enrollmentResult] = await db
+      .select({ count: count() })
+      .from(clientInformation)
+      .where(
+        and(
+          eq(clientInformation.counsellorId, c.id),
+          eq(clientInformation.archived, false),
+          gte(clientInformation.enrollmentDate, startDateStr),
+          lte(clientInformation.enrollmentDate, endDateStr),
+          sql`${clientInformation.clientId} IN (
+              SELECT client_id FROM client_payment
+              WHERE stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
+            )`
+        )
+      );
+
+    const enrollments = Number(enrollmentResult?.count ?? 0);
+    const revenue = await calculateCounsellorRevenue(
+      c.id,
+      startDateStr,
+      endDateStr,
+      startTimestamp,
+      endTimestamp
+    );
+
+    return {
+      counsellorId: c.id,
+      fullName: c.fullName,
+      email: c.email,
+      empId: c.empId,
+      managerId: c.managerId,
+      designation: c.designation,
+      enrollments,
+      revenue: parseFloat(revenue.toFixed(2)),
+      target: 0,
+      achievedTarget: enrollments,
+      targetId: null as number | null,
+      rank: 0,
+    };
+  };
 
   const counsellorsList = await db
     .select({
@@ -1829,63 +1879,17 @@ const getLeaderboardDataForDashboard = async (
       designation: users.designation,
     })
     .from(users)
-    .where(whereCondition);
+    .where(activeCounsellorWhere);
 
-  // Per-counsellor: enrollments by ENROLLMENT DATE in period (same as leaderboard / core service), one client = one count
-  const stats = await Promise.all(
-    counsellorsList.map(async (c) => {
-      const [enrollmentResult] = await db
-        .select({ count: count() })
-        .from(clientInformation)
-        .where(
-          and(
-            eq(clientInformation.counsellorId, c.id),
-            eq(clientInformation.archived, false),
-            gte(clientInformation.enrollmentDate, startDateStr),
-            lte(clientInformation.enrollmentDate, endDateStr),
-            sql`${clientInformation.clientId} IN (
-              SELECT client_id FROM client_payment
-              WHERE stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
-            )`
-          )
-        );
+  const stats = await Promise.all(counsellorsList.map((c) => buildStatsForCounsellor(c)));
 
-      const enrollments = Number(enrollmentResult?.count ?? 0);
-      const revenue = await calculateCounsellorRevenue(
-        c.id,
-        startDateStr,
-        endDateStr,
-        startTimestamp,
-        endTimestamp
-      );
-
-      return {
-        counsellorId: c.id,
-        fullName: c.fullName,
-        email: c.email,
-        empId: c.empId,
-        managerId: c.managerId,
-        designation: c.designation,
-        enrollments,
-        revenue: parseFloat(revenue.toFixed(2)),
-        target: 0,
-        achievedTarget: enrollments,
-        targetId: null as number | null,
-        rank: 0,
-      };
-    })
-  );
-
-  // Sort by enrollments desc, then revenue desc
   stats.sort((a, b) => {
     if (b.enrollments !== a.enrollments) return b.enrollments - a.enrollments;
     return b.revenue - a.revenue;
   });
 
-  // Assign ranks
   const ranked = stats.map((s, i) => ({ ...s, rank: i + 1 }));
 
-  // Optional: fill target/targetId from leader_board for this month (for display)
   const month = dateRange.start.getMonth() + 1;
   const year = dateRange.start.getFullYear();
   const targetRows = await db
@@ -2471,15 +2475,10 @@ export const getDashboardStats = async (
       getTotalClients(summaryDateRange, roleFilter),
       getSaleTypeCategoryCounts(summaryDateRange, roleFilter),
       // getNewEnrollments(filter, summaryDateRange, roleFilter),
-      getLeaderboardDataForDashboard(summaryDateRange, userId, userRole),
+      getLeaderboardDataForDashboard(summaryDateRange),
       getIndividualCounsellorPerformance(userId, filter, dateRange),
       getChartDataCounsellor(range || "today", dateRange, roleFilter!),
     ]);
-
-    const individualLeaderboard =
-      leaderboardData.find((row) => row.counsellorId === userId) != null
-        ? leaderboardData.filter((row) => row.counsellorId === userId)
-        : [];
 
     const counsellorStats: CounsellorDashboardStats = {
       coreSale: {
@@ -2502,7 +2501,7 @@ export const getDashboardStats = async (
         // newEnrollment: {
         //   count: newEnrollmentCount.count,
         // },
-      leaderboard: individualLeaderboard, // Counsellor dashboard shows only logged-in counsellor row
+      leaderboard: leaderboardData, // Same full active-counsellor list as admin/manager
       individualPerformance,
       chartData,
     };
@@ -2526,7 +2525,7 @@ export const getDashboardStats = async (
     getPendingAmount(allTimeDateRange, roleFilter),
     getTotalClients(summaryDateRange, roleFilter),
     getSaleTypeCategoryCounts(summaryDateRange, roleFilter),
-    getLeaderboardDataForDashboard(summaryDateRange, userId, userRole),
+    getLeaderboardDataForDashboard(summaryDateRange),
     getChartData(range || "today", dateRange, roleFilter, filter),
     // getChartData(chartRange, dateRange, roleFilter)
 

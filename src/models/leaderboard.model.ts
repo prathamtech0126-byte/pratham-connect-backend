@@ -19,6 +19,12 @@ import { newSell } from "../schemas/newSell.schema";
 import { allFinance } from "../schemas/allFinance.schema";
 import { eq, and, sql, count, desc, gte, lte, or, inArray } from "drizzle-orm";
 
+/** Active counsellors only; inactive (`users.status = false`) excluded from leaderboard. */
+const activeCounsellorWhere = and(
+  eq(users.role, "counsellor"),
+  eq(users.status, true)
+);
+
 // Match dashboard: Core Product = this product name; Other = rest (some are count-only for amount)
 const CORE_PRODUCT = "ALL_FINANCE_EMPLOYEMENT";
 // Count-only products: count the payment for metrics but NEVER add to revenue (e.g. INSURANCE — count only, no revenue)
@@ -530,7 +536,7 @@ export const getCounsellorListForTargets = async (
     const list = await db
       .select({ id: users.id, name: users.fullName })
       .from(users)
-      .where(eq(users.role, "counsellor"));
+      .where(activeCounsellorWhere);
     return list.map((r) => ({ id: r.id, name: r.name }));
   }
   if (userRole === "manager") {
@@ -541,8 +547,8 @@ export const getCounsellorListForTargets = async (
       .limit(1);
     const isSupervisor = manager?.isSupervisor ?? false;
     const whereCondition = isSupervisor
-      ? eq(users.role, "counsellor")
-      : and(eq(users.role, "counsellor"), eq(users.managerId, userId));
+      ? activeCounsellorWhere
+      : and(activeCounsellorWhere, eq(users.managerId, userId));
     const list = await db
       .select({ id: users.id, name: users.fullName })
       .from(users)
@@ -589,7 +595,7 @@ export const getLeaderboard = async (
   const startTimestamp = startDate.toISOString();
   const endTimestamp = endDate.toISOString();
 
-  // Get all counsellors
+  // Get all active counsellors (inactive excluded)
   const allCounsellors = await db
     .select({
       id: users.id,
@@ -600,7 +606,7 @@ export const getLeaderboard = async (
       designation: users.designation,
     })
     .from(users)
-    .where(eq(users.role, "counsellor"));
+    .where(activeCounsellorWhere);
 
   // Calculate enrollments and revenue for each counsellor
   // Enrollment count = same as dashboard: by ENROLLMENT DATE in period, one client = one count (not payment date)
@@ -807,13 +813,13 @@ export const getLeaderboardSummary = async (month: number, year: number) => {
   const startTimestamp = startDate.toISOString();
   const endTimestamp = endDate.toISOString();
 
-  // Total counsellors
+  // Total active counsellors (inactive excluded)
   const [totalCounsellorsResult] = await db
     .select({
       count: count(users.id),
     })
     .from(users)
-    .where(eq(users.role, "counsellor"));
+    .where(activeCounsellorWhere);
 
   const totalCounsellors = totalCounsellorsResult?.count || 0;
 

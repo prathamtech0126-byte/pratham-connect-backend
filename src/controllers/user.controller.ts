@@ -806,7 +806,7 @@ export const getAllUsersController = async (_req: Request, res: Response) => {
   res.json({ success: true, count: usersList.length, data: usersList });
 };
 
-/** GET all user details (admin and manager only). Admin: all users; Manager supervisor: all except admin; Manager non-supervisor: only that manager + their counsellors. */
+/** GET all user details (admin and manager only). Admin: admin + all managers + all counsellors (incl. 0 clients); Supervisor manager: managers + counsellors, no admins; Non-supervisor manager: self + team counsellors. */
 export const getAllUserDetailsController = async (req: Request, res: Response) => {
   const authReq = req as AuthenticatedRequest;
   const userId = authReq.user?.id as number | undefined;
