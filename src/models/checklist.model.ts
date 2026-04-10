@@ -7,7 +7,7 @@ import {
   documentSections,
   documentItems,
 } from "../schemas/checklist.schema";
-import { eq, ilike, and, inArray, count, asc } from "drizzle-orm";
+import { eq, ilike, and, inArray, count, asc, SQL } from "drizzle-orm";
 
 /* ============================================
    CATEGORIES
@@ -84,31 +84,29 @@ export const getChecklists = async (filters: ChecklistFilters = {}) => {
   const limit = Math.min(100, Math.max(1, filters.limit ?? 20));
   const offset = (page - 1) * limit;
 
-  // Resolve category slug → id
-  let categoryId: string | undefined;
-  if (filters.category) {
-    const [cat] = await db
-      .select({ id: visaCategories.id })
-      .from(visaCategories)
-      .where(eq(visaCategories.slug, filters.category))
-      .limit(1);
-    if (cat) categoryId = cat.id;
-    else return { data: [], meta: { total: 0, page, limit } };
+  // Resolve category slug → id and country code → id concurrently
+  const [catResult, cntryResult] = await Promise.all([
+    filters.category
+      ? db.select({ id: visaCategories.id }).from(visaCategories)
+          .where(eq(visaCategories.slug, filters.category)).limit(1)
+      : Promise.resolve([] as { id: string }[]),
+    filters.country
+      ? db.select({ id: countries.id }).from(countries)
+          .where(eq(countries.code, filters.country.toUpperCase())).limit(1)
+      : Promise.resolve([] as { id: string }[]),
+  ]);
+
+  if (filters.category && catResult.length === 0) {
+    return { data: [], meta: { total: 0, page, limit } };
+  }
+  if (filters.country && cntryResult.length === 0) {
+    return { data: [], meta: { total: 0, page, limit } };
   }
 
-  // Resolve country code → id
-  let countryId: string | undefined;
-  if (filters.country) {
-    const [cntry] = await db
-      .select({ id: countries.id })
-      .from(countries)
-      .where(eq(countries.code, filters.country.toUpperCase()))
-      .limit(1);
-    if (cntry) countryId = cntry.id;
-    else return { data: [], meta: { total: 0, page, limit } };
-  }
+  const categoryId = catResult[0]?.id;
+  const countryId = cntryResult[0]?.id;
 
-  const conditions: any[] = [eq(checklists.isActive, true)];
+  const conditions: SQL[] = [eq(checklists.isActive, true)];
   if (categoryId) conditions.push(eq(checklists.visaCategoryId, categoryId));
   if (countryId) conditions.push(eq(checklists.countryId, countryId));
   if (filters.subType) conditions.push(eq(checklists.subType, filters.subType));
@@ -236,8 +234,12 @@ export const getChecklistSections = async (slug: string) => {
 export const searchItems = async (q: string, page = 1, limit = 20) => {
   const pageNum = Math.max(1, page);
   const limitNum = Math.min(100, Math.max(1, limit));
+  const trimmed = q.trim();
+  if (!trimmed) {
+    return { data: [], meta: { total: 0, page: pageNum, limit: limitNum } };
+  }
+  const pattern = `%${trimmed}%`;
   const offset = (pageNum - 1) * limitNum;
-  const pattern = `%${q}%`;
 
   const [{ total }] = await db
     .select({ total: count() })
