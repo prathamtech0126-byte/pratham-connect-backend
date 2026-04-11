@@ -8,6 +8,11 @@ import {
   getChecklistBySlug,
   getChecklistSections,
   searchItems,
+  insertChecklist,
+  insertSection,
+  insertItem,
+  getChecklistById,
+  getSectionById,
 } from "../models/checklist.model";
 import { redisGetJson, redisSetJson } from "../config/redis";
 
@@ -123,6 +128,126 @@ export const checklistSectionsController = async (req: Request, res: Response) =
     res
       .status(500)
       .json({ success: false, error: { code: "INTERNAL_ERROR", message: err.message } });
+  }
+};
+
+/* ============================================
+   ADMIN — CREATE CHECKLIST
+============================================ */
+
+export const createChecklistController = async (req: Request, res: Response) => {
+  try {
+    const { visaCategoryId, countryId, title, slug, subType, description, displayOrder, isActive } =
+      req.body;
+
+    if (!visaCategoryId || !title) {
+      return res.status(400).json({
+        success: false,
+        error: { code: "BAD_REQUEST", message: "visaCategoryId and title are required" },
+      });
+    }
+
+    const checklist = await insertChecklist({
+      visaCategoryId,
+      countryId,
+      title,
+      slug,
+      subType,
+      description,
+      displayOrder,
+      isActive,
+    });
+
+    res.status(201).json({ success: true, data: checklist });
+  } catch (err: any) {
+    if (err?.code === "23505") {
+      return res.status(409).json({
+        success: false,
+        error: { code: "CONFLICT", message: "A checklist with that slug already exists" },
+      });
+    }
+    res.status(500).json({ success: false, error: { code: "INTERNAL_ERROR", message: err.message } });
+  }
+};
+
+/* ============================================
+   ADMIN — CREATE SECTION
+============================================ */
+
+export const createSectionController = async (req: Request, res: Response) => {
+  try {
+    const { checklistId } = req.params;
+    const { title, description, displayOrder, isConditional, conditionText } = req.body;
+
+    if (!title) {
+      return res.status(400).json({
+        success: false,
+        error: { code: "BAD_REQUEST", message: "title is required" },
+      });
+    }
+
+    const checklist = await getChecklistById(checklistId);
+    if (!checklist) {
+      return res.status(404).json({
+        success: false,
+        error: { code: "NOT_FOUND", message: "Checklist not found" },
+      });
+    }
+
+    const section = await insertSection({
+      checklistId,
+      title,
+      description,
+      displayOrder,
+      isConditional,
+      conditionText,
+    });
+
+    res.status(201).json({ success: true, data: section });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: "INTERNAL_ERROR", message: err.message } });
+  }
+};
+
+/* ============================================
+   ADMIN — CREATE ITEM
+============================================ */
+
+export const createItemController = async (req: Request, res: Response) => {
+  try {
+    const { sectionId } = req.params;
+    const { name, notes, isMandatory, isConditional, conditionText, quantityNote, displayOrder } =
+      req.body;
+
+    if (!name) {
+      return res.status(400).json({
+        success: false,
+        error: { code: "BAD_REQUEST", message: "name is required" },
+      });
+    }
+
+    const section = await getSectionById(sectionId);
+    if (!section) {
+      return res.status(404).json({
+        success: false,
+        error: { code: "NOT_FOUND", message: "Section not found" },
+      });
+    }
+
+    const item = await insertItem({
+      sectionId,
+      name,
+      notes,
+      isMandatory,
+      isConditional,
+      conditionText,
+      quantityNote,
+      displayOrder,
+    });
+
+    res.status(201).json({ success: true, data: item });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: "INTERNAL_ERROR", message: err.message } });
   }
 };
 

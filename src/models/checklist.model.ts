@@ -10,6 +10,17 @@ import {
 import { eq, ilike, and, inArray, count, asc, SQL } from "drizzle-orm";
 
 /* ============================================
+   SLUG UTILITY
+============================================ */
+
+const slugify = (text: string) =>
+  text
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+
+/* ============================================
    CATEGORIES
 ============================================ */
 
@@ -273,4 +284,111 @@ export const searchItems = async (q: string, page = 1, limit = 20) => {
     data: results,
     meta: { total: Number(total), page: pageNum, limit: limitNum },
   };
+};
+
+/* ============================================
+   ADMIN — CREATE
+============================================ */
+
+export interface CreateChecklistInput {
+  visaCategoryId: string;
+  countryId?: string;
+  title: string;
+  slug?: string;
+  subType?: string;
+  description?: string;
+  displayOrder?: number;
+  isActive?: boolean;
+}
+
+export const insertChecklist = async (input: CreateChecklistInput) => {
+  const slug = input.slug?.trim() || slugify(input.title);
+
+  const [row] = await db
+    .insert(checklists)
+    .values({
+      visaCategoryId: input.visaCategoryId,
+      countryId: input.countryId ?? null,
+      title: input.title.trim(),
+      slug,
+      subType: input.subType ?? null,
+      description: input.description ?? null,
+      displayOrder: input.displayOrder ?? 0,
+      isActive: input.isActive ?? true,
+    })
+    .returning();
+
+  return row;
+};
+
+export const getChecklistById = async (id: string) => {
+  const [row] = await db
+    .select()
+    .from(checklists)
+    .where(eq(checklists.id, id))
+    .limit(1);
+  return row ?? null;
+};
+
+export interface CreateSectionInput {
+  checklistId: string;
+  title: string;
+  description?: string;
+  displayOrder?: number;
+  isConditional?: boolean;
+  conditionText?: string;
+}
+
+export const insertSection = async (input: CreateSectionInput) => {
+  const [row] = await db
+    .insert(documentSections)
+    .values({
+      checklistId: input.checklistId,
+      title: input.title.trim(),
+      description: input.description ?? null,
+      displayOrder: input.displayOrder ?? 0,
+      isConditional: input.isConditional ?? false,
+      conditionText: input.conditionText ?? null,
+    })
+    .returning();
+
+  return row;
+};
+
+export const getSectionById = async (id: string) => {
+  const [row] = await db
+    .select()
+    .from(documentSections)
+    .where(eq(documentSections.id, id))
+    .limit(1);
+  return row ?? null;
+};
+
+export interface CreateItemInput {
+  sectionId: string;
+  name: string;
+  notes?: string;
+  isMandatory?: boolean;
+  isConditional?: boolean;
+  conditionText?: string;
+  quantityNote?: string;
+  displayOrder?: number;
+}
+
+export const insertItem = async (input: CreateItemInput) => {
+  const [row] = await db
+    .insert(documentItems)
+    .values({
+      sectionId: input.sectionId,
+      name: input.name.trim(),
+      notes: input.notes ?? null,
+      isMandatory: input.isMandatory ?? true,
+      isConditional: input.isConditional ?? false,
+      conditionText: input.conditionText ?? null,
+      quantityNote: input.quantityNote ?? null,
+      displayOrder: input.displayOrder ?? 0,
+    })
+    .returning();
+
+  return row;
 };
