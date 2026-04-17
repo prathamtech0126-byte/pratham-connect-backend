@@ -123,7 +123,7 @@ export const createUser = async (
 
   let finalRole: Role = "counsellor";
 
-  if (createdByRole === "admin" && data.role && isRole(data.role)) {
+  if ((createdByRole === "admin" || createdByRole === "developer") && data.role && isRole(data.role)) {
     finalRole = data.role;
   }
 
@@ -138,8 +138,8 @@ export const createUser = async (
     throw new Error("Only counsellors and telecallers can have a manager");
   }
 
-  // Only managers can be supervisors
-  if (data.isSupervisor && finalRole !== "manager") {
+  // Only managers can be supervisors (Developer is admin-like, skip this check)
+  if (data.isSupervisor && finalRole !== "manager" && finalRole !== "developer") {
     throw new Error("Only managers can be supervisors");
   }
 
@@ -461,8 +461,8 @@ export const updateUserByAdmin = async (
     throw new Error("Only counsellors and telecallers can have a manager");
   }
 
-  // Only managers can be supervisors
-  if (data.isSupervisor !== undefined && finalRole !== "manager") {
+  // Only managers can be supervisors (Developer is admin-like, skip this check)
+  if (data.isSupervisor !== undefined && finalRole !== "manager" && finalRole !== "developer") {
     throw new Error("Only managers can be supervisors");
   }
 

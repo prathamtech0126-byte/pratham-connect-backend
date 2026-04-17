@@ -20,7 +20,7 @@ const router = Router();
 router.get(
   "/test",
   requireAuth,
-  requireRole("admin", "manager"),
+  requireRole("developer","admin", "manager"),
   testConnectionController
 );
 
@@ -32,7 +32,7 @@ router.get(
 router.get(
   "/metadata",
   requireAuth,
-  requireRole("admin", "manager"),
+  requireRole("developer","admin", "manager"),
   getMetadataController
 );
 
@@ -44,7 +44,7 @@ router.get(
 router.get(
   "/read",
   requireAuth,
-  requireRole("admin", "manager", "counsellor"),
+  requireRole("developer","admin", "manager", "counsellor"),
   readSheetController
 );
 
@@ -57,7 +57,7 @@ router.get(
 router.post(
   "/write",
   requireAuth,
-  requireRole("admin", "manager"),
+  requireRole("developer","admin", "manager"),
   writeSheetController
 );
 
@@ -70,7 +70,7 @@ router.post(
 router.post(
   "/append",
   requireAuth,
-  requireRole("admin", "manager"),
+  requireRole("developer","admin", "manager"),
   appendSheetController
 );
 
@@ -82,7 +82,7 @@ router.post(
 router.delete(
   "/clear",
   requireAuth,
-  requireRole("admin"),
+  requireRole("developer","admin"),
   clearSheetController
 );
 
@@ -95,7 +95,7 @@ router.delete(
 router.post(
   "/batch-update",
   requireAuth,
-  requireRole("admin", "manager"),
+  requireRole("developer","admin", "manager"),
   batchUpdateSheetController
 );
 

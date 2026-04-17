@@ -26,6 +26,90 @@ const clientCacheKeys = {
   complete: (clientId: number) => `clients:complete:${clientId}`,
 };
 
+/**
+ * Filter payments in client detail data based on viewer's relationship to the client.
+ * Also stamps each payment with `isEditable` and adds a top-level `paymentPermissions` object.
+ *
+ * Rules:
+ * - Admin / Manager
+ *     → all payments visible, all editable, canAddPayment & canEditTotalPayment = true
+ * - Currently shared-to counsellor (transferStatus=true, transferedToCounsellorId===viewerId)
+ *     → all payments visible, ALL existing payments isEditable=false (read-only)
+ *     → canAddPayment=true  (new payments counted as theirs via handledBy)
+ *     → canEditTotalPayment=true
+ * - Original owner (counsellorId===viewerId) while client IS shared (transferStatus=true)
+ *     → all payments visible
+ *     → isEditable=true only for payments where handledBy===viewerId (their own)
+ *     → canAddPayment=false, canEditTotalPayment=false (shared-to manages these)
+ * - Original owner while client is NOT shared
+ *     → all payments visible, all editable
+ *     → canAddPayment=true, canEditTotalPayment=true
+ * - Previously-shared or unrelated counsellor
+ *     → only their own payments (handledBy===viewerId), isEditable=true
+ *     → canAddPayment=false, canEditTotalPayment=false
+ */
+const filterPaymentsByViewer = (
+  data: any,
+  viewerId: number | undefined,
+  viewerRole: string | undefined
+): any => {
+  if (!data) return data;
+
+  const isAdminOrManager = viewerRole === "admin" || viewerRole === "manager";
+
+  // Admin and manager — full access
+  if (!viewerId || isAdminOrManager) {
+    return {
+      ...data,
+      payments: (data.payments || []).map((p: any) => ({ ...p, isEditable: true })),
+      paymentPermissions: { canAddPayment: true, canEditTotalPayment: true },
+    };
+  }
+
+  const isOriginalOwner = Number(data.client?.counsellorId) === viewerId;
+  const isTransferred = data.client?.transferStatus === true;
+  const isCurrentSharedTo =
+    isTransferred && Number(data.client?.transferedToCounsellorId) === viewerId;
+
+  // Currently shared-to counsellor — can only edit payments they personally created
+  if (isCurrentSharedTo) {
+    return {
+      ...data,
+      payments: (data.payments || []).map((p: any) => ({ ...p, isEditable: Number(p.handledBy) === viewerId })),
+      paymentPermissions: { canAddPayment: true, canEditTotalPayment: true },
+    };
+  }
+
+  // Original owner — whether or not the client is shared
+  if (isOriginalOwner) {
+    if (isTransferred) {
+      // Client is currently shared — owner can only edit their own past payments
+      // but can still add new payments and edit totalPayment
+      return {
+        ...data,
+        payments: (data.payments || []).map((p: any) => ({
+          ...p,
+          isEditable: Number(p.handledBy) === viewerId,
+        })),
+        paymentPermissions: { canAddPayment: true, canEditTotalPayment: true },
+      };
+    }
+    // Client is not shared — owner has full control
+    return {
+      ...data,
+      payments: (data.payments || []).map((p: any) => ({ ...p, isEditable: true })),
+      paymentPermissions: { canAddPayment: true, canEditTotalPayment: true },
+    };
+  }
+
+  // Fallback — unrecognised relationship: no write access, no payments shown
+  return {
+    ...data,
+    payments: [],
+    paymentPermissions: { canAddPayment: false, canEditTotalPayment: false },
+  };
+};
+
 const invalidateClientCaches = async (opts: {
   clientId?: number;
   counsellorIds?: number[];
@@ -281,11 +365,12 @@ export const getClientFullDetailsController = async (req: Request, res: Response
       return res.status(400).json({ message: "Client ID is required" });
     }
 
-    // Cache: full details by clientId
+    // Cache: full details by clientId (raw, unfiltered — filter applied per-viewer below)
     const cacheKey = clientCacheKeys.full(clientId);
     const cached = await redisGetJson<any>(cacheKey);
     if (cached) {
-      return res.status(200).json({ success: true, data: cached, cached: true });
+      const filteredCached = filterPaymentsByViewer(cached, req.user?.id, req.user?.role as string | undefined);
+      return res.status(200).json({ success: true, data: filteredCached, cached: true });
     }
 
     const data = await getClientFullDetailsById(clientId);
@@ -294,10 +379,12 @@ export const getClientFullDetailsController = async (req: Request, res: Response
       return res.status(404).json({ message: "Client not found" });
     }
 
+    // Cache raw data so any viewer role can use the same cache entry
     await redisSetJson(cacheKey, data, CLIENT_CACHE_TTL_SECONDS);
+    const filteredData = filterPaymentsByViewer(data, req.user?.id, req.user?.role as string | undefined);
     return res.status(200).json({
       success: true,
-      data,
+      data: filteredData,
     });
   } catch (error) {
     res.status(500).json({ message: "Internal server error" });
@@ -607,7 +694,8 @@ export const getClientCompleteDetailsController = async (req: Request, res: Resp
     const cacheKey = clientCacheKeys.complete(clientId);
     const cached = await redisGetJson<any>(cacheKey);
     if (cached) {
-      return res.status(200).json({ success: true, data: cached, cached: true });
+      const filteredCached = filterPaymentsByViewer(cached, req.user?.id, req.user?.role as string | undefined);
+      return res.status(200).json({ success: true, data: filteredCached, cached: true });
     }
 
     // Get client full details using existing function
@@ -631,10 +719,12 @@ export const getClientCompleteDetailsController = async (req: Request, res: Resp
       productPayments: clientData.productPayments,
     };
 
+    // Cache raw (unfiltered) data; filter applied per-viewer below
     await redisSetJson(cacheKey, completeDetails, CLIENT_CACHE_TTL_SECONDS);
+    const filteredDetails = filterPaymentsByViewer(completeDetails, req.user?.id, req.user?.role as string | undefined);
     res.status(200).json({
       success: true,
-      data: completeDetails,
+      data: filteredDetails,
     });
   } catch (error: any) {
     res.status(500).json({

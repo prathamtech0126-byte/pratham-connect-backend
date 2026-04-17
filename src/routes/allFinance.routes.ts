@@ -17,7 +17,7 @@ const router = Router();
 router.get(
   "/pending",
   requireAuth,
-  requireRole("admin", "manager"),
+  requireRole("admin", "manager","developer"),
   getPendingApprovalsController
 );
 

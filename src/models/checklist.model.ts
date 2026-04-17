@@ -7,7 +7,7 @@ import {
   documentSections,
   documentItems,
 } from "../schemas/checklist.schema";
-import { eq, ilike, and, inArray, count, asc, SQL } from "drizzle-orm";
+import { eq, ilike, and, or, isNull, inArray, count, asc, SQL, sql } from "drizzle-orm";
 
 /* ============================================
    SLUG UTILITY
@@ -77,6 +77,14 @@ export const getAllCountries = async () => {
   return db.select().from(countries).orderBy(asc(countries.name));
 };
 
+export const insertCountry = async (input: { name: string; code: string }) => {
+  const [row] = await db
+    .insert(countries)
+    .values({ name: input.name.trim(), code: input.code.trim().toUpperCase() })
+    .returning();
+  return row;
+};
+
 /* ============================================
    CHECKLISTS LIST
 ============================================ */
@@ -119,7 +127,9 @@ export const getChecklists = async (filters: ChecklistFilters = {}) => {
 
   const conditions: SQL[] = [eq(checklists.isActive, true)];
   if (categoryId) conditions.push(eq(checklists.visaCategoryId, categoryId));
-  if (countryId) conditions.push(eq(checklists.countryId, countryId));
+  if (countryId) conditions.push(
+    or(eq(checklists.countryId, countryId), isNull(checklists.countryId))!
+  );
   if (filters.subType) conditions.push(eq(checklists.subType, filters.subType));
 
   const whereClause = and(...conditions);
@@ -301,8 +311,31 @@ export interface CreateChecklistInput {
   isActive?: boolean;
 }
 
+const uniqueSlug = async (base: string): Promise<string> => {
+  // Check if base slug is free; if not, try base-2, base-3, …
+  const [existing] = await db
+    .select({ slug: checklists.slug })
+    .from(checklists)
+    .where(eq(checklists.slug, base))
+    .limit(1);
+
+  if (!existing) return base;
+
+  // Find all slugs that start with "base-" followed by a number
+  const rows = await db
+    .select({ slug: checklists.slug })
+    .from(checklists)
+    .where(ilike(checklists.slug, `${base}-%`));
+
+  const taken = new Set(rows.map((r) => r.slug));
+  let counter = 2;
+  while (taken.has(`${base}-${counter}`)) counter++;
+  return `${base}-${counter}`;
+};
+
 export const insertChecklist = async (input: CreateChecklistInput) => {
-  const slug = input.slug?.trim() || slugify(input.title);
+  const baseSlug = input.slug?.trim() || slugify(input.title);
+  const slug = await uniqueSlug(baseSlug);
 
   const [row] = await db
     .insert(checklists)
@@ -391,4 +424,81 @@ export const insertItem = async (input: CreateItemInput) => {
     .returning();
 
   return row;
+};
+
+/* ============================================
+   ADMIN — UPDATE
+============================================ */
+
+export const updateChecklistById = async (
+  id: string,
+  input: {
+    title?: string;
+    subType?: string | null;
+    countryId?: string | null;
+    visaCategoryId?: string;
+    displayOrder?: number;
+    isActive?: boolean;
+  }
+) => {
+  const [row] = await db
+    .update(checklists)
+    .set({ ...input, updatedAt: sql`NOW()` })
+    .where(eq(checklists.id, id))
+    .returning();
+  return row ?? null;
+};
+
+export const updateSectionById = async (
+  id: string,
+  input: {
+    title?: string;
+    description?: string | null;
+    displayOrder?: number;
+    isConditional?: boolean;
+    conditionText?: string | null;
+  }
+) => {
+  const [row] = await db
+    .update(documentSections)
+    .set(input)
+    .where(eq(documentSections.id, id))
+    .returning();
+  return row ?? null;
+};
+
+export const updateItemById = async (
+  id: string,
+  input: {
+    name?: string;
+    notes?: string | null;
+    isMandatory?: boolean;
+    isConditional?: boolean;
+    conditionText?: string | null;
+    quantityNote?: string | null;
+    displayOrder?: number;
+  }
+) => {
+  const [row] = await db
+    .update(documentItems)
+    .set(input)
+    .where(eq(documentItems.id, id))
+    .returning();
+  return row ?? null;
+};
+
+/* ============================================
+   ADMIN — DELETE
+============================================ */
+
+export const deleteChecklistById = async (id: string) => {
+  await db.delete(checklists).where(eq(checklists.id, id));
+};
+
+export const deleteSectionById = async (id: string) => {
+  await db.delete(documentSections).where(eq(documentSections.id, id));
+};
+
+export const deleteItemById = async (id: string) => {
+  await db.delete(documentItems).where(eq(documentItems.id, id));
 };

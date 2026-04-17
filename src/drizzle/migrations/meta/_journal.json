@@ -29,6 +29,13 @@
       "when": 1775804014140,
       "tag": "0003_massive_nekra",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1776060402705,
+      "tag": "0004_hot_champions",
+      "breakpoints": true
     }
   ]
 }

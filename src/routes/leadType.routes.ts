@@ -8,9 +8,9 @@ const router = Router();
 /**
  * Admin only
  */
-router.post("/", requireAuth, requireRole("admin"), preventDuplicateRequests, createLeadTypeController);
+router.post("/", requireAuth, requireRole("developer","admin"), preventDuplicateRequests, createLeadTypeController);
 router.get("/", requireAuth, getLeadTypesController);
-router.put("/:id", requireAuth, requireRole("admin"), preventDuplicateRequests, updateLeadTypeController);
-router.delete("/:id", requireAuth, requireRole("admin"), preventDuplicateRequests, deleteLeadTypeController);
+router.put("/:id", requireAuth, requireRole("developer","admin"), preventDuplicateRequests, updateLeadTypeController);
+router.delete("/:id", requireAuth, requireRole("developer","admin"), preventDuplicateRequests, deleteLeadTypeController);
 
 export default router;

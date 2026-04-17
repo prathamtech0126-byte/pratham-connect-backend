@@ -2,27 +2,23 @@ import { db, pool } from "../config/databaseConnection";
 import { clientInformation } from "../schemas/clientInformation.schema";
 import { clientPayments } from "../schemas/clientPayment.schema";
 import { clientProductPayments } from "../schemas/clientProductPayments.schema";
-import { beaconAccount } from "../schemas/beaconAccount.schema";
-import { insurance } from "../schemas/insurance.schema";
-import { airTicket } from "../schemas/airTicket.schema";
-import { forexFees } from "../schemas/forexFees.schema";
-import { forexCard } from "../schemas/forexCard.schema";
-import { newSell } from "../schemas/newSell.schema";
-import { creditCard } from "../schemas/creditCard.schema";
-import { ielts } from "../schemas/ielts.schema";
-import { loan } from "../schemas/loan.schema";
-import { visaExtension } from "../schemas/visaExtension.schema";
-import { simCard } from "../schemas/simCard.schema";
-import { tutionFees } from "../schemas/tutionFees.schema";
 import { allFinance } from "../schemas/allFinance.schema";
 import { users } from "../schemas/users.schema";
 import { leaderBoard } from "../schemas/leaderBoard.schema";
+import { visaExtension } from "../schemas/visaExtension.schema";
+import { newSell } from "../schemas/newSell.schema";
+import { ielts } from "../schemas/ielts.schema";
+import { loan } from "../schemas/loan.schema";
+import { airTicket } from "../schemas/airTicket.schema";
+import { insurance } from "../schemas/insurance.schema";
+import { forexCard } from "../schemas/forexCard.schema";
+import { forexFees } from "../schemas/forexFees.schema";
+import { tutionFees } from "../schemas/tutionFees.schema";
+import { creditCard } from "../schemas/creditCard.schema";
+import { simCard } from "../schemas/simCard.schema";
+import { beaconAccount } from "../schemas/beaconAccount.schema";
 import {
   calculateCounsellorRevenue,
-  getCounsellorCoreProductMetrics,
-  getCounsellorCoreSaleAmount,
-  getCounsellorEnrollmentCountByEnrollmentDate,
-  getCounsellorOtherProductMetrics,
 } from "./leaderboard.model";
 import { eq, and, gte, lte, sql, count, inArray, isNotNull } from "drizzle-orm";
 import { saleTypes } from "../schemas/saleType.schema";
@@ -48,21 +44,63 @@ const COUNT_ONLY_PRODUCTS = [
   "FOREX_FEES", // count only product not contribute to revenue
 ] as const;
 
-// Count-only entity types (these don't contribute to revenue)
+
+const attributedCounsellorByClientPaymentSql = sql<number>`COALESCE(${clientPayments.handledBy}, ${clientInformation.counsellorId})`;
+const attributedCounsellorByProductPaymentSql = sql<number>`COALESCE(${clientProductPayments.handledBy}, ${clientInformation.counsellorId})`;
+
+// Entity types that are count-only (contribute 0 to revenue)
 const COUNT_ONLY_ENTITY_TYPES = [
-  "loan_id",
-  "forexCard_id",
-  "tutionFees_id",
-  "creditCard_id",
   "simCard_id",
   "insurance_id",
   "beaconAccount_id",
   "airTicket_id",
+  "loan_id",
+  "forexCard_id",
   "forexFees_id",
+  "tutionFees_id",
+  "creditCard_id",
 ] as const;
 
-const attributedCounsellorByClientPaymentSql = sql<number>`COALESCE(${clientPayments.handledBy}, ${clientInformation.counsellorId})`;
-const attributedCounsellorByProductPaymentSql = sql<number>`COALESCE(${clientProductPayments.handledBy}, ${clientInformation.counsellorId})`;
+const isCountOnlyEntityType = (entityType: string): boolean =>
+  (COUNT_ONLY_ENTITY_TYPES as readonly string[]).includes(entityType);
+
+/** Fetch the revenue amount from the entity table for revenue-contributing entity types. */
+const getEntityAmounts = async (entityType: string, entityIds: number[]): Promise<number> => {
+  if (entityIds.length === 0) return 0;
+  switch (entityType) {
+    case "visaextension_id": {
+      const [r] = await db
+        .select({ total: sql<string>`COALESCE(SUM(${visaExtension.amount}::numeric), 0)` })
+        .from(visaExtension)
+        .where(inArray(visaExtension.id, entityIds));
+      return parseFloat(r?.total || "0");
+    }
+    case "newSell_id": {
+      const [r] = await db
+        .select({ total: sql<string>`COALESCE(SUM(${newSell.amount}::numeric), 0)` })
+        .from(newSell)
+        .where(inArray(newSell.id, entityIds));
+      return parseFloat(r?.total || "0");
+    }
+    case "ielts_id": {
+      const [r] = await db
+        .select({ total: sql<string>`COALESCE(SUM(${ielts.amount}::numeric), 0)` })
+        .from(ielts)
+        .where(inArray(ielts.id, entityIds));
+      return parseFloat(r?.total || "0");
+    }
+    default:
+      return 0;
+  }
+};
+
+const getEntityAmountsExcludingCountOnly = async (
+  entityType: string,
+  entityIds: number[]
+): Promise<number> => {
+  if (isCountOnlyEntityType(entityType)) return 0;
+  return getEntityAmounts(entityType, entityIds);
+};
 
 // Admin/Manager Dashboard Stats
 export interface AdminManagerDashboardStats {
@@ -207,10 +245,10 @@ const toLocalDateString = (date: Date) => {
 
 /**
  * Sale type category counts like coreSale.number:
- * - Same client set: enrollment_date in period + at least one core-stage payment (any date)
+ * - Client set: clients with at least one core-stage payment where payment_date is in period
  * - One client counted once
  * - Category is taken from the client's NEWEST core-stage payment row:
- *     AFTER_VISA > BEFORE_VISA > INITIAL, then latest payment_date/created_at, then id
+ *     AFTER_VISA > BEFORE_VISA > INITIAL, then latest payment_date, then id
  */
 export const getSaleTypeCategoryCounts = async (
   dateRange: DateRange,
@@ -218,19 +256,11 @@ export const getSaleTypeCategoryCounts = async (
 ): Promise<Array<{ categoryId: number | null; categoryName: string; count: number; amount: string }>> => {
   const startDateStr = toLocalDateString(dateRange.start);
   const endDateStr = toLocalDateString(dateRange.end);
-  const startTimestamp = dateRange.start.toISOString();
-  const endTimestamp = dateRange.end.toISOString();
 
-  const params: (string | number)[] = [startDateStr, endDateStr, startTimestamp, endTimestamp];
-  let counsellorClause = "";
+  const params: (string | number)[] = [startDateStr, endDateStr];
+  let counsellorFilter = "";
   if (roleFilter?.userRole === "counsellor" && roleFilter.counsellorId) {
-    counsellorClause = ` AND EXISTS (
-      SELECT 1
-      FROM client_payment cpo
-      WHERE cpo.client_id = ci.id
-        AND cpo.stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
-        AND COALESCE(cpo.handled_by, ci.counsellor_id) = $5
-    )`;
+    counsellorFilter = ` AND COALESCE(cp0.handled_by, ci.counsellor_id) = $3`;
     params.push(roleFilter.counsellorId);
   }
 
@@ -239,14 +269,15 @@ export const getSaleTypeCategoryCounts = async (
       SELECT ci.id AS client_id
       FROM client_information ci
       WHERE ci.archived = false
-        AND ci.date >= $1::date
-        AND ci.date <= $2::date
         AND EXISTS (
           SELECT 1 FROM client_payment cp0
           WHERE cp0.client_id = ci.id
             AND cp0.stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
+            AND cp0.payment_date IS NOT NULL
+            AND cp0.payment_date >= $1::date
+            AND cp0.payment_date <= $2::date
+            ${counsellorFilter}
         )
-        ${counsellorClause}
     ),
     eligible_payments AS (
       SELECT
@@ -292,10 +323,9 @@ export const getSaleTypeCategoryCounts = async (
     LEFT JOIN client_payment cp
       ON cp.client_id = cc.client_id
       AND cp.stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
-      AND (
-        (cp.payment_date IS NOT NULL AND cp.payment_date >= $1::date AND cp.payment_date <= $2::date)
-        OR (cp.payment_date IS NULL AND cp.created_at >= $3::timestamptz AND cp.created_at <= $4::timestamptz)
-      )
+      AND cp.payment_date IS NOT NULL
+      AND cp.payment_date >= $1::date
+      AND cp.payment_date <= $2::date
     GROUP BY cc.category_id
   `;
 
@@ -368,13 +398,6 @@ interface RoleBasedFilter {
   userRole: UserRole;
   counsellorId?: number; // For counsellor role
 }
-
-/* ==============================
-   HELPER: Check if product is count-only
-============================== */
-const isCountOnlyEntityType = (entityType: string): boolean => {
-  return COUNT_ONLY_ENTITY_TYPES.includes(entityType as any);
-};
 
 /* ==============================
    HELPER: Build counsellor filter condition
@@ -450,15 +473,9 @@ export const getDateRange = (
 
 
     case "yearly": {
-      // Rolling 12 months: Same month of previous year to today
-      const currentMonth = now.getMonth();
-      const currentYear = now.getFullYear();
-      const targetYear = currentYear - 2;
-
-      // Start from same month of previous year, day 1
-      start = new Date(targetYear, currentMonth, 1);
-      start.setHours(0, 0, 0, 0);
-      end = new Date(endOfToday);
+      // Calendar year: Jan 1 to Dec 31 of the current year (matches /api/reports/sale-dashboard)
+      start = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+      end = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
       break;
     }
     case "custom": {
@@ -594,84 +611,6 @@ export const getCoreServiceCount = async (
   return Number(result?.count || "0");
 };
 
-
-/* ==============================
-   HELPER: Get Entity Amounts
-============================== */
-const getEntityAmounts = async (
-  entityType: string,
-  entityIds: number[]
-): Promise<number> => {
-  if (entityIds.length === 0) return 0;
-
-  try {
-    let table: any;
-    let amountColumn: any;
-
-        switch (entityType) {
-          case "beaconAccount_id":
-            table = beaconAccount;
-            amountColumn = beaconAccount.amount;
-            break;
-          case "insurance_id":
-            table = insurance;
-            amountColumn = insurance.amount;
-            break;
-          case "airTicket_id":
-            table = airTicket;
-            amountColumn = airTicket.amount;
-            break;
-          case "tutionFees_id":
-            // TutionFees doesn't have an amount column, skip it
-            return 0;
-          case "forexFees_id":
-            table = forexFees;
-            amountColumn = forexFees.amount;
-            break;
-          case "newSell_id":
-            table = newSell;
-            amountColumn = newSell.amount;
-            break;
-          case "creditCard_id":
-            table = creditCard;
-            // amountColumn = creditCard.amount;
-            break;
-          case "ielts_id":
-            table = ielts;
-            amountColumn = ielts.amount;
-            break;
-          case "loan_id":
-            table = loan;
-            amountColumn = loan.amount;
-            break;
-          case "visaextension_id":
-            table = visaExtension;
-            amountColumn = visaExtension.amount;
-            break;
-          case "allFinance_id":
-            table = allFinance;
-            amountColumn = allFinance.amount;
-            break;
-          default:
-            return 0;
-        }
-
-    if (table && amountColumn) {
-      const [result] = await db
-        .select({
-          total: sql<string>`COALESCE(SUM(${amountColumn}::numeric), 0)`,
-        })
-        .from(table)
-        .where(inArray(table.id, entityIds));
-
-      return parseFloat(result?.total || "0");
-    }
-  } catch (error) {
-    console.error(`Error fetching ${entityType} amounts:`, error);
-  }
-
-  return 0;
-};
 
 /* ==============================
    PENDING AMOUNT (OUTSTANDING)
@@ -881,101 +820,6 @@ export const getPendingAmountByCounsellors = async (
 // };
 
 /* ==============================
-   HELPER: Calculate Monthly Revenue
-============================== */
-const calculateMonthlyRevenue = async (
-  monthStartStr: string,
-  monthEndStr: string,
-  _monthStartTimestamp: string,
-  _monthEndTimestamp: string
-): Promise<number> => {
-  // 1. Client payments for this month (exclude archived clients)
-  const [clientPaymentsResult] = await db
-    .select({
-      total: sql<string>`COALESCE(SUM(${clientPayments.amount}::numeric), 0)`,
-    })
-    .from(clientPayments)
-    .innerJoin(
-      clientInformation,
-      eq(clientPayments.clientId, clientInformation.clientId)
-    )
-    .where(
-      sql`(
-        ${clientInformation.archived} = false
-        AND ${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
-        AND ${clientPayments.paymentDate} IS NOT NULL
-        AND ${clientPayments.paymentDate} >= ${monthStartStr}
-        AND ${clientPayments.paymentDate} <= ${monthEndStr}
-      )`
-    );
-
-  // 2. Product payments with amount for this month (exclude archived clients)
-  const [productPaymentsWithAmount] = await db
-    .select({
-      total: sql<string>`COALESCE(SUM(${clientProductPayments.amount}::numeric), 0)`,
-    })
-    .from(clientProductPayments)
-    .innerJoin(
-      clientInformation,
-      eq(clientProductPayments.clientId, clientInformation.clientId)
-    )
-    .where(
-      sql`(
-        ${clientInformation.archived} = false
-        AND ${clientProductPayments.amount} IS NOT NULL
-        AND ${clientProductPayments.paymentDate} IS NOT NULL
-        AND ${clientProductPayments.paymentDate} >= ${monthStartStr}
-        AND ${clientProductPayments.paymentDate} <= ${monthEndStr}
-      )`
-    );
-
-  // 3. Entity-based product payments for this month (exclude archived clients)
-  const productPaymentsWithEntity = await db
-    .select({
-      entityType: clientProductPayments.entityType,
-      entityId: clientProductPayments.entityId,
-    })
-    .from(clientProductPayments)
-    .innerJoin(
-      clientInformation,
-      eq(clientProductPayments.clientId, clientInformation.clientId)
-    )
-    .where(
-      sql`(
-        ${clientInformation.archived} = false
-        AND ${clientProductPayments.amount} IS NULL
-        AND ${clientProductPayments.entityId} IS NOT NULL
-        AND ${clientProductPayments.paymentDate} IS NOT NULL
-        AND ${clientProductPayments.paymentDate} >= ${monthStartStr}
-        AND ${clientProductPayments.paymentDate} <= ${monthEndStr}
-      )`
-    );
-
-  // 4. Fetch amounts from entity tables
-  let entityAmountsTotal = 0;
-  if (productPaymentsWithEntity.length > 0) {
-    const entityGroups: Record<string, number[]> = {};
-    productPaymentsWithEntity.forEach((pp) => {
-      if (pp.entityId && pp.entityType) {
-        if (!entityGroups[pp.entityType]) {
-          entityGroups[pp.entityType] = [];
-        }
-        entityGroups[pp.entityType].push(pp.entityId);
-      }
-    });
-
-    for (const [entityType, entityIds] of Object.entries(entityGroups)) {
-      const amount = await getEntityAmounts(entityType, entityIds);
-      entityAmountsTotal += amount;
-    }
-  }
-
-  const clientPaymentsTotal = parseFloat(clientPaymentsResult?.total || "0");
-  const productPaymentsTotal = parseFloat(productPaymentsWithAmount?.total || "0");
-  return clientPaymentsTotal + productPaymentsTotal + entityAmountsTotal;
-};
-
-/* ==============================
    REVENUE OVERVIEW (CHART DATA)
 ============================== */
 // const getRevenueOverview = async (filter?: DashboardFilter, dateRange?: DateRange): Promise<
@@ -1053,20 +897,6 @@ const calculatePercentageChange = (
   } else {
     return { change: 0, changeType: "no-change" };
   }
-};
-
-/* ==============================
-   NEW HELPER: Get Entity Amounts (Excluding Count-Only)
-============================== */
-const getEntityAmountsExcludingCountOnly = async (
-  entityType: string,
-  entityIds: number[]
-): Promise<number> => {
-  // Skip count-only entity types
-  if (isCountOnlyEntityType(entityType)) {
-    return 0;
-  }
-  return getEntityAmounts(entityType, entityIds);
 };
 
 /* ==============================
@@ -1304,8 +1134,8 @@ export const getCoreProductMetrics = async (
 };
 
 /* ==============================
-   Entity-based Other Product: count and amount by ENTITY TABLE date
-   (ielts.enrollmentDate, visaExtension.extensionDate, etc.) so filter matches product date.
+   Entity-based Other Product: count and amount using each entity table's own date column,
+   matching the same date columns used by the payments-list API.
 ============================== */
 const getEntityBasedOtherProductCountAndAmount = async (
   dateRange: DateRange,
@@ -1313,8 +1143,6 @@ const getEntityBasedOtherProductCountAndAmount = async (
 ): Promise<{ count: number; amount: number }> => {
   const startDateStr = toLocalDateString(dateRange.start);
   const endDateStr = toLocalDateString(dateRange.end);
-  let totalCount = 0;
-  let totalAmount = 0;
 
   const runForEntity = async (
     entityType: string,
@@ -1325,20 +1153,14 @@ const getEntityBasedOtherProductCountAndAmount = async (
     const conditions: any[] = [
       sql`${clientProductPayments.entityType} = ${entityType}`,
       sql`${clientProductPayments.productName} != ${CORE_PRODUCT}`,
-      sql`${dateCol} IS NOT NULL`,
+      isNotNull(dateCol),
       gte(dateCol, startDateStr),
       lte(dateCol, endDateStr),
       eq(clientInformation.archived, false),
     ];
     if (roleFilter?.userRole === "counsellor" && roleFilter.counsellorId) {
       conditions.push(
-        sql`(
-          CASE
-            WHEN ${clientInformation.transferStatus} = true AND ${clientInformation.transferedToCounsellorId} IS NOT NULL
-            THEN ${clientInformation.transferedToCounsellorId}
-            ELSE ${clientInformation.counsellorId}
-          END
-        ) = ${roleFilter.counsellorId}`
+        sql`${attributedCounsellorByProductPaymentSql} = ${roleFilter.counsellorId}`
       );
     }
     const rows = await db
@@ -1347,40 +1169,41 @@ const getEntityBasedOtherProductCountAndAmount = async (
       .innerJoin(entityTable, eq(clientProductPayments.entityId, entityIdCol))
       .innerJoin(clientInformation, eq(clientProductPayments.clientId, clientInformation.clientId))
       .where(and(...conditions));
-    const count = rows.length;
-    const ids = rows.map((r: { entityId: number | null }) => r.entityId).filter((id): id is number => id != null);
-    const amount = isCountOnlyEntityType(entityType) ? 0 : await getEntityAmountsExcludingCountOnly(entityType, ids);
-    return { count, amount };
+    const cnt = rows.length;
+    const ids = rows
+      .map((r: { entityId: number | null }) => r.entityId)
+      .filter((id): id is number => id != null);
+    const amount = isCountOnlyEntityType(entityType)
+      ? 0
+      : await getEntityAmountsExcludingCountOnly(entityType, ids);
+    return { count: cnt, amount };
   };
 
-  const runs: Promise<{ count: number; amount: number }>[] = [];
+  const results = await Promise.all([
+    runForEntity("visaextension_id", visaExtension, visaExtension.id, visaExtension.extensionDate),
+    runForEntity("newSell_id",       newSell,       newSell.id,       newSell.sellDate),
+    runForEntity("ielts_id",         ielts,         ielts.id,         ielts.enrollmentDate),
+    runForEntity("loan_id",          loan,          loan.id,          loan.disbursmentDate),
+    runForEntity("airTicket_id",     airTicket,     airTicket.id,     airTicket.ticketDate),
+    runForEntity("insurance_id",     insurance,     insurance.id,     insurance.insuranceDate),
+    runForEntity("forexCard_id",     forexCard,     forexCard.id,     forexCard.cardDate),
+    runForEntity("forexFees_id",     forexFees,     forexFees.id,     forexFees.feeDate),
+    runForEntity("tutionFees_id",    tutionFees,    tutionFees.id,    tutionFees.feeDate),
+    runForEntity("creditCard_id",    creditCard,    creditCard.id,    creditCard.cardDate),
+    runForEntity("simCard_id",       simCard,       simCard.id,       simCard.simCardGivingDate),
+    runForEntity("beaconAccount_id", beaconAccount, beaconAccount.id, beaconAccount.openingDate),
+  ]);
 
-  runs.push(runForEntity("visaextension_id", visaExtension, visaExtension.id, visaExtension.extensionDate));
-  runs.push(runForEntity("newSell_id", newSell, newSell.id, newSell.sellDate));
-  runs.push(runForEntity("ielts_id", ielts, ielts.id, ielts.enrollmentDate));
-  runs.push(runForEntity("loan_id", loan, loan.id, loan.disbursmentDate));
-  runs.push(runForEntity("airTicket_id", airTicket, airTicket.id, airTicket.ticketDate));
-  runs.push(runForEntity("insurance_id", insurance, insurance.id, insurance.insuranceDate));
-  runs.push(runForEntity("forexCard_id", forexCard, forexCard.id, forexCard.cardDate));
-  runs.push(runForEntity("forexFees_id", forexFees, forexFees.id, forexFees.feeDate));
-  runs.push(runForEntity("tutionFees_id", tutionFees, tutionFees.id, tutionFees.feeDate));
-  runs.push(runForEntity("creditCard_id", creditCard, creditCard.id, creditCard.cardGivingDate));
-  runs.push(runForEntity("simCard_id", simCard, simCard.id, simCard.simCardGivingDate));
-  runs.push(runForEntity("beaconAccount_id", beaconAccount, beaconAccount.id, beaconAccount.openingDate));
-
-  const results = await Promise.all(runs);
-  results.forEach((r) => {
-    totalCount += r.count;
-    totalAmount += r.amount;
-  });
-
-  return { count: totalCount, amount: totalAmount };
+  return results.reduce(
+    (acc, r) => ({ count: acc.count + r.count, amount: acc.amount + r.amount }),
+    { count: 0, amount: 0 }
+  );
 };
 
 /* ==============================
    NEW: Get Other Product Metrics (Count + Amount)
-   - Direct rows (amount on client_product_payment): use client_product_payment.paymentDate for filter.
-   - Entity-based rows: use ENTITY TABLE date (ielts.enrollmentDate, visaExtension.extensionDate, etc.) for count and sum.
+   - master_only rows: use client_product_payment.paymentDate for date filter.
+   - Entity-backed rows: use each entity table's own date column (same as payments-list).
 ============================== */
 export const getOtherProductMetrics = async (
   dateRange: DateRange,
@@ -1389,105 +1212,54 @@ export const getOtherProductMetrics = async (
 ): Promise<{ count: number; amount: number }> => {
   const startDateStr = toLocalDateString(dateRange.start);
   const endDateStr = toLocalDateString(dateRange.end);
-  const startTimestamp = dateRange.start.toISOString();
-  const endTimestamp = dateRange.end.toISOString();
 
-  // 1) Direct: only user-entered paymentDate in range
+  const countOnlyProductsList = COUNT_ONLY_PRODUCTS.map((p) => `'${p}'`).join(", ");
+
   const directPaymentDateCondition = sql`(
     ${clientProductPayments.paymentDate} IS NOT NULL
     AND ${clientProductPayments.paymentDate} >= ${startDateStr}
     AND ${clientProductPayments.paymentDate} <= ${endDateStr}
   )`;
 
-  let directCountQuery = db
+  const counsellorExtra =
+    roleFilter?.userRole === "counsellor" && roleFilter.counsellorId
+      ? sql`AND ${attributedCounsellorByProductPaymentSql} = ${roleFilter.counsellorId}`
+      : sql``;
+
+  const [directCountResult] = await db
     .select({ count: count() })
     .from(clientProductPayments)
-    .where(
-      sql`(
-        ${clientProductPayments.entityType} = 'master_only'
-        AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
-        AND ${directPaymentDateCondition}
-      )`
-    ) as any;
+    .innerJoin(clientInformation, eq(clientProductPayments.clientId, clientInformation.clientId))
+    .where(sql`(
+      ${clientInformation.archived} = false
+      AND ${clientProductPayments.entityType} = 'master_only'
+      AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
+      AND ${directPaymentDateCondition}
+      ${counsellorExtra}
+    )`);
 
-  if (roleFilter?.userRole === "counsellor" && roleFilter.counsellorId) {
-    directCountQuery = directCountQuery
-      .innerJoin(clientInformation, eq(clientProductPayments.clientId, clientInformation.clientId))
-      .where(
-        sql`(
-          ${attributedCounsellorByProductPaymentSql} = ${roleFilter.counsellorId}
-          AND ${clientInformation.archived} = false
-          AND ${clientProductPayments.entityType} = 'master_only'
-          AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
-          AND ${directPaymentDateCondition}
-        )`
-      ) as any;
-  } else {
-    directCountQuery = directCountQuery
-      .innerJoin(clientInformation, eq(clientProductPayments.clientId, clientInformation.clientId))
-      .where(
-        sql`(
-          ${clientInformation.archived} = false
-          AND ${clientProductPayments.entityType} = 'master_only'
-          AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
-          AND ${directPaymentDateCondition}
-        )`
-      ) as any;
-  }
-
-  const [directCountResult] = await directCountQuery;
-  const directCount = Number(directCountResult?.count || 0);
-
-  const countOnlyProductsList = COUNT_ONLY_PRODUCTS.map((p) => `'${p}'`).join(", ");
-
-  let amountQuery = db
+  const [directAmountResult] = await db
     .select({
-      total: sql<string>`COALESCE(SUM(${clientProductPayments.amount}::numeric), 0)`,
+      total: sql<string>`COALESCE(SUM(
+        CASE
+          WHEN ${clientProductPayments.productName} IN (${sql.raw(countOnlyProductsList)}) THEN 0
+          ELSE COALESCE(${clientProductPayments.amount}::numeric, 0)
+        END
+      ), 0)`,
     })
     .from(clientProductPayments)
-    .where(
-      sql`(
-        ${clientProductPayments.amount} IS NOT NULL
-        AND ${clientProductPayments.entityType} = 'master_only'
-        AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
-        AND ${clientProductPayments.productName} NOT IN (${sql.raw(countOnlyProductsList)})
-        AND ${directPaymentDateCondition}
-      )`
-    ) as any;
+    .innerJoin(clientInformation, eq(clientProductPayments.clientId, clientInformation.clientId))
+    .where(sql`(
+      ${clientInformation.archived} = false
+      AND ${clientProductPayments.entityType} = 'master_only'
+      AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
+      AND ${directPaymentDateCondition}
+      ${counsellorExtra}
+    )`);
 
-  if (roleFilter?.userRole === "counsellor" && roleFilter.counsellorId) {
-    amountQuery = amountQuery
-      .innerJoin(clientInformation, eq(clientProductPayments.clientId, clientInformation.clientId))
-      .where(
-        sql`(
-          ${attributedCounsellorByProductPaymentSql} = ${roleFilter.counsellorId}
-          AND ${clientInformation.archived} = false
-          AND ${clientProductPayments.amount} IS NOT NULL
-          AND ${clientProductPayments.entityType} = 'master_only'
-          AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
-          AND ${clientProductPayments.productName} NOT IN (${sql.raw(countOnlyProductsList)})
-          AND ${directPaymentDateCondition}
-        )`
-      ) as any;
-  } else {
-    amountQuery = amountQuery
-      .innerJoin(clientInformation, eq(clientProductPayments.clientId, clientInformation.clientId))
-      .where(
-        sql`(
-          ${clientInformation.archived} = false
-          AND ${clientProductPayments.amount} IS NOT NULL
-          AND ${clientProductPayments.entityType} = 'master_only'
-          AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
-          AND ${clientProductPayments.productName} NOT IN (${sql.raw(countOnlyProductsList)})
-          AND ${directPaymentDateCondition}
-        )`
-      ) as any;
-  }
+  const directCount = Number(directCountResult?.count || 0);
+  const directAmount = parseFloat(directAmountResult?.total || "0");
 
-  const [amountResult1] = await amountQuery;
-  const directAmount = parseFloat(amountResult1?.total || "0");
-
-  // 2) Entity-based: count and amount by entity table date
   const entityResult = await getEntityBasedOtherProductCountAndAmount(dateRange, roleFilter);
 
   return {
@@ -1497,9 +1269,9 @@ export const getOtherProductMetrics = async (
 };
 
 /* ==============================
-   NEW: Other Product Breakdown List (Count + Amount per product)
-   - Direct rows: group by client_product_payment.productName for payments in range
-   - Entity rows: group by entityType (loan, ielts, etc.) using entity-table date for filter
+   Other Product Breakdown List (Count + Amount per product)
+   - master_only rows: grouped by productName, filtered by paymentDate.
+   - Entity-backed rows: grouped by entityType label, filtered by entity table date.
 ============================== */
 const getOtherProductBreakdown = async (
   dateRange: DateRange,
@@ -1507,18 +1279,16 @@ const getOtherProductBreakdown = async (
 ): Promise<Array<{ key: string; name: string; count: number; amount: string }>> => {
   const startDateStr = toLocalDateString(dateRange.start);
   const endDateStr = toLocalDateString(dateRange.end);
-  const _startTimestamp = dateRange.start.toISOString();
-  const _endTimestamp = dateRange.end.toISOString();
 
   const countOnlyProductsList = COUNT_ONLY_PRODUCTS.map((p) => `'${p}'`).join(", ");
 
-  const directPaymentDateCondition = sql`(
-    ${clientProductPayments.paymentDate} IS NOT NULL
-    AND ${clientProductPayments.paymentDate} >= ${startDateStr}
-    AND ${clientProductPayments.paymentDate} <= ${endDateStr}
-  )`;
+  const counsellorExtra =
+    roleFilter?.userRole === "counsellor" && roleFilter.counsellorId
+      ? sql`AND ${attributedCounsellorByProductPaymentSql} = ${roleFilter.counsellorId}`
+      : sql``;
 
-  let directQuery = db
+  // 1) Direct master_only rows: group by productName
+  const directRows = await db
     .select({
       productName: clientProductPayments.productName,
       count: sql<number>`COUNT(*)`,
@@ -1531,25 +1301,18 @@ const getOtherProductBreakdown = async (
     })
     .from(clientProductPayments)
     .innerJoin(clientInformation, eq(clientProductPayments.clientId, clientInformation.clientId))
-    .where(
-      sql`(
-        ${clientInformation.archived} = false
-        AND ${clientProductPayments.entityType} = 'master_only'
-        AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
-        AND ${directPaymentDateCondition}
-      )`
-    )
-    .groupBy(clientProductPayments.productName) as any;
+    .where(sql`(
+      ${clientInformation.archived} = false
+      AND ${clientProductPayments.entityType} = 'master_only'
+      AND ${clientProductPayments.productName} != ${CORE_PRODUCT}
+      AND ${clientProductPayments.paymentDate} IS NOT NULL
+      AND ${clientProductPayments.paymentDate} >= ${startDateStr}
+      AND ${clientProductPayments.paymentDate} <= ${endDateStr}
+      ${counsellorExtra}
+    )`)
+    .groupBy(clientProductPayments.productName);
 
-  if (roleFilter?.userRole === "counsellor" && roleFilter.counsellorId) {
-    directQuery = directQuery.where(
-      sql`${attributedCounsellorByProductPaymentSql} = ${roleFilter.counsellorId}`
-    ) as any;
-  }
-
-  const directRows = await directQuery;
-
-  // Entity-based breakdown (loan/ielts/etc.)
+  // 2) Entity-based rows: each entity table → label
   const entityLabel: Record<string, string> = {
     visaextension_id: "Visa Extension",
     newSell_id: "New Sell",
@@ -1574,70 +1337,54 @@ const getOtherProductBreakdown = async (
     const conditions: any[] = [
       sql`${clientProductPayments.entityType} = ${entityType}`,
       sql`${clientProductPayments.productName} != ${CORE_PRODUCT}`,
-      sql`${dateCol} IS NOT NULL`,
+      isNotNull(dateCol),
       gte(dateCol, startDateStr),
       lte(dateCol, endDateStr),
       eq(clientInformation.archived, false),
     ];
     if (roleFilter?.userRole === "counsellor" && roleFilter.counsellorId) {
-      conditions.push(
-        sql`(
-          CASE
-            WHEN ${clientInformation.transferStatus} = true AND ${clientInformation.transferedToCounsellorId} IS NOT NULL
-            THEN ${clientInformation.transferedToCounsellorId}
-            ELSE ${clientInformation.counsellorId}
-          END
-        ) = ${roleFilter.counsellorId}`
-      );
+      conditions.push(sql`${attributedCounsellorByProductPaymentSql} = ${roleFilter.counsellorId}`);
     }
-
     const rows = await db
       .select({ entityId: clientProductPayments.entityId })
       .from(clientProductPayments)
       .innerJoin(entityTable, eq(clientProductPayments.entityId, entityIdCol))
       .innerJoin(clientInformation, eq(clientProductPayments.clientId, clientInformation.clientId))
       .where(and(...conditions));
-
-    const count = rows.length;
-    if (count === 0) return null;
-
+    const cnt = rows.length;
+    if (cnt === 0) return null;
     const ids = rows
       .map((r: { entityId: number | null }) => r.entityId)
       .filter((id): id is number => id != null);
     const amountNum = isCountOnlyEntityType(entityType)
       ? 0
       : await getEntityAmountsExcludingCountOnly(entityType, ids);
-
     return {
       key: entityType,
       name: entityLabel[entityType] ?? entityType,
-      count,
+      count: cnt,
       amount: amountNum.toFixed(2),
     };
   };
 
-  const entityRuns: Promise<{ key: string; name: string; count: number; amount: string } | null>[] = [
+  const entityRows = (await Promise.all([
     runForEntity("visaextension_id", visaExtension, visaExtension.id, visaExtension.extensionDate),
-    runForEntity("newSell_id", newSell, newSell.id, newSell.sellDate),
-    runForEntity("ielts_id", ielts, ielts.id, ielts.enrollmentDate),
-    runForEntity("loan_id", loan, loan.id, loan.disbursmentDate),
-    runForEntity("airTicket_id", airTicket, airTicket.id, airTicket.ticketDate),
-    runForEntity("insurance_id", insurance, insurance.id, insurance.insuranceDate),
-    runForEntity("forexCard_id", forexCard, forexCard.id, forexCard.cardDate),
-    runForEntity("forexFees_id", forexFees, forexFees.id, forexFees.feeDate),
-    runForEntity("tutionFees_id", tutionFees, tutionFees.id, tutionFees.feeDate),
-    runForEntity("creditCard_id", creditCard, creditCard.id, creditCard.cardGivingDate),
-    runForEntity("simCard_id", simCard, simCard.id, simCard.simCardGivingDate),
+    runForEntity("newSell_id",       newSell,       newSell.id,       newSell.sellDate),
+    runForEntity("ielts_id",         ielts,         ielts.id,         ielts.enrollmentDate),
+    runForEntity("loan_id",          loan,          loan.id,          loan.disbursmentDate),
+    runForEntity("airTicket_id",     airTicket,     airTicket.id,     airTicket.ticketDate),
+    runForEntity("insurance_id",     insurance,     insurance.id,     insurance.insuranceDate),
+    runForEntity("forexCard_id",     forexCard,     forexCard.id,     forexCard.cardDate),
+    runForEntity("forexFees_id",     forexFees,     forexFees.id,     forexFees.feeDate),
+    runForEntity("tutionFees_id",    tutionFees,    tutionFees.id,    tutionFees.feeDate),
+    runForEntity("creditCard_id",    creditCard,    creditCard.id,    creditCard.cardDate),
+    runForEntity("simCard_id",       simCard,       simCard.id,       simCard.simCardGivingDate),
     runForEntity("beaconAccount_id", beaconAccount, beaconAccount.id, beaconAccount.openingDate),
-  ];
-
-  const entityRows = (await Promise.all(entityRuns)).filter(
-    (r): r is { key: string; name: string; count: number; amount: string } => r != null
-  );
+  ])).filter((r): r is { key: string; name: string; count: number; amount: string } => r != null);
 
   const breakdown: Array<{ key: string; name: string; count: number; amount: string }> = [];
 
-  for (const r of directRows as any[]) {
+  for (const r of directRows) {
     const name = String(r.productName ?? "");
     if (!name) continue;
     breakdown.push({
@@ -1647,10 +1394,8 @@ const getOtherProductBreakdown = async (
       amount: Number(r.amount ?? 0).toFixed(2),
     });
   }
-
   breakdown.push(...entityRows);
 
-  // Sort by count desc, then amount desc
   breakdown.sort((a, b) => {
     if (b.count !== a.count) return b.count - a.count;
     return Number(b.amount) - Number(a.amount);
@@ -2425,6 +2170,117 @@ const getChartDataCounsellor = async (
 };
 
 /* ==============================
+   COUNSELLOR-ATTRIBUTED REVENUE
+   Single pool query — no preliminary fetch.
+   Uses inline subquery for counsellor attribution so it can fire immediately.
+============================== */
+const getCounsellorAttributedRevenue = async (dateRange: DateRange): Promise<number> => {
+  const s = toLocalDateString(dateRange.start);
+  const e = toLocalDateString(dateRange.end);
+
+  // Inline counsellor subquery — avoids a sequential ID-fetch round trip.
+  const ATTR = `(
+    (cp.handled_by IS NOT NULL AND cp.handled_by IN (SELECT id FROM users WHERE role = 'counsellor'))
+    OR (cp.handled_by IS NULL AND ci.counsellor_id IN (SELECT id FROM users WHERE role = 'counsellor'))
+  )`;
+  const ATTR_CPP = `(
+    (cpp.handled_by IS NOT NULL AND cpp.handled_by IN (SELECT id FROM users WHERE role = 'counsellor'))
+    OR (cpp.handled_by IS NULL AND ci.counsellor_id IN (SELECT id FROM users WHERE role = 'counsellor'))
+  )`;
+
+  const { rows } = await pool.query<{ revenue: string }>(
+    `SELECT COALESCE(SUM(rev), 0)::text AS revenue
+     FROM (
+       -- Core sale (INITIAL/BEFORE_VISA/AFTER_VISA, payment_date-based)
+       SELECT cp.amount::numeric AS rev
+       FROM client_payment cp
+       JOIN client_information ci ON cp.client_id = ci.id
+       WHERE ci.archived = false
+         AND cp.stage IN ('INITIAL','BEFORE_VISA','AFTER_VISA')
+         AND cp.payment_date IS NOT NULL
+         AND cp.payment_date >= $1 AND cp.payment_date <= $2
+         AND ${ATTR}
+       UNION ALL
+       -- Core product slot 1 (allFinance.payment_date)
+       SELECT af.amount::numeric
+       FROM all_finance af
+       JOIN client_product_payment cpp ON cpp.entity_id = af.id AND cpp.entity_type = 'allFinance_id'
+       JOIN client_information ci ON cpp.client_id = ci.id
+       WHERE ci.archived = false AND cpp.product_name = 'ALL_FINANCE_EMPLOYEMENT'
+         AND af.payment_date IS NOT NULL AND af.payment_date >= $1 AND af.payment_date <= $2
+         AND ${ATTR_CPP}
+       UNION ALL
+       -- Core product slot 2
+       SELECT af.another_payment_amount::numeric
+       FROM all_finance af
+       JOIN client_product_payment cpp ON cpp.entity_id = af.id AND cpp.entity_type = 'allFinance_id'
+       JOIN client_information ci ON cpp.client_id = ci.id
+       WHERE ci.archived = false AND cpp.product_name = 'ALL_FINANCE_EMPLOYEMENT'
+         AND af.another_payment_date IS NOT NULL AND af.another_payment_date >= $1 AND af.another_payment_date <= $2
+         AND af.another_payment_amount IS NOT NULL AND ${ATTR_CPP}
+       UNION ALL
+       -- Core product slot 3
+       SELECT af.another_payment_amount2::numeric
+       FROM all_finance af
+       JOIN client_product_payment cpp ON cpp.entity_id = af.id AND cpp.entity_type = 'allFinance_id'
+       JOIN client_information ci ON cpp.client_id = ci.id
+       WHERE ci.archived = false AND cpp.product_name = 'ALL_FINANCE_EMPLOYEMENT'
+         AND af.another_payment_date2 IS NOT NULL AND af.another_payment_date2 >= $1 AND af.another_payment_date2 <= $2
+         AND af.another_payment_amount2 IS NOT NULL AND ${ATTR_CPP}
+       UNION ALL
+       -- Core product slot 4
+       SELECT af.another_payment_amount3::numeric
+       FROM all_finance af
+       JOIN client_product_payment cpp ON cpp.entity_id = af.id AND cpp.entity_type = 'allFinance_id'
+       JOIN client_information ci ON cpp.client_id = ci.id
+       WHERE ci.archived = false AND cpp.product_name = 'ALL_FINANCE_EMPLOYEMENT'
+         AND af.another_payment_date3 IS NOT NULL AND af.another_payment_date3 >= $1 AND af.another_payment_date3 <= $2
+         AND af.another_payment_amount3 IS NOT NULL AND ${ATTR_CPP}
+       UNION ALL
+       -- Other product direct (master_only, non-count-only products)
+       SELECT CASE WHEN LOWER(cpp.product_name::text) IN (
+           'loan_details','forex_card','tution_fees','credit_card',
+           'sim_card_activation','insurance','beacon_account','air_ticket','forex_fees'
+         ) THEN 0::numeric ELSE COALESCE(cpp.amount, 0)::numeric END
+       FROM client_product_payment cpp
+       JOIN client_information ci ON cpp.client_id = ci.id
+       WHERE ci.archived = false
+         AND cpp.entity_type = 'master_only'
+         AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+         AND cpp.date IS NOT NULL AND cpp.date >= $1 AND cpp.date <= $2
+         AND ${ATTR_CPP}
+       UNION ALL
+       -- Other product entity: visa_extension (revenue-contributing)
+       SELECT ve.amount::numeric
+       FROM client_product_payment cpp
+       JOIN visa_extension ve ON cpp.entity_id = ve.id AND cpp.entity_type = 'visaextension_id'
+       JOIN client_information ci ON cpp.client_id = ci.id
+       WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+         AND ve.date IS NOT NULL AND ve.date >= $1 AND ve.date <= $2 AND ${ATTR_CPP}
+       UNION ALL
+       -- Other product entity: new_sell (revenue-contributing)
+       SELECT ns.amount::numeric
+       FROM client_product_payment cpp
+       JOIN new_sell ns ON cpp.entity_id = ns.id AND cpp.entity_type = 'newSell_id'
+       JOIN client_information ci ON cpp.client_id = ci.id
+       WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+         AND ns.date IS NOT NULL AND ns.date >= $1 AND ns.date <= $2 AND ${ATTR_CPP}
+       UNION ALL
+       -- Other product entity: ielts (revenue-contributing)
+       SELECT il.amount::numeric
+       FROM client_product_payment cpp
+       JOIN ielts il ON cpp.entity_id = il.id AND cpp.entity_type = 'ielts_id'
+       JOIN client_information ci ON cpp.client_id = ci.id
+       WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+         AND il.date IS NOT NULL AND il.date >= $1 AND il.date <= $2 AND ${ATTR_CPP}
+     ) t`,
+    [s, e]
+  );
+
+  return parseFloat(rows[0]?.revenue ?? "0");
+};
+
+/* ==============================
    MAIN DASHBOARD STATS FUNCTION
 ============================== */
 export const getDashboardStats = async (
@@ -2511,6 +2367,7 @@ export const getDashboardStats = async (
 
   // Handle Admin/Manager Dashboard
   // Summary cards use summaryDateRange (filter-based). totalPendingAmount = all clients. totalClients = filter-based (like counsellor).
+  // getCounsellorAttributedRevenue runs here in parallel with the heavy leaderboard/chart work.
   const [
     // newEnrollmentCount,
     otherProductBreakdown,
@@ -2519,6 +2376,7 @@ export const getDashboardStats = async (
     saleTypeCategoryCounts,
     leaderboardData,
     chartData,
+    counsellorRevenue,
   ] = await Promise.all([
     // getNewEnrollments(filter, summaryDateRange, roleFilter),
     getOtherProductBreakdown(summaryDateRange, roleFilter),
@@ -2527,66 +2385,34 @@ export const getDashboardStats = async (
     getSaleTypeCategoryCounts(summaryDateRange, roleFilter),
     getLeaderboardDataForDashboard(summaryDateRange),
     getChartData(range || "today", dateRange, roleFilter, filter),
-    // getChartData(chartRange, dateRange, roleFilter)
-
+    getCounsellorAttributedRevenue(summaryDateRange),
   ]);
 
-  // Align top cards with report-style "all counsellors" aggregation from individual counsellor metrics.
+  // Align top cards with report-style "all counsellors" aggregation using efficient global queries.
+  // This matches the data from /api/reports/sale-dashboard but uses 4 global queries instead of N×4 per-counsellor queries.
   const startDateStr = toLocalDateString(summaryDateRange.start);
   const endDateStr = toLocalDateString(summaryDateRange.end);
   const startTimestamp = summaryDateRange.start.toISOString();
   const endTimestamp = summaryDateRange.end.toISOString();
 
-  const perCounsellorTotals = await Promise.all(
-    leaderboardData.map(async (row) => {
-      const [enrollments, coreSale, coreProduct, otherProduct] = await Promise.all([
-        getCounsellorEnrollmentCountByEnrollmentDate(row.counsellorId, startDateStr, endDateStr),
-        getCounsellorCoreSaleAmount(
-          row.counsellorId,
-          startDateStr,
-          endDateStr,
-          startTimestamp,
-          endTimestamp
-        ),
-        getCounsellorCoreProductMetrics(row.counsellorId, startDateStr, endDateStr),
-        getCounsellorOtherProductMetrics(row.counsellorId, startDateStr, endDateStr),
-      ]);
+  // Use efficient global queries for counts/amounts displayed on cards
+  const [globalCoreSaleCount, globalCoreSaleAmount, globalCoreProduct, globalOtherProduct] = await Promise.all([
+    getCoreServiceCountByPaymentDate(summaryDateRange, roleFilter),
+    getCoreSaleAmount(summaryDateRange, roleFilter),
+    getCoreProductMetrics(summaryDateRange, roleFilter, filter),
+    getOtherProductMetrics(summaryDateRange, roleFilter, filter),
+  ]);
 
-      return {
-        enrollments,
-        coreSale,
-        coreProductCount: coreProduct.count,
-        coreProductAmount: coreProduct.amount,
-        otherProductCount: otherProduct.count,
-        otherProductAmount: otherProduct.amount,
-      };
-    })
-  );
+  const aggregateCards = {
+    coreSaleCount: globalCoreSaleCount,
+    coreSaleAmount: globalCoreSaleAmount,
+    coreProductCount: globalCoreProduct.count,
+    coreProductAmount: globalCoreProduct.amount,
+    otherProductCount: globalOtherProduct.count,
+    otherProductAmount: globalOtherProduct.amount,
+  };
 
-  const aggregateCards = perCounsellorTotals.reduce(
-    (acc, item) => {
-      acc.coreSaleCount += item.enrollments;
-      acc.coreSaleAmount += item.coreSale;
-      acc.coreProductCount += item.coreProductCount;
-      acc.coreProductAmount += item.coreProductAmount;
-      acc.otherProductCount += item.otherProductCount;
-      acc.otherProductAmount += item.otherProductAmount;
-      return acc;
-    },
-    {
-      coreSaleCount: 0,
-      coreSaleAmount: 0,
-      coreProductCount: 0,
-      coreProductAmount: 0,
-      otherProductCount: 0,
-      otherProductAmount: 0,
-    }
-  );
-
-  const totalRevenue =
-    aggregateCards.coreSaleAmount +
-    aggregateCards.coreProductAmount +
-    aggregateCards.otherProductAmount;
+  const totalRevenue = counsellorRevenue;
 
   const adminManagerStats: AdminManagerDashboardStats = {
     // newEnrollment: {

@@ -20,7 +20,7 @@ const router = Router();
 router.get(
   "/",
   requireAuth,
-  requireRole("admin", "manager", "counsellor"),
+  requireRole("developer","admin", "manager", "counsellor"),
   getLeaderboardController
 );
 
@@ -32,7 +32,7 @@ router.get(
 router.get(
   "/summary",
   requireAuth,
-  requireRole("admin", "manager", "counsellor"),
+  requireRole("developer","admin", "manager", "counsellor"),
   getLeaderboardSummaryController
 );
 
@@ -45,7 +45,7 @@ router.get(
 router.get(
   "/counsellors",
   requireAuth,
-  requireRole("admin", "manager"),
+  requireRole("developer","admin", "manager"),
   getLeaderboardCounsellorsController
 );
 
@@ -58,7 +58,7 @@ router.get(
 router.post(
   "/target",
   requireAuth,
-  requireRole("admin", "manager"),
+  requireRole("developer","admin", "manager"),
   preventDuplicateRequests,
   setTargetController
 );
@@ -72,7 +72,7 @@ router.post(
 router.put(
   "/target/:id",
   requireAuth,
-  requireRole("admin", "manager"),
+  requireRole("developer","admin", "manager"),
   preventDuplicateRequests,
   updateTargetController
 );
@@ -86,7 +86,7 @@ router.put(
 router.delete(
   "/target/:id",
   requireAuth,
-  requireRole("admin", "manager"),
+  requireRole("developer","admin", "manager"),
   preventDuplicateRequests,
   deleteTargetController
 );

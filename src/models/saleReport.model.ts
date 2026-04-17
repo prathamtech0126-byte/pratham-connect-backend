@@ -8,7 +8,6 @@ import {
   getCounsellorEnrollmentCountByEnrollmentDate,
 } from "./leaderboard.model";
 import {
-  getCoreServiceCount,
   getCoreSaleAmount,
   getCoreProductMetrics,
   getOtherProductMetrics,
@@ -300,6 +299,8 @@ const getChartPeriods = (
   return periods;
 };
 
+// Batch version: 5 parallel pool queries instead of N×4 per-counsellor queries.
+// Attribution filter: COALESCE(handled_by, counsellor_id) IN counsellorIds.
 const getScopeSnapshot = async (
   counsellorIds: number[],
   dateRange: ReportDateRange
@@ -313,41 +314,216 @@ const getScopeSnapshot = async (
   overallRevenue: number;
   totalClients: number;
 }> => {
-  const startStr = toDateStr(dateRange.start);
-  const endStr = toDateStr(dateRange.end);
+  const s = toDateStr(dateRange.start);
+  const e = toDateStr(dateRange.end);
 
   if (counsellorIds.length === 0) {
-    return {
-      coreSaleCount: 0,
-      coreSaleAmount: 0,
-      coreProductCount: 0,
-      coreProductAmount: 0,
-      otherProductCount: 0,
-      otherProductAmount: 0,
-      overallRevenue: 0,
-      totalClients: 0,
-    };
+    return { coreSaleCount: 0, coreSaleAmount: 0, coreProductCount: 0, coreProductAmount: 0, otherProductCount: 0, otherProductAmount: 0, overallRevenue: 0, totalClients: 0 };
   }
 
-  const rows = await Promise.all(
-    counsellorIds.map(async (id) => {
-      const [coreSaleCount, coreSaleAmount, coreProduct, otherProduct] = await Promise.all([
-        getCounsellorEnrollmentCountByEnrollmentDate(id, startStr, endStr),
-        getCoreSaleAmount(dateRange, { userRole: "counsellor", userId: id, counsellorId: id }),
-        getCoreProductMetrics(dateRange, { userRole: "counsellor", userId: id, counsellorId: id }),
-        getOtherProductMetrics(dateRange, { userRole: "counsellor", userId: id, counsellorId: id }),
-      ]);
-      return { coreSaleCount, coreSaleAmount, coreProduct, otherProduct };
-    })
-  );
+  const ids = counsellorIds.map((x) => BigInt(x));
+  const params = [s, e, ids] as any[];
 
-  const coreSaleCount = rows.reduce((s, r) => s + Number(r.coreSaleCount ?? 0), 0);
-  const coreSaleAmount = rows.reduce((s, r) => s + Number(r.coreSaleAmount ?? 0), 0);
-  const coreProductCount = rows.reduce((s, r) => s + Number(r.coreProduct?.count ?? 0), 0);
-  const coreProductAmount = rows.reduce((s, r) => s + Number(r.coreProduct?.amount ?? 0), 0);
-  const otherProductCount = rows.reduce((s, r) => s + Number(r.otherProduct?.count ?? 0), 0);
-  const otherProductAmount = rows.reduce((s, r) => s + Number(r.otherProduct?.amount ?? 0), 0);
-  const overallRevenue = coreSaleAmount + coreProductAmount + otherProductAmount;
+  const ATTR = `(
+    (cp.handled_by IS NOT NULL AND cp.handled_by = ANY($3::bigint[]))
+    OR (cp.handled_by IS NULL AND ci.counsellor_id = ANY($3::bigint[]))
+  )`;
+  const ATTR_CPP = `(
+    (cpp.handled_by IS NOT NULL AND cpp.handled_by = ANY($3::bigint[]))
+    OR (cpp.handled_by IS NULL AND ci.counsellor_id = ANY($3::bigint[]))
+  )`;
+
+  const [enrollmentRes, coreSaleRes, coreProductRes, otherDirectRes, otherEntityRes] = await Promise.all([
+
+    // 1. Enrollment count: clients enrolled in period under these counsellors with ≥1 core payment
+    pool.query<{ count: string }>(
+      `SELECT COUNT(DISTINCT ci.id)::text AS count
+       FROM client_information ci
+       WHERE ci.archived = false
+         AND ci.date >= $1::date AND ci.date <= $2::date
+         AND ci.counsellor_id = ANY($3::bigint[])
+         AND EXISTS (
+           SELECT 1 FROM client_payment cp0
+           WHERE cp0.client_id = ci.id
+             AND cp0.stage IN ('INITIAL','BEFORE_VISA','AFTER_VISA')
+         )`,
+      params
+    ),
+
+    // 2. Core sale amount (INITIAL/BEFORE_VISA/AFTER_VISA, payment_date-based)
+    pool.query<{ amount: string }>(
+      `SELECT COALESCE(SUM(cp.amount::numeric), 0)::text AS amount
+       FROM client_payment cp
+       JOIN client_information ci ON cp.client_id = ci.id
+       WHERE ci.archived = false
+         AND cp.stage IN ('INITIAL','BEFORE_VISA','AFTER_VISA')
+         AND cp.payment_date IS NOT NULL
+         AND cp.payment_date >= $1 AND cp.payment_date <= $2
+         AND ${ATTR}`,
+      params
+    ),
+
+    // 3. Core product (ALL_FINANCE_EMPLOYEMENT) — 4 payment slots
+    pool.query<{ count: string; amount: string }>(
+      `SELECT COALESCE(SUM(cnt),0)::text AS count, COALESCE(SUM(amt),0)::text AS amount
+       FROM (
+         SELECT COUNT(*) AS cnt, COALESCE(SUM(af.amount::numeric),0) AS amt
+         FROM all_finance af
+         JOIN client_product_payment cpp ON cpp.entity_id = af.id AND cpp.entity_type = 'allFinance_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name = 'ALL_FINANCE_EMPLOYEMENT'
+           AND af.payment_date IS NOT NULL AND af.payment_date >= $1 AND af.payment_date <= $2
+           AND ${ATTR_CPP}
+         UNION ALL
+         SELECT COUNT(*), COALESCE(SUM(af.another_payment_amount::numeric),0)
+         FROM all_finance af
+         JOIN client_product_payment cpp ON cpp.entity_id = af.id AND cpp.entity_type = 'allFinance_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name = 'ALL_FINANCE_EMPLOYEMENT'
+           AND af.another_payment_date IS NOT NULL AND af.another_payment_date >= $1 AND af.another_payment_date <= $2
+           AND af.another_payment_amount IS NOT NULL AND ${ATTR_CPP}
+         UNION ALL
+         SELECT COUNT(*), COALESCE(SUM(af.another_payment_amount2::numeric),0)
+         FROM all_finance af
+         JOIN client_product_payment cpp ON cpp.entity_id = af.id AND cpp.entity_type = 'allFinance_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name = 'ALL_FINANCE_EMPLOYEMENT'
+           AND af.another_payment_date2 IS NOT NULL AND af.another_payment_date2 >= $1 AND af.another_payment_date2 <= $2
+           AND af.another_payment_amount2 IS NOT NULL AND ${ATTR_CPP}
+         UNION ALL
+         SELECT COUNT(*), COALESCE(SUM(af.another_payment_amount3::numeric),0)
+         FROM all_finance af
+         JOIN client_product_payment cpp ON cpp.entity_id = af.id AND cpp.entity_type = 'allFinance_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name = 'ALL_FINANCE_EMPLOYEMENT'
+           AND af.another_payment_date3 IS NOT NULL AND af.another_payment_date3 >= $1 AND af.another_payment_date3 <= $2
+           AND af.another_payment_amount3 IS NOT NULL AND ${ATTR_CPP}
+       ) t`,
+      params
+    ),
+
+    // 4. Other product direct (master_only rows, by cpp.date)
+    pool.query<{ count: string; amount: string }>(
+      `SELECT COUNT(*)::text AS count,
+              COALESCE(SUM(
+                CASE WHEN LOWER(cpp.product_name::text) IN (
+                  'loan_details','forex_card','tution_fees','credit_card',
+                  'sim_card_activation','insurance','beacon_account','air_ticket','forex_fees'
+                ) THEN 0::numeric ELSE COALESCE(cpp.amount, 0)::numeric END
+              ), 0)::text AS amount
+       FROM client_product_payment cpp
+       JOIN client_information ci ON cpp.client_id = ci.id
+       WHERE ci.archived = false
+         AND cpp.entity_type = 'master_only'
+         AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+         AND cpp.date IS NOT NULL AND cpp.date >= $1 AND cpp.date <= $2
+         AND ${ATTR_CPP}`,
+      params
+    ),
+
+    // 5. Other product entity-based (each entity uses its own date column)
+    pool.query<{ count: string; amount: string }>(
+      `SELECT COALESCE(SUM(ec),0)::text AS count, COALESCE(SUM(ea),0)::text AS amount
+       FROM (
+         SELECT COUNT(*) AS ec, COALESCE(SUM(ve.amount::numeric),0) AS ea
+         FROM client_product_payment cpp
+         JOIN visa_extension ve ON cpp.entity_id = ve.id AND cpp.entity_type = 'visaextension_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND ve.date IS NOT NULL AND ve.date >= $1 AND ve.date <= $2 AND ${ATTR_CPP}
+         UNION ALL
+         SELECT COUNT(*), COALESCE(SUM(ns.amount::numeric),0)
+         FROM client_product_payment cpp
+         JOIN new_sell ns ON cpp.entity_id = ns.id AND cpp.entity_type = 'newSell_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND ns.date IS NOT NULL AND ns.date >= $1 AND ns.date <= $2 AND ${ATTR_CPP}
+         UNION ALL
+         SELECT COUNT(*), COALESCE(SUM(il.amount::numeric),0)
+         FROM client_product_payment cpp
+         JOIN ielts il ON cpp.entity_id = il.id AND cpp.entity_type = 'ielts_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND il.date IS NOT NULL AND il.date >= $1 AND il.date <= $2 AND ${ATTR_CPP}
+         UNION ALL
+         SELECT COUNT(*), 0::numeric
+         FROM client_product_payment cpp
+         JOIN loan l ON cpp.entity_id = l.id AND cpp.entity_type = 'loan_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND l.disbursment_date IS NOT NULL AND l.disbursment_date >= $1 AND l.disbursment_date <= $2 AND ${ATTR_CPP}
+         UNION ALL
+         SELECT COUNT(*), 0::numeric
+         FROM client_product_payment cpp
+         JOIN air_ticket atk ON cpp.entity_id = atk.id AND cpp.entity_type = 'airTicket_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND atk.date IS NOT NULL AND atk.date >= $1 AND atk.date <= $2 AND ${ATTR_CPP}
+         UNION ALL
+         SELECT COUNT(*), 0::numeric
+         FROM client_product_payment cpp
+         JOIN insurance ins ON cpp.entity_id = ins.id AND cpp.entity_type = 'insurance_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND ins.date IS NOT NULL AND ins.date >= $1 AND ins.date <= $2 AND ${ATTR_CPP}
+         UNION ALL
+         SELECT COUNT(*), 0::numeric
+         FROM client_product_payment cpp
+         JOIN forex_card fc ON cpp.entity_id = fc.id AND cpp.entity_type = 'forexCard_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND fc.date IS NOT NULL AND fc.date >= $1 AND fc.date <= $2 AND ${ATTR_CPP}
+         UNION ALL
+         SELECT COUNT(*), 0::numeric
+         FROM client_product_payment cpp
+         JOIN forex_fees ff ON cpp.entity_id = ff.id AND cpp.entity_type = 'forexFees_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND ff.date IS NOT NULL AND ff.date >= $1 AND ff.date <= $2 AND ${ATTR_CPP}
+         UNION ALL
+         SELECT COUNT(*), 0::numeric
+         FROM client_product_payment cpp
+         JOIN tution_fees tf ON cpp.entity_id = tf.id AND cpp.entity_type = 'tutionFees_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND tf.date IS NOT NULL AND tf.date >= $1 AND tf.date <= $2 AND ${ATTR_CPP}
+         UNION ALL
+         SELECT COUNT(*), 0::numeric
+         FROM client_product_payment cpp
+         JOIN credit_card cc ON cpp.entity_id = cc.id AND cpp.entity_type = 'creditCard_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND cc.date IS NOT NULL AND cc.date >= $1 AND cc.date <= $2 AND ${ATTR_CPP}
+         UNION ALL
+         SELECT COUNT(*), 0::numeric
+         FROM client_product_payment cpp
+         JOIN sim_card sc ON cpp.entity_id = sc.id AND cpp.entity_type = 'simCard_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND sc.sim_card_giving_date IS NOT NULL AND sc.sim_card_giving_date >= $1 AND sc.sim_card_giving_date <= $2 AND ${ATTR_CPP}
+         UNION ALL
+         SELECT COUNT(*), 0::numeric
+         FROM client_product_payment cpp
+         JOIN beacon_account ba ON cpp.entity_id = ba.id AND cpp.entity_type = 'beaconAccount_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND ba.opening_date IS NOT NULL AND ba.opening_date >= $1 AND ba.opening_date <= $2 AND ${ATTR_CPP}
+       ) t`,
+      params
+    ),
+  ]);
+
+  const coreSaleCount     = parseInt(enrollmentRes.rows[0]?.count    ?? "0", 10);
+  const coreSaleAmount    = parseFloat(coreSaleRes.rows[0]?.amount   ?? "0");
+  const coreProductCount  = parseInt(coreProductRes.rows[0]?.count   ?? "0", 10);
+  const coreProductAmount = parseFloat(coreProductRes.rows[0]?.amount ?? "0");
+  const otherDirectCount  = parseInt(otherDirectRes.rows[0]?.count   ?? "0", 10);
+  const otherDirectAmount = parseFloat(otherDirectRes.rows[0]?.amount ?? "0");
+  const otherEntityCount  = parseInt(otherEntityRes.rows[0]?.count   ?? "0", 10);
+  const otherEntityAmount = parseFloat(otherEntityRes.rows[0]?.amount ?? "0");
+  const otherProductCount  = otherDirectCount  + otherEntityCount;
+  const otherProductAmount = otherDirectAmount + otherEntityAmount;
+  const overallRevenue     = coreSaleAmount + coreProductAmount + otherProductAmount;
 
   return {
     coreSaleCount,
@@ -361,6 +537,8 @@ const getScopeSnapshot = async (
   };
 };
 
+// Global snapshot for admin (no managerId scope): runs 4 parameterised pool queries
+// with no counsellor restriction — matches Dashboard admin scope exactly.
 const getGlobalSnapshotFromDashboard = async (
   dateRange: ReportDateRange
 ): Promise<{
@@ -373,28 +551,195 @@ const getGlobalSnapshotFromDashboard = async (
   overallRevenue: number;
   totalClients: number;
 }> => {
-  const [coreSaleCount, coreSaleAmount, coreProduct, otherProduct] = await Promise.all([
-    getCoreServiceCount(dateRange),
-    getCoreSaleAmount(dateRange),
-    getCoreProductMetrics(dateRange),
-    getOtherProductMetrics(dateRange),
+  const s = toDateStr(dateRange.start);
+  const e = toDateStr(dateRange.end);
+
+  const [coreSaleRes, coreProductRes, otherProductRes, otherEntityRes] = await Promise.all([
+
+    // 1. Core sale: client_payment, payment_date in range, no counsellor restriction
+    pool.query<{ count: string; amount: string }>(
+      `SELECT COUNT(DISTINCT ci.id)::text AS count,
+              COALESCE(SUM(cp.amount::numeric), 0)::text AS amount
+       FROM client_payment cp
+       JOIN client_information ci ON cp.client_id = ci.id
+       WHERE ci.archived = false
+         AND cp.stage IN ('INITIAL','BEFORE_VISA','AFTER_VISA')
+         AND cp.payment_date IS NOT NULL
+         AND cp.payment_date >= $1 AND cp.payment_date <= $2`,
+      [s, e]
+    ),
+
+    // 2. Core product: all_finance, all 4 payment slots in range, no counsellor restriction
+    pool.query<{ count: string; amount: string }>(
+      `SELECT COALESCE(SUM(cnt),0)::text AS count, COALESCE(SUM(amt),0)::text AS amount
+       FROM (
+         SELECT COUNT(*) AS cnt, COALESCE(SUM(af.amount::numeric),0) AS amt
+         FROM all_finance af
+         JOIN client_product_payment cpp ON cpp.entity_id = af.id AND cpp.entity_type = 'allFinance_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name = 'ALL_FINANCE_EMPLOYEMENT'
+           AND af.payment_date IS NOT NULL AND af.payment_date >= $1 AND af.payment_date <= $2
+         UNION ALL
+         SELECT COUNT(*), COALESCE(SUM(af.another_payment_amount::numeric),0)
+         FROM all_finance af
+         JOIN client_product_payment cpp ON cpp.entity_id = af.id AND cpp.entity_type = 'allFinance_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name = 'ALL_FINANCE_EMPLOYEMENT'
+           AND af.another_payment_date IS NOT NULL AND af.another_payment_date >= $1 AND af.another_payment_date <= $2
+           AND af.another_payment_amount IS NOT NULL
+         UNION ALL
+         SELECT COUNT(*), COALESCE(SUM(af.another_payment_amount2::numeric),0)
+         FROM all_finance af
+         JOIN client_product_payment cpp ON cpp.entity_id = af.id AND cpp.entity_type = 'allFinance_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name = 'ALL_FINANCE_EMPLOYEMENT'
+           AND af.another_payment_date2 IS NOT NULL AND af.another_payment_date2 >= $1 AND af.another_payment_date2 <= $2
+           AND af.another_payment_amount2 IS NOT NULL
+         UNION ALL
+         SELECT COUNT(*), COALESCE(SUM(af.another_payment_amount3::numeric),0)
+         FROM all_finance af
+         JOIN client_product_payment cpp ON cpp.entity_id = af.id AND cpp.entity_type = 'allFinance_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name = 'ALL_FINANCE_EMPLOYEMENT'
+           AND af.another_payment_date3 IS NOT NULL AND af.another_payment_date3 >= $1 AND af.another_payment_date3 <= $2
+           AND af.another_payment_amount3 IS NOT NULL
+       ) t`,
+      [s, e]
+    ),
+
+    // 3. Other product direct (master_only rows, paymentDate-based)
+    pool.query<{ count: string; amount: string }>(
+      `SELECT COUNT(*)::text AS count,
+              COALESCE(SUM(
+                CASE WHEN LOWER(cpp.product_name::text) IN (
+                  'loan_details','forex_card','tution_fees','credit_card',
+                  'sim_card_activation','insurance','beacon_account','air_ticket','forex_fees'
+                ) THEN 0::numeric ELSE COALESCE(cpp.amount, 0)::numeric END
+              ), 0)::text AS amount
+       FROM client_product_payment cpp
+       JOIN client_information ci ON cpp.client_id = ci.id
+       WHERE ci.archived = false
+         AND cpp.entity_type = 'master_only'
+         AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+         AND cpp.date IS NOT NULL
+         AND cpp.date >= $1 AND cpp.date <= $2`,
+      [s, e]
+    ),
+
+    // 4. Other product entity-based — each entity type uses its own date column
+    //    Revenue entities: visa_extension, new_sell, ielts  |  Count-only: all others
+    pool.query<{ count: string; amount: string }>(
+      `SELECT COALESCE(SUM(ec),0)::text AS count, COALESCE(SUM(ea),0)::text AS amount
+       FROM (
+         SELECT COUNT(*) AS ec, COALESCE(SUM(ve.amount::numeric),0) AS ea
+         FROM client_product_payment cpp
+         JOIN visa_extension ve ON cpp.entity_id = ve.id AND cpp.entity_type = 'visaextension_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND ve.date IS NOT NULL AND ve.date >= $1 AND ve.date <= $2
+         UNION ALL
+         SELECT COUNT(*), COALESCE(SUM(ns.amount::numeric),0)
+         FROM client_product_payment cpp
+         JOIN new_sell ns ON cpp.entity_id = ns.id AND cpp.entity_type = 'newSell_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND ns.date IS NOT NULL AND ns.date >= $1 AND ns.date <= $2
+         UNION ALL
+         SELECT COUNT(*), COALESCE(SUM(il.amount::numeric),0)
+         FROM client_product_payment cpp
+         JOIN ielts il ON cpp.entity_id = il.id AND cpp.entity_type = 'ielts_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND il.date IS NOT NULL AND il.date >= $1 AND il.date <= $2
+         UNION ALL
+         SELECT COUNT(*), 0::numeric
+         FROM client_product_payment cpp
+         JOIN loan l ON cpp.entity_id = l.id AND cpp.entity_type = 'loan_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND l.disbursment_date IS NOT NULL AND l.disbursment_date >= $1 AND l.disbursment_date <= $2
+         UNION ALL
+         SELECT COUNT(*), 0::numeric
+         FROM client_product_payment cpp
+         JOIN air_ticket atk ON cpp.entity_id = atk.id AND cpp.entity_type = 'airTicket_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND atk.date IS NOT NULL AND atk.date >= $1 AND atk.date <= $2
+         UNION ALL
+         SELECT COUNT(*), 0::numeric
+         FROM client_product_payment cpp
+         JOIN insurance ins ON cpp.entity_id = ins.id AND cpp.entity_type = 'insurance_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND ins.date IS NOT NULL AND ins.date >= $1 AND ins.date <= $2
+         UNION ALL
+         SELECT COUNT(*), 0::numeric
+         FROM client_product_payment cpp
+         JOIN forex_card fc ON cpp.entity_id = fc.id AND cpp.entity_type = 'forexCard_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND fc.date IS NOT NULL AND fc.date >= $1 AND fc.date <= $2
+         UNION ALL
+         SELECT COUNT(*), 0::numeric
+         FROM client_product_payment cpp
+         JOIN forex_fees ff ON cpp.entity_id = ff.id AND cpp.entity_type = 'forexFees_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND ff.date IS NOT NULL AND ff.date >= $1 AND ff.date <= $2
+         UNION ALL
+         SELECT COUNT(*), 0::numeric
+         FROM client_product_payment cpp
+         JOIN tution_fees tf ON cpp.entity_id = tf.id AND cpp.entity_type = 'tutionFees_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND tf.date IS NOT NULL AND tf.date >= $1 AND tf.date <= $2
+         UNION ALL
+         SELECT COUNT(*), 0::numeric
+         FROM client_product_payment cpp
+         JOIN credit_card cc ON cpp.entity_id = cc.id AND cpp.entity_type = 'creditCard_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND cc.date IS NOT NULL AND cc.date >= $1 AND cc.date <= $2
+         UNION ALL
+         SELECT COUNT(*), 0::numeric
+         FROM client_product_payment cpp
+         JOIN sim_card sc ON cpp.entity_id = sc.id AND cpp.entity_type = 'simCard_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND sc.sim_card_giving_date IS NOT NULL AND sc.sim_card_giving_date >= $1 AND sc.sim_card_giving_date <= $2
+         UNION ALL
+         SELECT COUNT(*), 0::numeric
+         FROM client_product_payment cpp
+         JOIN beacon_account ba ON cpp.entity_id = ba.id AND cpp.entity_type = 'beaconAccount_id'
+         JOIN client_information ci ON cpp.client_id = ci.id
+         WHERE ci.archived = false AND cpp.product_name != 'ALL_FINANCE_EMPLOYEMENT'
+           AND ba.opening_date IS NOT NULL AND ba.opening_date >= $1 AND ba.opening_date <= $2
+       ) t`,
+      [s, e]
+    ),
   ]);
 
-  const coreProductCount = Number(coreProduct.count ?? 0);
-  const coreProductAmount = Number(coreProduct.amount ?? 0);
-  const otherProductCount = Number(otherProduct.count ?? 0);
-  const otherProductAmount = Number(otherProduct.amount ?? 0);
-  const overallRevenue = Number(coreSaleAmount) + coreProductAmount + otherProductAmount;
+  const coreSaleCount     = parseInt(coreSaleRes.rows[0]?.count    ?? "0", 10);
+  const coreSaleAmount    = parseFloat(coreSaleRes.rows[0]?.amount  ?? "0");
+  const coreProductCount  = parseInt(coreProductRes.rows[0]?.count  ?? "0", 10);
+  const coreProductAmount = parseFloat(coreProductRes.rows[0]?.amount ?? "0");
+  const otherDirectCount  = parseInt(otherProductRes.rows[0]?.count  ?? "0", 10);
+  const otherDirectAmount = parseFloat(otherProductRes.rows[0]?.amount ?? "0");
+  const otherEntityCount  = parseInt(otherEntityRes.rows[0]?.count   ?? "0", 10);
+  const otherEntityAmount = parseFloat(otherEntityRes.rows[0]?.amount ?? "0");
+  const otherProductCount  = otherDirectCount  + otherEntityCount;
+  const otherProductAmount = otherDirectAmount + otherEntityAmount;
+  const overallRevenue     = coreSaleAmount + coreProductAmount + otherProductAmount;
 
   return {
-    coreSaleCount: Number(coreSaleCount),
-    coreSaleAmount: Number(coreSaleAmount),
+    coreSaleCount,
+    coreSaleAmount,
     coreProductCount,
     coreProductAmount,
     otherProductCount,
     otherProductAmount,
     overallRevenue,
-    totalClients: Number(coreSaleCount),
+    totalClients: coreSaleCount,
   };
 };
 
@@ -591,21 +936,35 @@ export const getSaleReportDashboardData = async (
 ): Promise<SaleReportDashboardResult> => {
   const dateRange = getSaleReportDateRange(filter, beforeDate, afterDate);
   const scope = await getReportScope(userId, userRole, options);
-  const useGlobalDashboardMode = userRole === "admin" && !options?.managerId;
-  const snapshotCache = new Map<string, Awaited<ReturnType<typeof getScopeSnapshot>>>();
-  const getSnapshotCached = async (range: ReportDateRange) => {
+  // Revenue cards always use counsellor-attributed scope (accurate).
+  // Chart period points use the fast global query for admin (no counsellor filter needed for trend lines).
+  const isAdminMode = userRole === "admin" && !options?.managerId;
+
+  type SnapResult = Awaited<ReturnType<typeof getScopeSnapshot>>;
+  const cardSnapshotCache = new Map<string, SnapResult>();
+  const getCardSnapshot = async (range: ReportDateRange): Promise<SnapResult> => {
     const key = `${toDateStr(range.start)}_${toDateStr(range.end)}`;
-    const hit = snapshotCache.get(key);
+    const hit = cardSnapshotCache.get(key);
     if (hit) return hit;
-    const val = useGlobalDashboardMode
+    const val = await getScopeSnapshot(scope.counsellorIds, range);
+    cardSnapshotCache.set(key, val);
+    return val;
+  };
+
+  const chartSnapshotCache = new Map<string, SnapResult>();
+  const getChartSnapshot = async (range: ReportDateRange): Promise<SnapResult> => {
+    const key = `${toDateStr(range.start)}_${toDateStr(range.end)}`;
+    const hit = chartSnapshotCache.get(key);
+    if (hit) return hit;
+    const val = isAdminMode
       ? await getGlobalSnapshotFromDashboard(range)
       : await getScopeSnapshot(scope.counsellorIds, range);
-    snapshotCache.set(key, val);
+    chartSnapshotCache.set(key, val);
     return val;
   };
 
   const [main, coreCategorySaleTypeRows, otherProductBreakdown] = await Promise.all([
-    getSnapshotCached(dateRange),
+    getCardSnapshot(dateRange),
     getCoreSaleCategorySaleTypeBreakdown(scope.counsellorIds, dateRange),
     getOtherProductBreakdown(scope.counsellorIds, dateRange),
   ]);
@@ -660,16 +1019,16 @@ export const getSaleReportDashboardData = async (
   const { current, previous, previous2 } = getComparisonRanges(filter, dateRange);
 
   const [currentMonthSnap, previousMonthSnap, previous2MonthSnap] = await Promise.all([
-    getSnapshotCached(current),
-    getSnapshotCached(previous),
-    getSnapshotCached(previous2),
+    getCardSnapshot(current),
+    getCardSnapshot(previous),
+    getCardSnapshot(previous2),
   ]);
 
   const chartPeriods = getChartPeriods(filter, dateRange);
 
   const points = await Promise.all(
     chartPeriods.map(async (p) => {
-      const s = await getSnapshotCached(p.range);
+      const s = await getChartSnapshot(p.range);
       return {
         name: p.name,
         core_sale: s.coreSaleAmount,
@@ -717,10 +1076,13 @@ export const getSaleMetricSeries = async (
   const scope = await getReportScope(userId, userRole, options);
 
   const { current, previous, previous2 } = getComparisonRanges(filter, dateRange);
-  const useGlobalDashboardMode = userRole === "admin" && !options?.managerId;
 
+  // Chart/metric series: use fast global queries for admin; scoped for non-admin.
+  const useGlobalDashboardMode = userRole === "admin" && !options?.managerId;
   const resolveSnapshot = (range: ReportDateRange) =>
-    useGlobalDashboardMode ? getGlobalSnapshotFromDashboard(range) : getScopeSnapshot(scope.counsellorIds, range);
+    useGlobalDashboardMode
+      ? getGlobalSnapshotFromDashboard(range)
+      : getScopeSnapshot(scope.counsellorIds, range);
 
   const toMetric = (snap: Awaited<ReturnType<typeof getGlobalSnapshotFromDashboard>>) => {
     switch (metric) {

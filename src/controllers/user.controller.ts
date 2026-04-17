@@ -812,7 +812,7 @@ export const getAllUserDetailsController = async (req: Request, res: Response) =
   const userId = authReq.user?.id as number | undefined;
   const role = authReq.user?.role as string | undefined;
 
-  if (role === "admin") {
+  if (role === "admin" || role === "developer") {
     const cacheKey = "users:all:with-manager";
     const cached = await redisGetJson<any[]>(cacheKey);
     if (cached) {

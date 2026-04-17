@@ -20,7 +20,7 @@ const router = Router();
 router.post(
   "/broadcast",
   requireAuth,
-  requireRole("admin"),
+  requireRole("developer","admin"),
   createBroadcastMessageController
 );
 
@@ -34,7 +34,7 @@ router.post(
 router.get(
   "/",
   requireAuth,
-  requireRole("admin"),
+  requireRole("developer","admin"),
   getAllMessagesController
 );
 
@@ -80,7 +80,7 @@ router.post(
 router.get(
   "/:messageId/acknowledgments",
   requireAuth,
-  requireRole("admin"),
+  requireRole("developer","admin"),
   getAcknowledgmentStatusController
 );
 
@@ -92,7 +92,7 @@ router.get(
 router.patch(
   "/:messageId/deactivate",
   requireAuth,
-  requireRole("admin"),
+  requireRole("developer","admin"),
   deactivateMessageController
 );
 

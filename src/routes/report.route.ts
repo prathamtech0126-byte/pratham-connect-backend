@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../middlewares/auth.middleware";
-import { getReportController, getSaleMetricSeriesController, getSaleReportDashboardController } from "../controllers/report.controller";
+import { getReportController, getSaleMetricSeriesController, getSaleReportDashboardController, getPaymentsListController } from "../controllers/report.controller";
 import { getCounsellorReportController } from "../controllers/counsellorReport.controller";
 
 const router = Router();
@@ -25,7 +25,7 @@ const router = Router();
 // - GET /api/reports?filter=yearly&saleTypeId=4
 // - GET /api/reports?filter=custom&startDate=2026-01-01&endDate=2026-01-31&saleTypeId=1
 
-router.get("/", requireAuth, requireRole("admin", "manager"), getReportController);
+router.get("/", requireAuth, requireRole("developer","admin", "manager"), getReportController);
 
 // Sales report dashboard data (cards + categories + charts)
 // - GET /api/reports/sale-dashboard?filter=monthly
@@ -34,7 +34,7 @@ router.get("/", requireAuth, requireRole("admin", "manager"), getReportControlle
 router.get(
   "/sale-dashboard",
   requireAuth,
-  requireRole("admin", "manager"),
+  requireRole("developer","admin", "manager"),
   getSaleReportDashboardController
 );
 
@@ -45,7 +45,7 @@ router.get(
 router.get(
   "/sale-graph-report",
   requireAuth,
-  requireRole("admin", "manager"),
+  requireRole("developer","admin", "manager"),
   getSaleMetricSeriesController
 );
 
@@ -58,6 +58,24 @@ router.get(
 // - GET /api/reports/counsellor/5?filter=monthly
 // - GET /api/reports/counsellor/me?filter=today          (counsellor role only)
 // - GET /api/reports/counsellor/12?filter=custom&startDate=2026-01-01&endDate=2026-01-31
-router.get("/counsellor/:counsellorId", requireAuth, requireRole("admin", "manager", "counsellor"), getCounsellorReportController);
+router.get("/counsellor/:counsellorId", requireAuth, requireRole("developer","admin", "manager", "counsellor"), getCounsellorReportController);
+
+// Payments list report
+// - GET /api/reports/payments-list?filter=today
+// - GET /api/reports/payments-list?filter=yesterday
+// - GET /api/reports/payments-list?filter=today_and_yesterday
+// - GET /api/reports/payments-list?filter=last_7_days
+// - GET /api/reports/payments-list?filter=last_14_days
+// - GET /api/reports/payments-list?filter=last_30_days
+// - GET /api/reports/payments-list?filter=this_week
+// - GET /api/reports/payments-list?filter=last_week
+// - GET /api/reports/payments-list?filter=this_month
+// - GET /api/reports/payments-list?filter=last_month
+// - GET /api/reports/payments-list?filter=maximum
+// - GET /api/reports/payments-list?filter=monthly
+// - GET /api/reports/payments-list?filter=yearly
+// - GET /api/reports/payments-list?filter=custom&startDate=2026-01-01&endDate=2026-01-31
+// - GET /api/reports/payments-list?filter=today&counsellorId=5
+router.get("/payments-list", requireAuth, requireRole("developer"), getPaymentsListController);
 
 export default router;

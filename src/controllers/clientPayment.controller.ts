@@ -121,6 +121,16 @@ export const saveClientPaymentController = async (
           if (!Number.isFinite(targetClientId)) {
             targetClientId = Number(oldPayment.clientId);
           }
+
+          // Non-admin/manager can only edit payments they personally created (handledBy)
+          if (req.user.role !== "admin" && req.user.role !== "manager") {
+            if (Number(oldPayment.handledBy) !== req.user.id) {
+              return res.status(403).json({
+                success: false,
+                message: "You can only edit payments that you created",
+              });
+            }
+          }
         }
       } catch (error) {
         console.error("Error fetching old payment value:", error);
@@ -354,7 +364,7 @@ export const deleteClientPaymentController = async (
     }
 
     const [existingPayment] = await db
-      .select({ clientId: clientPayments.clientId })
+      .select({ clientId: clientPayments.clientId, handledBy: clientPayments.handledBy })
       .from(clientPayments)
       .where(eq(clientPayments.paymentId, paymentId))
       .limit(1);
@@ -376,6 +386,16 @@ export const deleteClientPaymentController = async (
         success: false,
         message: "You do not have permission to delete payment for this client",
       });
+    }
+
+    // Non-admin/manager can only delete payments they personally created (handledBy)
+    if (req.user.role !== "admin" && req.user.role !== "manager") {
+      if (Number(existingPayment.handledBy) !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: "You can only delete payments that you created",
+        });
+      }
     }
 
     // 2. Call service
