@@ -106,6 +106,7 @@ export const saveClientPaymentController = async (
     }
 
     let targetClientId = Number(req.body.clientId);
+    let existingHandledBy: number | null = null;
 
     // Fetch old value if updating
     let oldValue = null;
@@ -120,6 +121,11 @@ export const saveClientPaymentController = async (
           oldValue = normalizePaymentForActivityLog(oldPayment);
           if (!Number.isFinite(targetClientId)) {
             targetClientId = Number(oldPayment.clientId);
+          }
+
+          // Preserve the original handledBy for use below
+          if (Number.isFinite(Number(oldPayment.handledBy)) && Number(oldPayment.handledBy) > 0) {
+            existingHandledBy = Number(oldPayment.handledBy);
           }
 
           // Non-admin/manager can only edit payments they personally created (handledBy)
@@ -156,8 +162,19 @@ export const saveClientPaymentController = async (
       });
     }
 
+    // Admin/developer: use body.handledBy if explicitly provided, else preserve
+    // the existing counsellor's handledBy on edits, else fall back to caller's ID.
+    const isAdminOrDeveloper = req.user.role === "admin" || req.user.role === "developer";
+    const bodyHandledBy = Number(req.body.handledBy);
+    const bodyHandledByValid = Number.isFinite(bodyHandledBy) && bodyHandledBy > 0;
+    const effectiveHandledBy = isAdminOrDeveloper
+      ? bodyHandledByValid
+        ? bodyHandledBy
+        : existingHandledBy ?? req.user.id
+      : req.user.id;
+
     console.log("req.body client payment", req.body);
-    const result = await saveClientPayment(req.body, req.user.id);
+    const result = await saveClientPayment(req.body, effectiveHandledBy);
     const clientId = Number(result.payment.clientId);
 
     // Get counsellorId from clientId

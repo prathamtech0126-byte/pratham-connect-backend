@@ -108,8 +108,12 @@ export interface AdminManagerDashboardStats {
   //   count: number;
   // };
   coreSale: {
-    number: number; // Count
+    number: number; // Count (enrolled in period)
     amount: string; // Sum
+  };
+  /** Clients with a core-stage payment in the period but enrolled BEFORE the period. */
+  coreSalePaymentOnly: {
+    number: number;
   };
   coreProduct: {
     number: number; // Count
@@ -269,13 +273,12 @@ export const getSaleTypeCategoryCounts = async (
       SELECT ci.id AS client_id
       FROM client_information ci
       WHERE ci.archived = false
+        AND ci.date >= $1::date
+        AND ci.date <= $2::date
         AND EXISTS (
           SELECT 1 FROM client_payment cp0
           WHERE cp0.client_id = ci.id
             AND cp0.stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
-            AND cp0.payment_date IS NOT NULL
-            AND cp0.payment_date >= $1::date
-            AND cp0.payment_date <= $2::date
             ${counsellorFilter}
         )
     ),
@@ -289,7 +292,7 @@ export const getSaleTypeCategoryCounts = async (
         cp.id AS payment_id
       FROM client_payment cp
       INNER JOIN clients_in_period cip ON cip.client_id = cp.client_id
-      INNER JOIN sale_type st ON st.id = cp.sale_type_id
+      LEFT JOIN sale_type st ON st.id = cp.sale_type_id
       WHERE cp.stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
     ),
     ranked AS (
@@ -1453,6 +1456,45 @@ export const getCoreSaleAmount = async (
    Used in admin/manager chartData so each period shows payments that
    happened in that period (payment date), not enrollment date.
 ============================== */
+// const getCoreServiceCountByPaymentDate = async (
+//   dateRange: DateRange,
+//   filter?: RoleBasedFilter
+// ): Promise<number> => {
+//   const startDateStr = toLocalDateString(dateRange.start);
+//   const endDateStr = toLocalDateString(dateRange.end);
+//   const startTimestamp = dateRange.start.toISOString();
+//   const endTimestamp = dateRange.end.toISOString();
+
+//   const paymentDateCondition = sql`(
+//     ${clientInformation.archived} = false
+//     AND ${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
+//     AND ${clientPayments.paymentDate} IS NOT NULL
+//     AND ${clientPayments.paymentDate} >= ${startDateStr}
+//     AND ${clientPayments.paymentDate} <= ${endDateStr}
+//   )`;
+
+//   let query = db
+//     .select({
+//       count: sql<number>`COUNT(DISTINCT ${clientPayments.clientId})`,
+//     })
+//     .from(clientPayments)
+//     .innerJoin(
+//       clientInformation,
+//       eq(clientPayments.clientId, clientInformation.clientId)
+//     );
+
+//   if (filter?.userRole === "counsellor" && filter.counsellorId) {
+//     query = query.where(
+//       sql`${paymentDateCondition} AND ${attributedCounsellorByClientPaymentSql} = ${filter.counsellorId}`
+//     ) as any;
+//   } else {
+//     query = query.where(paymentDateCondition) as any;
+//   }
+
+//   const [result] = await query;
+//   return Number(result?.count ?? 0);
+// };
+
 const getCoreServiceCountByPaymentDate = async (
   dateRange: DateRange,
   filter?: RoleBasedFilter
@@ -1489,6 +1531,42 @@ const getCoreServiceCountByPaymentDate = async (
   }
 
   const [result] = await query;
+  return Number(result?.count ?? 0);
+};
+
+/* ==============================
+   CORE SALE PAYMENT COUNT (not enrolled in period)
+   Clients who made a core-stage payment with payment_date in range
+   BUT whose enrollment_date is OUTSIDE the range (existing/old clients paying this period).
+============================== */
+const getCorePaymentCountNotEnrolledInPeriod = async (
+  dateRange: DateRange,
+  filter?: RoleBasedFilter
+): Promise<number> => {
+  const startDateStr = toLocalDateString(dateRange.start);
+  const endDateStr = toLocalDateString(dateRange.end);
+
+  const conditions: any[] = [
+    eq(clientInformation.archived, false),
+    sql`${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')`,
+    sql`${clientPayments.paymentDate} IS NOT NULL`,
+    sql`${clientPayments.paymentDate} >= ${startDateStr}::date`,
+    sql`${clientPayments.paymentDate} <= ${endDateStr}::date`,
+    sql`(${clientInformation.enrollmentDate} < ${startDateStr}::date OR ${clientInformation.enrollmentDate} > ${endDateStr}::date)`,
+  ];
+
+  if (filter?.userRole === "counsellor" && filter.counsellorId) {
+    conditions.push(
+      sql`${attributedCounsellorByClientPaymentSql} = ${filter.counsellorId}`
+    );
+  }
+
+  const [result] = await db
+    .select({ count: sql<number>`COUNT(DISTINCT ${clientPayments.clientId})` })
+    .from(clientPayments)
+    .innerJoin(clientInformation, eq(clientPayments.clientId, clientInformation.clientId))
+    .where(and(...conditions));
+
   return Number(result?.count ?? 0);
 };
 
@@ -2396,11 +2474,12 @@ export const getDashboardStats = async (
   const endTimestamp = summaryDateRange.end.toISOString();
 
   // Use efficient global queries for counts/amounts displayed on cards
-  const [globalCoreSaleCount, globalCoreSaleAmount, globalCoreProduct, globalOtherProduct] = await Promise.all([
-    getCoreServiceCountByPaymentDate(summaryDateRange, roleFilter),
+  const [globalCoreSaleCount, globalCoreSaleAmount, globalCoreProduct, globalOtherProduct, coreSalePaymentOnlyCount] = await Promise.all([
+    getCoreServiceCount(summaryDateRange, roleFilter),
     getCoreSaleAmount(summaryDateRange, roleFilter),
     getCoreProductMetrics(summaryDateRange, roleFilter, filter),
     getOtherProductMetrics(summaryDateRange, roleFilter, filter),
+    getCorePaymentCountNotEnrolledInPeriod(summaryDateRange, roleFilter),
   ]);
 
   const aggregateCards = {
@@ -2421,6 +2500,9 @@ export const getDashboardStats = async (
     coreSale: {
       number: aggregateCards.coreSaleCount,
       amount: aggregateCards.coreSaleAmount.toFixed(2),
+    },
+    coreSalePaymentOnly: {
+      number: coreSalePaymentOnlyCount,
     },
     coreProduct: {
       number: aggregateCards.coreProductCount,

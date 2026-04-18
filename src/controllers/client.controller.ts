@@ -55,7 +55,7 @@ const filterPaymentsByViewer = (
 ): any => {
   if (!data) return data;
 
-  const isAdminOrManager = viewerRole === "admin" || viewerRole === "manager";
+  const isAdminOrManager = viewerRole === "admin" || viewerRole === "manager" || viewerRole === "developer" || viewerRole === "superadmin";
 
   // Admin and manager — full access
   if (!viewerId || isAdminOrManager) {
@@ -406,17 +406,17 @@ export const getAllClientsController = async (req: Request, res: Response) => {
     const userId = req.user.id as number;
     const userPayload = { id: userId, role: userRole };
 
-    const allowedRoles = ["admin", "manager", "counsellor"];
+    const allowedRoles = ["admin", "manager", "counsellor","developer"];
     if (!allowedRoles.includes(userRole)) {
       return res.status(403).json({
         success: false,
-        message: "Only admin, manager, or counsellor can access this endpoint",
+        message: "Only admin, developer, manager, or counsellor can access this endpoint",
       });
     }
 
     let clients: unknown;
 
-    if (userRole === "admin") {
+    if (userRole === "admin" || userRole === "developer") {
       const cacheKey = clientCacheKeys.listAll();
       const cached = await redisGetJson<unknown>(cacheKey);
       if (cached) {
@@ -427,7 +427,7 @@ export const getAllClientsController = async (req: Request, res: Response) => {
       try {
         emitToAdmin("clients:fetched", { clients, timestamp: new Date().toISOString() });
       } catch (wsError) {
-        console.error("WebSocket emit error in getAllClientsController (admin):", wsError);
+        console.error("WebSocket emit error in getAllClientsController (admin/developer):", wsError);
       }
     } else if (userRole === "manager") {
       const [manager] = await db
@@ -763,7 +763,7 @@ export const getArchivedClientsController = async (req: Request, res: Response) 
     const idToUse = useTarget ? targetId : loggedInId;
     const roleToUse = useTarget ? targetRole : loggedInRole;
 
-    const allowedRoles = ["admin", "manager", "counsellor"];
+    const allowedRoles = ["admin", "manager", "counsellor","developer"];
     if (!allowedRoles.includes((loggedInRole || "").toString().toLowerCase())) {
       return res.status(403).json({ success: false, message: "Only admin, manager, or counsellor can access archived clients" });
     }

@@ -29,7 +29,7 @@ router.get(
 router.post(
   "/:financeId/approve",
   requireAuth,
-  requireRole("admin", "manager"),
+  requireRole("admin", "manager", "developer"),
   approveAllFinanceController
 );
 
@@ -41,7 +41,7 @@ router.post(
 router.post(
   "/:financeId/reject",
   requireAuth,
-  requireRole("admin", "manager"),
+  requireRole("admin", "manager", "developer"),
   rejectAllFinanceController
 );
 
@@ -55,7 +55,7 @@ router.post(
 router.get(
   "/history",
   requireAuth,
-  requireRole("admin", "manager"),
+  requireRole("admin", "manager", "developer"),
   getApprovalHistoryController
 );
 
