@@ -29,6 +29,62 @@
       "when": 1775804014140,
       "tag": "0003_massive_nekra",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1776166557415,
+      "tag": "0004_natural_human_cannonball",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1776167714841,
+      "tag": "0005_workable_sharon_carter",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1776170737609,
+      "tag": "0006_lovely_stone_men",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1776321372459,
+      "tag": "0007_colossal_patriot",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1776345430194,
+      "tag": "0008_mysterious_phil_sheldon",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1776405264576,
+      "tag": "0009_violet_captain_britain",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1776413056154,
+      "tag": "0010_many_piledriver",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1776660940607,
+      "tag": "0011_glamorous_texas_twister",
+      "breakpoints": true
     }
   ]
 }

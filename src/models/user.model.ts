@@ -239,7 +239,9 @@ export const getAllUsersWithManagerDetails = async () => {
       or(
         eq(users.role, "admin"),
         eq(users.role, "manager"),
-        eq(users.role, "counsellor")
+        eq(users.role, "counsellor"),
+        eq(users.role, "telecaller"),
+        eq(users.role, "tech_support")
       )
     );
 
@@ -281,7 +283,12 @@ export const getAllUsersWithManagerDetailsExcludeAdmin = async () => {
     .where(
       and(
         ne(users.role, "admin"),
-        or(eq(users.role, "manager"), eq(users.role, "counsellor"))
+        or(
+          eq(users.role, "manager"),
+          eq(users.role, "counsellor"),
+          eq(users.role, "telecaller"),
+          eq(users.role, "tech_support")
+        )
       )
     );
 
@@ -334,7 +341,10 @@ export const getManagerTeamWithManagerDetails = async (managerId: number) => {
     .where(
       or(
         eq(users.id, managerId),
-        and(eq(users.role, "counsellor"), eq(users.managerId, managerId))
+        and(
+          or(eq(users.role, "counsellor"), eq(users.role, "telecaller")),
+          eq(users.managerId, managerId)
+        )
       )
     );
 

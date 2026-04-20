@@ -29,6 +29,7 @@ import { AuthenticatedRequest } from "../types/express-auth";
 import { logActivity } from "../services/activityLog.service";
 import { redisDelByPrefix, redisGetJson, redisSetJson } from "../config/redis";
 import crypto from "crypto";
+import { unassignDevicesForUserLeavingController } from "./deviceInventory.controller";
 
 const USERS_CACHE_TTL_SECONDS = 300; // 5 min
 /* ================================
@@ -633,6 +634,17 @@ export const updateUserController = async (req: Request, res: Response) => {
     }
 
     const updatedUser = await updateUserByAdmin(userId, payload as any);
+
+    // If a user is marked inactive/left company, automatically unassign their devices.
+    // This keeps device "current + last 4 past users" history consistent.
+    if (payload.status === false && oldValue?.status === true) {
+      try {
+        await unassignDevicesForUserLeavingController(userId);
+      } catch (e) {
+        // Don't fail the user update request if device unassignment has an issue.
+        console.error("Failed to unassign devices for leaving user:", e);
+      }
+    }
 
     // Log activity
     try {
