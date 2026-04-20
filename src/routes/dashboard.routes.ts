@@ -17,7 +17,7 @@ const router = Router();
 router.get(
   "/stats",
   requireAuth,
-  requireRole("admin", "manager", "counsellor"),
+  requireRole("developer","admin", "manager", "counsellor"),
   getDashboardStatsController
 );
 

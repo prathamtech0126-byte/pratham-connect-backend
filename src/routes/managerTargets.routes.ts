@@ -19,7 +19,7 @@ const router = Router();
 router.get(
   "/",
   requireAuth,
-  requireRole("admin", "manager"),
+  requireRole("developer","admin", "manager"),
   listManagerTargetsController
 );
 
@@ -31,7 +31,7 @@ router.get(
 router.get(
   "/:id",
   requireAuth,
-  requireRole("admin", "manager"),
+  requireRole("developer","admin", "manager"),
   getManagerTargetByIdController
 );
 
@@ -44,7 +44,7 @@ router.get(
 router.post(
   "/",
   requireAuth,
-  requireRole("admin"),
+  requireRole("developer","admin"),
   preventDuplicateRequests,
   createManagerTargetController
 );
@@ -57,7 +57,7 @@ router.post(
 router.put(
   "/:id",
   requireAuth,
-  requireRole("admin"),
+  requireRole("developer","admin"),
   preventDuplicateRequests,
   updateManagerTargetController
 );
@@ -70,7 +70,7 @@ router.put(
 router.delete(
   "/:id",
   requireAuth,
-  requireRole("admin"),
+  requireRole("developer","admin"),
   deleteManagerTargetController
 );
 

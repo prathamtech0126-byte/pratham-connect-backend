@@ -84,6 +84,8 @@
       "version": "7",
       "when": 1776660940607,
       "tag": "0011_glamorous_texas_twister",
+      "when": 1776060402705,
+      "tag": "0004_hot_champions",
       "breakpoints": true
     }
   ]

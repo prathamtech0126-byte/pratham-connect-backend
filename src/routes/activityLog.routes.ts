@@ -22,7 +22,7 @@ const router = Router();
 router.get(
   "/",
   requireAuth,
-  requireRole("admin", "manager", "counsellor"),
+  requireRole("admin", "manager", "counsellor","developer"),
   getActivityLogsController
 );
 

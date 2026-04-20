@@ -227,7 +227,14 @@ export const saveClientPayment = async (
   }
 };
 
-export const getPaymentsByClientId = async (clientId: number) => {
+export const getPaymentsByClientId = async (
+  clientId: number,
+  options?: { handledBy?: number }
+) => {
+  const conditions = options?.handledBy != null
+    ? and(eq(clientPayments.clientId, clientId), eq(clientPayments.handledBy, options.handledBy))
+    : eq(clientPayments.clientId, clientId);
+
   const payments = await db
     .select({
       paymentId: clientPayments.paymentId,
@@ -246,7 +253,7 @@ export const getPaymentsByClientId = async (clientId: number) => {
     })
     .from(clientPayments)
     .leftJoin(saleTypes, eq(clientPayments.saleTypeId, saleTypes.saleTypeId))
-    .where(eq(clientPayments.clientId, clientId))
+    .where(conditions)
     .orderBy(desc(clientPayments.paymentDate));
 
   // Transform to include saleType object instead of saleTypeId

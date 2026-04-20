@@ -106,6 +106,7 @@ export const saveClientPaymentController = async (
     }
 
     let targetClientId = Number(req.body.clientId);
+    let existingHandledBy: number | null = null;
 
     // Fetch old value if updating
     let oldValue = null;
@@ -120,6 +121,21 @@ export const saveClientPaymentController = async (
           oldValue = normalizePaymentForActivityLog(oldPayment);
           if (!Number.isFinite(targetClientId)) {
             targetClientId = Number(oldPayment.clientId);
+          }
+
+          // Preserve the original handledBy for use below
+          if (Number.isFinite(Number(oldPayment.handledBy)) && Number(oldPayment.handledBy) > 0) {
+            existingHandledBy = Number(oldPayment.handledBy);
+          }
+
+          // Non-admin/manager can only edit payments they personally created (handledBy)
+          if (req.user.role !== "admin" && req.user.role !== "manager") {
+            if (Number(oldPayment.handledBy) !== req.user.id) {
+              return res.status(403).json({
+                success: false,
+                message: "You can only edit payments that you created",
+              });
+            }
           }
         }
       } catch (error) {
@@ -146,8 +162,19 @@ export const saveClientPaymentController = async (
       });
     }
 
+    // Admin/developer: use body.handledBy if explicitly provided, else preserve
+    // the existing counsellor's handledBy on edits, else fall back to caller's ID.
+    const isAdminOrDeveloper = req.user.role === "admin" || req.user.role === "developer";
+    const bodyHandledBy = Number(req.body.handledBy);
+    const bodyHandledByValid = Number.isFinite(bodyHandledBy) && bodyHandledBy > 0;
+    const effectiveHandledBy = isAdminOrDeveloper
+      ? bodyHandledByValid
+        ? bodyHandledBy
+        : existingHandledBy ?? req.user.id
+      : req.user.id;
+
     console.log("req.body client payment", req.body);
-    const result = await saveClientPayment(req.body, req.user.id);
+    const result = await saveClientPayment(req.body, effectiveHandledBy);
     const clientId = Number(result.payment.clientId);
 
     // Get counsellorId from clientId
@@ -354,7 +381,7 @@ export const deleteClientPaymentController = async (
     }
 
     const [existingPayment] = await db
-      .select({ clientId: clientPayments.clientId })
+      .select({ clientId: clientPayments.clientId, handledBy: clientPayments.handledBy })
       .from(clientPayments)
       .where(eq(clientPayments.paymentId, paymentId))
       .limit(1);
@@ -376,6 +403,16 @@ export const deleteClientPaymentController = async (
         success: false,
         message: "You do not have permission to delete payment for this client",
       });
+    }
+
+    // Non-admin/manager can only delete payments they personally created (handledBy)
+    if (req.user.role !== "admin" && req.user.role !== "manager") {
+      if (Number(existingPayment.handledBy) !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: "You can only delete payments that you created",
+        });
+      }
     }
 
     // 2. Call service

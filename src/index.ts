@@ -20,7 +20,6 @@ import googleSheetRoutes from "./routes/googleSheet.routes";
 import allFinanceRoutes from "./routes/allFinance.routes";
 import teamListRoutes from "./routes/teamList.routes"; // ✅ ADD THIS LINE
 import checklistRoutes from "./routes/checklist.routes";
-import techSupportRoutes from "./routes/techSupport.routes";
 import { healthController } from "./controllers/health.controller";
 import { requireCsrf } from "./middlewares/csrf.middleware";
 
@@ -133,7 +132,6 @@ app.use("/api/google-sheets", googleSheetRoutes);
 app.use("/api/all-finance", allFinanceRoutes);
 app.use("/api/team", teamListRoutes); // ✅ ADD THIS LINE
 app.use("/api/v1", checklistRoutes);
-app.use("/api/tech-support", techSupportRoutes);
 
 // 404
 app.use((_req, res) => {

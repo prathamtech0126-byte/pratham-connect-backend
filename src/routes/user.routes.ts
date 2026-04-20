@@ -43,26 +43,26 @@ router.get("/me", requireAuth, getCurrentUser);
 router.put("/change-password", requireAuth, preventDuplicateRequests, changePasswordController);
 
 // 🔐 ADMIN ONLY: Get all users
-router.post("/register",requireAuth,requireRole("admin"), preventDuplicateRequests, registerUser);
-router.get("/users",requireAuth,requireRole("admin"),getAllUsersController);
+router.post("/register",requireAuth,requireRole("developer","admin"), preventDuplicateRequests, registerUser);
+router.get("/users",requireAuth,requireRole("developer","admin"),getAllUsersController);
 /** All user details (admin and manager only; counsellor cannot access). */
-router.get("/users/details", requireAuth, requireRole("admin", "manager"), getAllUserDetailsController);
-router.put("/users-update/:userId",requireAuth,requireRole("admin"), preventDuplicateRequests, updateUserController);
-router.delete("/users-delete/:userId",requireAuth,requireRole("admin"), preventDuplicateRequests, deleteUserController);
+router.get("/users/details", requireAuth, requireRole("developer","admin", "manager"), getAllUserDetailsController);
+router.put("/users-update/:userId",requireAuth,requireRole("developer","admin"), preventDuplicateRequests, updateUserController);
+router.delete("/users-delete/:userId",requireAuth,requireRole("developer","admin"), preventDuplicateRequests, deleteUserController);
 /**
  * Managers dropdown (admin only)
  */
-router.get("/managers",requireAuth, requireRole("admin"),getManagersDropdown);
+router.get("/managers",requireAuth, requireRole("developer","admin"),getManagersDropdown);
 /** Counsellors list (admin: all; counsellor: self only). */
-router.get("/counsellors", requireAuth, requireRole("admin", "counsellor"), getAllCounsellorsAdminController);
+router.get("/counsellors", requireAuth, requireRole("developer","admin", "counsellor"), getAllCounsellorsAdminController);
 /**
  * Get counsellors by manager ID (admin only)
  */
-router.get("/managers/:managerId/counsellors",requireAuth, requireRole("admin"),getCounsellorsByManagerController);
+router.get("/managers/:managerId/counsellors",requireAuth, requireRole("developer","admin"),getCounsellorsByManagerController);
 /**
  * Get all managers with their counsellors (hierarchical view) (admin only)
  */
-router.get("/managers-with-counsellors",requireAuth, requireRole("admin"),getManagersWithCounsellorsController);
+router.get("/managers-with-counsellors",requireAuth, requireRole("developer","admin"),getManagersWithCounsellorsController);
 
 
 // health check alias under /api/users

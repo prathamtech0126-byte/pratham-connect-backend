@@ -12,7 +12,7 @@ const router = Router();
 /**
  * Create payment (Admin / Counsellor)
  */
-router.post("/", requireAuth, requireRole("admin", "counsellor","manager"), preventDuplicateRequests, saveClientPaymentController);
+router.post("/", requireAuth, requireRole("developer","admin", "counsellor","manager"), preventDuplicateRequests, saveClientPaymentController);
 
 /**
  * Get payments by client
@@ -26,6 +26,6 @@ router.get(
 /**
  * Delete payment
  */
-router.delete("/:paymentId", requireAuth, requireRole("admin", "manager"), deleteClientPaymentController);
+router.delete("/:paymentId", requireAuth, requireRole("developer","admin", "manager"), deleteClientPaymentController);
 
 export default router;
