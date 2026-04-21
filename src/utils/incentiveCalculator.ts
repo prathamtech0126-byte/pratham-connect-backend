@@ -2,6 +2,7 @@ import type { RangeRuleItem, CategoryRuleItem } from "../models/incentiveRules.m
 
 // Returns the incentiveAmount for the first slab where minCount <= count <= maxCount.
 // maxCount === -1 is treated as Infinity.
+// Assumes rules are in ascending order with non-overlapping ranges.
 export function findSlab(count: number, rules: RangeRuleItem[]): number {
   for (const rule of rules) {
     const max = rule.maxCount === -1 ? Infinity : rule.maxCount;
@@ -24,6 +25,7 @@ export function getSpouseIncentive(
 // coreVisitorRules labels encode numeric minimum thresholds (e.g. "50000", "1,00,000+").
 // Rules must be ordered by sort_order ASC (lowest threshold first).
 // Returns the highest tier's incentiveAmount where counsellorTotalAmount >= threshold.
+// Rules with non-numeric labels are silently skipped (isNaN check).
 export function getVisitorIncentive(
   counsellorTotalAmount: number,
   coreVisitorRules: CategoryRuleItem[]
