@@ -60,6 +60,7 @@ export async function getCounsellorStats(
       INNER JOIN sale_type st            ON st.id          = cp.sale_type_id
       INNER JOIN sale_type_category stc  ON stc.id         = st.category_id
       WHERE ci.date BETWEEN ${startDate}::date AND ${endDate}::date
+        AND ci.archived = false
         AND stc.name IN ('Spouse', 'Visitor', 'Student')
     ),
     client_stages AS (
@@ -101,14 +102,15 @@ export async function getCounsellorStats(
       FROM client_product_payment cpp
       INNER JOIN client_information ci ON ci.id = cpp.client_id
       WHERE ci.date BETWEEN ${startDate}::date AND ${endDate}::date
+        AND ci.archived = false
       GROUP BY ci.counsellor_id
     )
     SELECT
       cr.counsellor_id::bigint,
-      COALESCE(SUM(cr.received_amount), 0)::text                                  AS total_received_amount,
+      COALESCE(SUM(CASE WHEN cr.sale_type_category = 'Visitor' THEN cr.received_amount ELSE 0 END), 0)::text AS total_received_amount,
       COUNT(CASE WHEN cr.sale_type_category = 'Student' THEN 1 END)::int          AS student_count,
-      COALESCE(MAX(pc.canada_student_count), 0)                                   AS canada_student_count,
-      COALESCE(MAX(pc.all_finance_count),    0)                                   AS all_finance_count
+      COALESCE(MIN(pc.canada_student_count), 0)                                   AS canada_student_count,
+      COALESCE(MIN(pc.all_finance_count),    0)                                   AS all_finance_count
     FROM client_received cr
     LEFT JOIN product_counts pc ON pc.counsellor_id = cr.counsellor_id
     GROUP BY cr.counsellor_id
@@ -141,6 +143,7 @@ export async function getCompanyWideSpouseCount(
     INNER JOIN sale_type st            ON st.id          = cp.sale_type_id
     INNER JOIN sale_type_category stc  ON stc.id         = st.category_id
     WHERE ci.date BETWEEN ${startDate}::date AND ${endDate}::date
+      AND ci.archived = false
       AND stc.name = 'Spouse'
   `);
   return Number(result.rows[0]?.spouse_count) || 0;
@@ -180,8 +183,15 @@ export async function getPaginatedClients(
       INNER JOIN sale_type st         ON st.id          = cp.sale_type_id
       INNER JOIN sale_type_category stc ON stc.id       = st.category_id
       WHERE ci.date BETWEEN ${startDate}::date AND ${endDate}::date
+        AND ci.archived = false
         AND stc.name IN ('Spouse', 'Visitor', 'Student')
-      ORDER BY ci.id
+      ORDER BY ci.id,
+        CASE stc.name
+          WHEN 'Student' THEN 1
+          WHEN 'Spouse'  THEN 2
+          WHEN 'Visitor' THEN 3
+          ELSE 4
+        END
     ) deduped
     ORDER BY enrollment_date DESC
     LIMIT ${pageSize} OFFSET ${offset}
@@ -210,6 +220,7 @@ export async function getTotalClientCount(
     INNER JOIN sale_type st            ON st.id          = cp.sale_type_id
     INNER JOIN sale_type_category stc  ON stc.id         = st.category_id
     WHERE ci.date BETWEEN ${startDate}::date AND ${endDate}::date
+      AND ci.archived = false
       AND stc.name IN ('Spouse', 'Visitor', 'Student')
   `);
   return Number(result.rows[0]?.total) || 0;
