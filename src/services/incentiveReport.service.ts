@@ -15,6 +15,8 @@ import {
   getCanadaStudentBonus,
   getFinanceBonus,
 } from "../utils/incentiveCalculator";
+import { redisGetJson, redisSetJson } from "../config/redis";
+import type { IncentiveRulesPayload } from "../models/incentiveRules.model";
 
 export interface ReportParams {
   page: number;
@@ -45,6 +47,8 @@ export interface ReportResponse {
   };
 }
 
+// Mirror of the receivedAmount rule in getCounsellorStats CTE (client_received).
+// If the rule changes, update both.
 function computeReceivedAmount(stage: PaymentStage | undefined): number {
   if (!stage) return 0;
   if (stage.hasBeforeVisa) return stage.beforeVisaAmount;
@@ -62,6 +66,14 @@ function emptyStat(counsellorId: number): CounsellorStat {
   };
 }
 
+async function getCachedRules(): Promise<IncentiveRulesPayload> {
+  const cached = await redisGetJson<IncentiveRulesPayload>("incentive-rules:all");
+  if (cached) return cached;
+  const fresh = await getRules();
+  await redisSetJson("incentive-rules:all", fresh, 600);
+  return fresh;
+}
+
 export async function getIncentiveReport(
   params: ReportParams
 ): Promise<ReportResponse> {
@@ -70,7 +82,7 @@ export async function getIncentiveReport(
 
   // Run rules fetch + counsellor stats + spouse count + total count in parallel.
   const [rules, counsellorStats, spouseCount, totalRecords] = await Promise.all([
-    getRules(),
+    getCachedRules(),
     getCounsellorStats(startDate, endDate),
     getCompanyWideSpouseCount(startDate, endDate),
     getTotalClientCount(startDate, endDate),
@@ -82,23 +94,29 @@ export async function getIncentiveReport(
   const paymentStages = await getClientPaymentStages(clientIds);
 
   const data: ReportItem[] = clients.map((client) => {
-    const stat = counsellorStats.get(client.counsellorId) ?? emptyStat(client.counsellorId);
+    const stat = counsellorStats.get(client.counsellorId);
+    if (!stat) {
+      console.warn(
+        `[incentiveReport] counsellor ${client.counsellorId} missing from stats map for client ${client.clientId}`
+      );
+    }
+    const resolvedStat = stat ?? emptyStat(client.counsellorId);
     const receivedAmount = computeReceivedAmount(paymentStages.get(client.clientId));
 
-    const financeBonus = getFinanceBonus(stat.allFinanceCount, rules.allFinanceRules);
+    const financeBonus = getFinanceBonus(resolvedStat.allFinanceCount, rules.allFinanceRules);
 
     let incentiveAmount = financeBonus;
     if (client.saleType === "Spouse") {
       incentiveAmount += getSpouseIncentive(spouseCount, rules.coreSpouseRules);
     } else if (client.saleType === "Visitor") {
       incentiveAmount += getVisitorIncentive(
-        stat.totalReceivedAmount,
+        resolvedStat.totalReceivedAmount,
         rules.coreVisitorRules
       );
     } else if (client.saleType === "Student") {
       incentiveAmount +=
-        getStudentIncentive(stat.studentCount, rules.studentRules) +
-        getCanadaStudentBonus(stat.canadaStudentCount, rules.canadaStudentRules);
+        getStudentIncentive(resolvedStat.studentCount, rules.studentRules) +
+        getCanadaStudentBonus(resolvedStat.canadaStudentCount, rules.canadaStudentRules);
     }
 
     return {
