@@ -109,8 +109,8 @@ export async function getCounsellorStats(
       cr.counsellor_id::bigint,
       COALESCE(SUM(CASE WHEN cr.sale_type_category = 'Visitor' THEN cr.received_amount ELSE 0 END), 0)::text AS total_received_amount,
       COUNT(CASE WHEN cr.sale_type_category = 'Student' THEN 1 END)::int          AS student_count,
-      COALESCE(MIN(pc.canada_student_count), 0)                                   AS canada_student_count,
-      COALESCE(MIN(pc.all_finance_count),    0)                                   AS all_finance_count
+      COALESCE(MAX(pc.canada_student_count), 0)                                   AS canada_student_count,
+      COALESCE(MAX(pc.all_finance_count),    0)                                   AS all_finance_count
     FROM client_received cr
     LEFT JOIN product_counts pc ON pc.counsellor_id = cr.counsellor_id
     GROUP BY cr.counsellor_id
@@ -173,7 +173,7 @@ export async function getPaginatedClients(
       SELECT DISTINCT ON (ci.id)
         ci.id           AS client_id,
         ci.fullname     AS client_name,
-        ci.date         AS enrollment_date,
+        ci.date::text   AS enrollment_date,
         ci.counsellor_id,
         u.full_name     AS counsellor,
         stc.name        AS sale_type
