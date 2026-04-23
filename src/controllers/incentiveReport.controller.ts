@@ -6,7 +6,8 @@ export const getIncentiveReportController = async (
   res: Response
 ) => {
   try {
-    const { startDate, endDate } = req.query as Record<string, string>;
+    const startDate = typeof req.query.startDate === "string" ? req.query.startDate : undefined;
+    const endDate   = typeof req.query.endDate   === "string" ? req.query.endDate   : undefined;
 
     if (!startDate || !endDate) {
       return res.status(400).json({
@@ -31,12 +32,13 @@ export const getIncentiveReportController = async (
     }
 
     const page     = Math.max(1, parseInt(String(req.query.page     ?? "1"),  10) || 1);
-    const pageSize = Math.max(1, parseInt(String(req.query.pageSize ?? "10"), 10) || 10);
+    const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize ?? "10"), 10) || 10));
 
     const report = await getIncentiveReport({ page, pageSize, startDate, endDate });
 
     return res.status(200).json({ success: true, ...report });
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    console.error("getIncentiveReportController", error);
+    return res.status(500).json({ success: false, message: "Failed to load incentive report" });
   }
 };
