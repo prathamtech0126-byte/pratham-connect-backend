@@ -1,9 +1,11 @@
 import { Router } from "express";
 import { getIncentiveReportController } from "../controllers/incentiveReport.controller";
-import { requireAuth } from "../middlewares/auth.middleware";
+import { requireAuth, requireRole } from "../middlewares/auth.middleware";
 
 const router = Router();
 
-router.get("/report", requireAuth, getIncentiveReportController);
+const canView = requireRole("admin", "superadmin", "manager", "developer");
+
+router.get("/report", requireAuth, canView, getIncentiveReportController);
 
 export default router;
