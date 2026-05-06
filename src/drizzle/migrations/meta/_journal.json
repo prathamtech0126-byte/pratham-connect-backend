@@ -29,6 +29,20 @@
       "when": 1775804014140,
       "tag": "0003_massive_nekra",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1775894219411,
+      "tag": "0004_misty_marrow",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1776059109171,
+      "tag": "0005_peaceful_tarantula",
+      "breakpoints": true
     }
   ]
 }

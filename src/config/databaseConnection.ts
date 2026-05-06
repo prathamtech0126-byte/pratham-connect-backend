@@ -136,6 +136,4 @@ export const checkDbConnection = async () => {
     console.error("❌ Database connection error:", error.message);
     throw error;
   }
-};
-
-export default pool;
+}; export default pool;

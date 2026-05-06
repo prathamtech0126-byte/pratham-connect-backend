@@ -166,6 +166,7 @@ import messageRoutes from "./routes/message.routes";
 import googleSheetRoutes from "./routes/googleSheet.routes";
 import allFinanceRoutes from "./routes/allFinance.routes";
 import teamListRoutes from "./routes/teamList.routes"; // ✅ ADD THIS LINE
+import roleModuleRoutes from "./role/role.routes";
 import checklistRoutes from "./routes/checklist.routes";
 import { healthController } from "./controllers/health.controller";
 import { requireCsrf } from "./middlewares/csrf.middleware";
@@ -276,6 +277,7 @@ app.use("/api/messages", messageRoutes);
 app.use("/api/google-sheets", googleSheetRoutes);
 app.use("/api/all-finance", allFinanceRoutes);
 app.use("/api/team", teamListRoutes); // ✅ ADD THIS LINE
+app.use("/api/role", roleModuleRoutes);
 app.use("/api/v1", checklistRoutes);
 
 // 404
