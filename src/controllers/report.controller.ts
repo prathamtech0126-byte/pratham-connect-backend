@@ -14,14 +14,14 @@ export const getReportController = async (req: Request, res: Response) => {
     }
     const userId = req.user.id as number;
     const userRole = req.user.role as ReportUserRole;
-    if (!["admin", "manager"].includes(userRole)) {
+    if (!["admin", "manager", "developer"].includes(userRole)) {
       return res.status(403).json({ message: "Forbidden" });
     }
 
     const rawFilter = (req.query.filter as string) || "monthly";
     const filter = rawFilter.toLowerCase() as DashboardFilter;
-    if (!["today", "weekly", "monthly", "yearly", "custom"].includes(filter)) {
-      return res.status(400).json({ message: "Invalid filter; use today, weekly, monthly, yearly, or custom." });
+    if (!["today", "weekly", "monthly", "yearly", "custom", "maximum"].includes(filter)) {
+      return res.status(400).json({ message: "Invalid filter; use today, weekly, monthly, yearly, custom, or maximum." });
     }
     // Custom range: accept beforeDate/afterDate (dashboard convention) or startDate/endDate (intuitive)
     let beforeDate = req.query.beforeDate as string | undefined;
@@ -54,6 +54,13 @@ export const getReportController = async (req: Request, res: Response) => {
 
     const options: ReportScopeOptions = {};
     if (userRole === "admin" && managerIdParam != null) {
+      const managerId = parseInt(managerIdParam, 10);
+      if (Number.isNaN(managerId)) {
+        return res.status(400).json({ message: "Invalid managerId" });
+      }
+      options.managerId = managerId;
+    }
+    if (userRole === "developer" && managerIdParam != null) {
       const managerId = parseInt(managerIdParam, 10);
       if (Number.isNaN(managerId)) {
         return res.status(400).json({ message: "Invalid managerId" });
@@ -105,15 +112,15 @@ export const getSaleReportDashboardController = async (req: Request, res: Respon
 
     const userId = req.user.id as number;
     const userRole = req.user.role as ReportUserRole;
-    if (!["admin", "manager"].includes(userRole)) {
+    if (!["admin", "manager", "developer"].includes(userRole)) {
       return res.status(403).json({ message: "Forbidden" });
     }
 
     const rawFilter = (req.query.filter as string) || "monthly";
     const filter = rawFilter.toLowerCase() as SaleReportFilter;
-    if (!["today", "weekly", "monthly", "yearly", "custom"].includes(filter)) {
+    if (!["today", "weekly", "monthly", "yearly", "custom", "maximum"].includes(filter)) {
       return res.status(400).json({
-        message: "Invalid filter; use today, weekly, monthly, yearly, or custom.",
+        message: "Invalid filter; use today, weekly, monthly, yearly, custom, or maximum.",
       });
     }
 
@@ -150,6 +157,11 @@ export const getSaleReportDashboardController = async (req: Request, res: Respon
       if (Number.isNaN(counsellorId)) return res.status(400).json({ message: "Invalid counsellorId" });
       options.counsellorId = counsellorId;
     }
+     if (userRole === "developer" && counsellorIdParam != null) {
+      const counsellorId = parseInt(counsellorIdParam, 10);
+      if (Number.isNaN(counsellorId)) return res.status(400).json({ message: "Invalid counsellorId" });
+      options.counsellorId = counsellorId;
+    }
 
     const data = await getSaleReportDashboardData(
       userId,
@@ -178,12 +190,12 @@ export const getSaleMetricSeriesController = async (req: Request, res: Response)
       return res.status(403).json({ message: "Forbidden" });
     }
 
-    // Accept filter from query params (today, weekly, monthly, yearly, custom)
+    // Accept filter from query params (today, weekly, monthly, yearly, custom, maximum)
     const rawFilter = (req.query.filter as string) || "monthly";
     const filter = rawFilter.toLowerCase() as SaleReportFilter;
-    if (!["today", "weekly", "monthly", "yearly", "custom"].includes(filter)) {
+    if (!["today", "weekly", "monthly", "yearly", "custom", "maximum"].includes(filter)) {
       return res.status(400).json({
-        message: "Invalid filter; use today, weekly, monthly, yearly, or custom.",
+        message: "Invalid filter; use today, weekly, monthly, yearly, custom, or maximum.",
       });
     }
 

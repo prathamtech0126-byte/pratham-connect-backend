@@ -34,12 +34,11 @@ export const getPendingApprovalsController = async (
       });
     }
 
-    // Check if user is admin or manager
     const userRole = req.user.role;
-    if (userRole !== "admin" && userRole !== "manager") {
+    if (userRole !== "admin" && userRole !== "manager" && userRole !== "developer") {
       return res.status(403).json({
         success: false,
-        message: "Only admins and managers can view pending approvals",
+        message: "Only admins, managers, and developers can view pending approvals",
       });
     }
 

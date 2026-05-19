@@ -21,7 +21,7 @@ import { saleTypes } from "../schemas/saleType.schema";
 import { saleTypeCategories } from "../schemas/saleTypeCategory.schema";
 import { and, eq, inArray, sql, or, isNull } from "drizzle-orm";
 
-export type SaleReportFilter = "today" | "weekly" | "monthly" | "yearly" | "custom";
+export type SaleReportFilter = "today" | "weekly" | "monthly" | "yearly" | "custom" | "maximum";
 
 export type SaleMetric =
   | "client"
@@ -143,6 +143,8 @@ const getSaleReportDateRange = (
         start: startOfDay(new Date(beforeDate)),
         end: endOfDay(new Date(afterDate)),
       };
+    case "maximum":
+      return { start: new Date(2000, 0, 1, 0, 0, 0, 0), end: endOfDay(now) };
     default:
       return { start: startOfMonth(now), end: endOfMonth(now) };
   }
@@ -197,7 +199,7 @@ const getComparisonRanges = (
     return { current, previous, previous2 };
   }
 
-  // custom: previous windows of equal duration
+  // custom / maximum: previous windows of equal duration
   const durationMs = dateRange.end.getTime() - dateRange.start.getTime();
   const previousEnd = new Date(dateRange.start.getTime() - 1);
   const previousStart = new Date(previousEnd.getTime() - durationMs);
@@ -214,7 +216,7 @@ const formatRangeLabel = (range: ReportDateRange, filter: SaleReportFilter): str
   if (filter === "monthly") {
     return range.start.toLocaleString("en-US", { month: "short" });
   }
-  if (filter === "yearly") {
+  if (filter === "yearly" || filter === "maximum") {
     return String(range.start.getFullYear());
   }
   // for today/weekly/custom: show date window
@@ -252,6 +254,21 @@ const getChartPeriods = (
       periods.push({
         name: s.toLocaleString("en-US", { month: "short" }),
         range: { start: startOfMonth(s), end: endOfMonth(s) },
+      });
+    }
+    return periods;
+  }
+
+  if (filter === "maximum") {
+    const periods: Array<{ name: string; range: ReportDateRange }> = [];
+    const startYear = dateRange.start.getFullYear();
+    const endYear = dateRange.end.getFullYear();
+    for (let y = startYear; y <= endYear; y++) {
+      const s = new Date(y, 0, 1);
+      const e = new Date(y, 11, 31);
+      periods.push({
+        name: String(y),
+        range: { start: startOfDay(s), end: endOfDay(e) },
       });
     }
     return periods;

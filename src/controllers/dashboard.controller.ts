@@ -30,7 +30,7 @@ export const getDashboardStatsController = async (
 
     const filterParam = (req.query.filter as string) || "today";
 
-    const validFilters: DashboardFilter[] = ["today", "weekly", "monthly", "yearly", "custom"];
+    const validFilters: DashboardFilter[] = ["today", "weekly", "monthly", "yearly", "custom", "maximum"];
     if (!validFilters.includes(filterParam as DashboardFilter)) {
       return res.status(400).json({
         success: false,
@@ -41,7 +41,7 @@ export const getDashboardStatsController = async (
     const filter = filterParam as DashboardFilter;
 
     // Counsellor dashboard supports only today/weekly/monthly.
-    if (userRole === "counsellor" && (filter === "yearly" || filter === "custom")) {
+    if (userRole === "counsellor" && (filter === "yearly" || filter === "custom" || filter === "maximum")) {
       return res.status(400).json({
         success: false,
         message: "Counsellor dashboard supports only today, weekly, and monthly filters.",
@@ -74,12 +74,13 @@ export const getDashboardStatsController = async (
       }
     }
 
-    const filterToRangeMap: Record<DashboardFilter, "today" | "week" | "month" | "year" | "custom"> = {
+    const filterToRangeMap: Record<DashboardFilter, "today" | "week" | "month" | "year" | "custom" | "maximum"> = {
       today: "week",
       weekly: "week",
       monthly: "month",
       yearly: "year",
       custom: "custom",
+      maximum: "maximum",
     };
     const range = filterToRangeMap[filter];
 

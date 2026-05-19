@@ -1,0 +1,3371 @@
+{
+  "exportedAt": "2026-05-09T13:06:31.446Z",
+  "incentive_slab_rules": [],
+  "incentive_category_rules": [],
+  "other_products": [
+    {
+      "id": 1,
+      "product_id": "allFinanceEmployement",
+      "name": "All Finance & Employment",
+      "category": "Finance",
+      "product_name": "ALL_FINANCE_EMPLOYEMENT",
+      "form_type": "financialEntry",
+      "description": "Core finance and employment package",
+      "is_active": true,
+      "display_order": 101,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 2,
+      "product_id": "indianSideEmployement",
+      "name": "Indian Side Employment",
+      "category": "Finance",
+      "product_name": "INDIAN_SIDE_EMPLOYEMENT",
+      "form_type": "masterOnly",
+      "description": "Employment arrangement on Indian side",
+      "is_active": true,
+      "display_order": 90,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 3,
+      "product_id": "nocLevelJobArrangement",
+      "name": "NOC Level Job Arrangement",
+      "category": "Finance",
+      "product_name": "NOC_LEVEL_JOB_ARRANGEMENT",
+      "form_type": "masterOnly",
+      "description": "National Occupational Classification job arrangement",
+      "is_active": true,
+      "display_order": 89,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 4,
+      "product_id": "onshorePartTimeEmployement",
+      "name": "Onshore Part-Time Employment",
+      "category": "Finance",
+      "product_name": "ONSHORE_PART_TIME_EMPLOYEMENT",
+      "form_type": "masterOnly",
+      "description": "Part-time employment while onshore",
+      "is_active": true,
+      "display_order": 88,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 5,
+      "product_id": "financeEmployement",
+      "name": "Finance Employment",
+      "category": "Finance",
+      "product_name": "FINANCE_EMPLOYEMENT",
+      "form_type": "masterOnly",
+      "description": "Finance and employment service",
+      "is_active": true,
+      "display_order": 87,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 6,
+      "product_id": "employmentVerificationCharges",
+      "name": "Employment Verification Charges",
+      "category": "Finance",
+      "product_name": "EMPLOYMENT_VERIFICATION_CHARGES",
+      "form_type": "masterOnly",
+      "description": "Charges for employment verification",
+      "is_active": true,
+      "display_order": 86,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 7,
+      "product_id": "loanDetails",
+      "name": "Loan Details",
+      "category": "Finance",
+      "product_name": "LOAN_DETAILS",
+      "form_type": "loan",
+      "description": "Loan arrangement details",
+      "is_active": true,
+      "display_order": 80,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 8,
+      "product_id": "creditCard",
+      "name": "Credit Card",
+      "category": "Finance",
+      "product_name": "CREDIT_CARD",
+      "form_type": "creditCard",
+      "description": "Credit card product",
+      "is_active": true,
+      "display_order": 79,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 9,
+      "product_id": "canadaFund",
+      "name": "Canada Fund",
+      "category": "Finance",
+      "product_name": "CANADA_FUND",
+      "form_type": "masterOnly",
+      "description": "Canada immigration fund",
+      "is_active": true,
+      "display_order": 78,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 10,
+      "product_id": "forexCard",
+      "name": "Forex Card",
+      "category": "Finance",
+      "product_name": "FOREX_CARD",
+      "form_type": "forexCard",
+      "description": "Foreign exchange card",
+      "is_active": true,
+      "display_order": 77,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 11,
+      "product_id": "forexFees",
+      "name": "Forex Fees",
+      "category": "Finance",
+      "product_name": "FOREX_FEES",
+      "form_type": "forexFees",
+      "description": "Foreign exchange fees",
+      "is_active": true,
+      "display_order": 76,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 12,
+      "product_id": "additionalAmountStatementCharges",
+      "name": "Additional Amount Statement Charges",
+      "category": "Finance",
+      "product_name": "ADDITIONAL_AMOUNT_STATEMENT_CHARGES",
+      "form_type": "masterOnly",
+      "description": "Charges for additional amount statement",
+      "is_active": true,
+      "display_order": 75,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 13,
+      "product_id": "ieltsEnrollment",
+      "name": "IELTS Enrollment",
+      "category": "Student",
+      "product_name": "IELTS_ENROLLMENT",
+      "form_type": "ieltsEnrollment",
+      "description": "IELTS exam enrollment",
+      "is_active": true,
+      "display_order": 70,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 14,
+      "product_id": "tutionFees",
+      "name": "Tuition Fees",
+      "category": "Student",
+      "product_name": "TUTION_FEES",
+      "form_type": "tutionFees",
+      "description": "University / college tuition fees",
+      "is_active": true,
+      "display_order": 69,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 15,
+      "product_id": "kidsStudyPermit",
+      "name": "Kids Study Permit",
+      "category": "Student",
+      "product_name": "KIDS_STUDY_PERMIT",
+      "form_type": "masterOnly",
+      "description": "Study permit for dependent children",
+      "is_active": true,
+      "display_order": 68,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 16,
+      "product_id": "beaconAccount",
+      "name": "Beacon Account",
+      "category": "Student",
+      "product_name": "BEACON_ACCOUNT",
+      "form_type": "beaconAccount",
+      "description": "Beacon student account",
+      "is_active": true,
+      "display_order": 67,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 17,
+      "product_id": "sponsorCharges",
+      "name": "Sponsor Charges",
+      "category": "Spouse",
+      "product_name": "SPONSOR_CHARGES",
+      "form_type": "masterOnly",
+      "description": "Charges related to sponsorship",
+      "is_active": true,
+      "display_order": 60,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 18,
+      "product_id": "marriagePhotoForCourtMarriage",
+      "name": "Marriage Photo (Court Marriage)",
+      "category": "Spouse",
+      "product_name": "MARRIAGE_PHOTO_FOR_COURT_MARRIAGE",
+      "form_type": "masterOnly",
+      "description": "Marriage photos for court marriage process",
+      "is_active": true,
+      "display_order": 59,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 19,
+      "product_id": "marriagePhotoCertificate",
+      "name": "Marriage Photo Certificate",
+      "category": "Spouse",
+      "product_name": "MARRIAGE_PHOTO_CERTIFICATE",
+      "form_type": "masterOnly",
+      "description": "Marriage photo certificate",
+      "is_active": true,
+      "display_order": 58,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 20,
+      "product_id": "recenteMarriageRelationshipAffidavit",
+      "name": "Marriage / Relationship Affidavit",
+      "category": "Spouse",
+      "product_name": "RECENTE_MARRIAGE_RELATIONSHIP_AFFIDAVIT",
+      "form_type": "masterOnly",
+      "description": "Recent marriage or relationship affidavit",
+      "is_active": true,
+      "display_order": 57,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 21,
+      "product_id": "trvWorkPermitExtStudyPermitExtension",
+      "name": "TRV / Work Permit / Study Permit Extension",
+      "category": "Visitor",
+      "product_name": "TRV_WORK_PERMIT_EXT_STUDY_PERMIT_EXTENSION",
+      "form_type": "visaExtension",
+      "description": "Temporary resident visa or permit extension",
+      "is_active": true,
+      "display_order": 50,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 22,
+      "product_id": "airTicket",
+      "name": "Air Ticket",
+      "category": "Common",
+      "product_name": "AIR_TICKET",
+      "form_type": "airTicket",
+      "description": "Flight ticket booking",
+      "is_active": true,
+      "display_order": 40,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 23,
+      "product_id": "insurance",
+      "name": "Insurance",
+      "category": "Common",
+      "product_name": "INSURANCE",
+      "form_type": "insurance",
+      "description": "Travel / health insurance",
+      "is_active": true,
+      "display_order": 39,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 24,
+      "product_id": "simCardActivation",
+      "name": "SIM Card Activation",
+      "category": "Common",
+      "product_name": "SIM_CARD_ACTIVATION",
+      "form_type": "simCard",
+      "description": "International SIM card activation",
+      "is_active": true,
+      "display_order": 38,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 25,
+      "product_id": "visaExtension",
+      "name": "Visa Extension",
+      "category": "Common",
+      "product_name": "VISA_EXTENSION",
+      "form_type": "visaExtension",
+      "description": "Visa extension service",
+      "is_active": true,
+      "display_order": 37,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 26,
+      "product_id": "lawyerRefusalCharge",
+      "name": "Lawyer Refusal Charge",
+      "category": "Common",
+      "product_name": "LAWYER_REFUSAL_CHARGE",
+      "form_type": "masterOnly",
+      "description": "Legal fees for refusal cases",
+      "is_active": true,
+      "display_order": 36,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 27,
+      "product_id": "judicialReviewCharge",
+      "name": "Judicial Review Charge",
+      "category": "Common",
+      "product_name": "JUDICAL_REVIEW_CHARGE",
+      "form_type": "masterOnly",
+      "description": "Fees for judicial review proceedings",
+      "is_active": true,
+      "display_order": 35,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 28,
+      "product_id": "refusalCharges",
+      "name": "Refusal Charges",
+      "category": "Common",
+      "product_name": "REFUSAL_CHARGES",
+      "form_type": "masterOnly",
+      "description": "Charges related to visa refusal handling",
+      "is_active": true,
+      "display_order": 34,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 29,
+      "product_id": "otherNewSell",
+      "name": "Other New Sell",
+      "category": "Other",
+      "product_name": "OTHER_NEW_SELL",
+      "form_type": "newSell",
+      "description": "Miscellaneous new sales",
+      "is_active": true,
+      "display_order": 10,
+      "metadata": null,
+      "created_at": "2026-04-29 03:48:46.286049",
+      "updated_at": "2026-04-29 03:48:46.286049"
+    },
+    {
+      "id": 30,
+      "product_id": "trvVisitor",
+      "name": "TRV Visitor Record",
+      "category": "Visitor",
+      "product_name": "TRV_VISITOR",
+      "form_type": "visaExtension",
+      "description": "Temporary resident visa or permit extension",
+      "is_active": true,
+      "display_order": 100,
+      "metadata": null,
+      "created_at": "2026-05-04 04:12:16.68093",
+      "updated_at": "2026-05-04 04:12:16.68093"
+    }
+  ],
+  "periods": [
+    {
+      "id": "1",
+      "name": "All Finance",
+      "start_date": "2025-12-01",
+      "end_date": "2025-12-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 02:11:13.019843"
+    },
+    {
+      "id": "2",
+      "name": "JAN-APR All Student",
+      "start_date": "2025-12-01",
+      "end_date": "2025-12-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 02:45:06.123497"
+    },
+    {
+      "id": "3",
+      "name": "JAN-APR All Student",
+      "start_date": "2025-11-01",
+      "end_date": "2025-11-30",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:02:56.798605"
+    },
+    {
+      "id": "4",
+      "name": "All Finance",
+      "start_date": "2025-11-01",
+      "end_date": "2025-11-30",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:02:57.052696"
+    },
+    {
+      "id": "5",
+      "name": "Spouse",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:18:36.48339"
+    },
+    {
+      "id": "6",
+      "name": "Visitor",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:24:10.368415"
+    },
+    {
+      "id": "7",
+      "name": "Student",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:26:17.5979"
+    },
+    {
+      "id": "8",
+      "name": "UK Student",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:27:15.292457"
+    },
+    {
+      "id": "9",
+      "name": "ALL Finance Spouse",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:29:55.800433"
+    },
+    {
+      "id": "10",
+      "name": "All Finance Visitor",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:40:35.066534"
+    },
+    {
+      "id": "11",
+      "name": "All Finance Visitor",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:46:54.633074"
+    },
+    {
+      "id": "12",
+      "name": "ALL Finance Spouse",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:46:55.01189"
+    },
+    {
+      "id": "13",
+      "name": "All Finance Visitor",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:47:11.544238"
+    },
+    {
+      "id": "14",
+      "name": "ALL Finance Spouse & Student",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:47:11.924757"
+    },
+    {
+      "id": "15",
+      "name": "All Finance Visitor",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:48:26.958042"
+    },
+    {
+      "id": "16",
+      "name": "ALL Finance Spouse",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:48:27.213584"
+    },
+    {
+      "id": "17",
+      "name": "UK Student",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:48:27.317255"
+    },
+    {
+      "id": "18",
+      "name": "Student",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:48:27.579598"
+    },
+    {
+      "id": "19",
+      "name": "Visitor",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:48:27.692338"
+    },
+    {
+      "id": "20",
+      "name": "Spouse",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:48:27.942159"
+    },
+    {
+      "id": "21",
+      "name": "Spouse",
+      "start_date": "2026-09-01",
+      "end_date": "2026-12-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:52:17.1624"
+    },
+    {
+      "id": "22",
+      "name": "Visitor",
+      "start_date": "2026-09-01",
+      "end_date": "2026-12-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:52:17.534341"
+    },
+    {
+      "id": "23",
+      "name": "Student",
+      "start_date": "2026-09-01",
+      "end_date": "2026-12-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:52:17.792506"
+    },
+    {
+      "id": "24",
+      "name": "UK Student",
+      "start_date": "2026-09-01",
+      "end_date": "2026-12-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:52:17.885682"
+    },
+    {
+      "id": "25",
+      "name": "ALL Finance Spouse",
+      "start_date": "2026-09-01",
+      "end_date": "2026-12-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:52:18.153463"
+    },
+    {
+      "id": "26",
+      "name": "All Finance Visitor",
+      "start_date": "2026-09-01",
+      "end_date": "2026-12-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 03:52:18.247949"
+    },
+    {
+      "id": "27",
+      "name": "TRV",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 04:13:51.620008"
+    },
+    {
+      "id": "28",
+      "name": "Canada Fund",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 04:55:59.161374"
+    },
+    {
+      "id": "29",
+      "name": "Financial History Charges - India",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 05:31:12.282717"
+    },
+    {
+      "id": "30",
+      "name": "TRV",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 05:35:12.466267"
+    },
+    {
+      "id": "31",
+      "name": "TRV",
+      "start_date": "2026-09-01",
+      "end_date": "2026-12-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-04 23:04:10.566662"
+    },
+    {
+      "id": "32",
+      "name": "Auto 2026-05-01 to 2026-05-31",
+      "start_date": "2026-05-01",
+      "end_date": "2026-05-31",
+      "is_active": true,
+      "created_by": null,
+      "created_at": "2026-05-05 01:26:47.114402"
+    },
+    {
+      "id": "33",
+      "name": "Auto 2026-04-01 to 2026-04-30",
+      "start_date": "2026-04-01",
+      "end_date": "2026-04-30",
+      "is_active": true,
+      "created_by": null,
+      "created_at": "2026-05-05 01:28:40.927228"
+    },
+    {
+      "id": "34",
+      "name": "Auto 2026-03-01 to 2026-03-31",
+      "start_date": "2026-03-01",
+      "end_date": "2026-03-31",
+      "is_active": true,
+      "created_by": null,
+      "created_at": "2026-05-05 02:05:08.77853"
+    },
+    {
+      "id": "35",
+      "name": "Auto 2026-01-01 to 2026-01-31",
+      "start_date": "2026-01-01",
+      "end_date": "2026-01-31",
+      "is_active": true,
+      "created_by": null,
+      "created_at": "2026-05-05 04:03:08.553315"
+    },
+    {
+      "id": "36",
+      "name": "Spouse",
+      "start_date": "2025-12-01",
+      "end_date": "2025-12-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-05 07:22:19.959221"
+    },
+    {
+      "id": "37",
+      "name": "Visitor",
+      "start_date": "2025-12-01",
+      "end_date": "2025-12-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-05 07:23:04.073483"
+    },
+    {
+      "id": "38",
+      "name": "All finance",
+      "start_date": "2025-12-01",
+      "end_date": "2025-12-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-05 07:26:18.867162"
+    },
+    {
+      "id": "39",
+      "name": "TRV",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-05 10:55:53.129243"
+    },
+    {
+      "id": "40",
+      "name": "Financial History Charges - India",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-05 10:55:53.388306"
+    },
+    {
+      "id": "41",
+      "name": "Canada Fund",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-05 10:55:53.558403"
+    },
+    {
+      "id": "42",
+      "name": "TRV",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-05 10:55:53.79898"
+    },
+    {
+      "id": "43",
+      "name": "ALL Finance Spouse & Student",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-05 10:55:53.954734"
+    },
+    {
+      "id": "44",
+      "name": "All Finance Visitor",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-05 10:55:54.237699"
+    },
+    {
+      "id": "45",
+      "name": "UK Student",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-05 10:55:54.364965"
+    },
+    {
+      "id": "46",
+      "name": "Student",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-05 10:55:54.79216"
+    },
+    {
+      "id": "47",
+      "name": "Visitor",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-05 10:55:55.054902"
+    },
+    {
+      "id": "48",
+      "name": "Spouse",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "is_active": true,
+      "created_by": "62",
+      "created_at": "2026-05-05 10:55:55.22983"
+    },
+    {
+      "id": "49",
+      "name": "Recent Marraige",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "is_active": true,
+      "created_by": "43",
+      "created_at": "2026-05-09 00:25:56.344525"
+    },
+    {
+      "id": "50",
+      "name": "Marriage Photo (Court Marriage)",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "is_active": true,
+      "created_by": "43",
+      "created_at": "2026-05-09 00:26:26.284524"
+    },
+    {
+      "id": "51",
+      "name": "Employment Summary Charges",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "is_active": true,
+      "created_by": "43",
+      "created_at": "2026-05-09 00:27:02.669562"
+    },
+    {
+      "id": "52",
+      "name": "Recent Marraige",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "is_active": true,
+      "created_by": "43",
+      "created_at": "2026-05-09 03:28:35.44525"
+    }
+  ],
+  "rule_configuration": [
+    {
+      "id": "41",
+      "name": "Spouse",
+      "rule_type": "slab",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "sale_type_category_id": "1",
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-04 03:18:36.48339",
+      "period_id": "5",
+      "description": "Check Initial  and Before Visa Payment",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "42",
+      "name": "Visitor",
+      "rule_type": "budget",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "sale_type_category_id": "2",
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-04 03:24:10.368415",
+      "period_id": "6",
+      "description": "Check  Initial payment or before visa payment",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "43",
+      "name": "Student",
+      "rule_type": "slab",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "sale_type_category_id": "3",
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-04 03:26:17.5979",
+      "period_id": "7",
+      "description": "check Tuition Deposit amount as enrollment",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "44",
+      "name": "UK Student",
+      "rule_type": "slab",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "sale_type_category_id": "3",
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-04 03:27:15.292457",
+      "period_id": "8",
+      "description": "Check  After visa payment on Uk Student Enrollment",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "45",
+      "name": "ALL Finance Spouse",
+      "rule_type": "budget_threshold_slab",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "sale_type_category_id": null,
+      "is_active": false,
+      "added_by": "62",
+      "created_at": "2026-05-04 03:29:55.800433",
+      "period_id": "9",
+      "description": "first check budget  amount and slab  both if slab  is ok then check  budget >= then  its eligible",
+      "min_budget_threshold": "85000.00",
+      "all_finance_sale_type_categories": [
+        "spouse",
+        "student"
+      ]
+    },
+    {
+      "id": "46",
+      "name": "All Finance Visitor",
+      "rule_type": "budget",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "sale_type_category_id": null,
+      "is_active": false,
+      "added_by": "62",
+      "created_at": "2026-05-04 03:40:35.066534",
+      "period_id": "10",
+      "description": "check  all  Finance payment of Visitor",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": [
+        "visitor"
+      ]
+    },
+    {
+      "id": "47",
+      "name": "All Finance Visitor",
+      "rule_type": "budget",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "sale_type_category_id": null,
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-04 03:46:54.633074",
+      "period_id": "11",
+      "description": "check  all  Finance payment of Visitor",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": [
+        "visitor"
+      ]
+    },
+    {
+      "id": "48",
+      "name": "ALL Finance Spouse",
+      "rule_type": "budget_threshold_slab",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "sale_type_category_id": null,
+      "is_active": false,
+      "added_by": "62",
+      "created_at": "2026-05-04 03:46:55.01189",
+      "period_id": "12",
+      "description": "first check budget  amount and slab  both if slab  is ok then check  budget >= then  its eligible",
+      "min_budget_threshold": "85000.00",
+      "all_finance_sale_type_categories": [
+        "spouse",
+        "student"
+      ]
+    },
+    {
+      "id": "49",
+      "name": "All Finance Visitor",
+      "rule_type": "budget",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "sale_type_category_id": null,
+      "is_active": false,
+      "added_by": "62",
+      "created_at": "2026-05-04 03:47:11.544238",
+      "period_id": "13",
+      "description": "check  all  Finance payment of Visitor",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": [
+        "visitor"
+      ]
+    },
+    {
+      "id": "50",
+      "name": "ALL Finance Spouse & Student",
+      "rule_type": "budget_threshold_slab",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "sale_type_category_id": null,
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-04 03:47:11.924757",
+      "period_id": "14",
+      "description": "first check budget  amount and slab  both if slab  is ok then check  budget >= then  its eligible",
+      "min_budget_threshold": "85000.00",
+      "all_finance_sale_type_categories": [
+        "spouse",
+        "student"
+      ]
+    },
+    {
+      "id": "51",
+      "name": "All Finance Visitor",
+      "rule_type": "budget",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "sale_type_category_id": null,
+      "is_active": false,
+      "added_by": "62",
+      "created_at": "2026-05-04 03:48:26.958042",
+      "period_id": "15",
+      "description": "check  all  Finance payment of Visitor",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": [
+        "visitor"
+      ]
+    },
+    {
+      "id": "52",
+      "name": "ALL Finance Spouse",
+      "rule_type": "budget_threshold_slab",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "sale_type_category_id": null,
+      "is_active": false,
+      "added_by": "62",
+      "created_at": "2026-05-04 03:48:27.213584",
+      "period_id": "16",
+      "description": "first check budget  amount and slab  both if slab  is ok then check  budget >= then  its eligible",
+      "min_budget_threshold": "85000.00",
+      "all_finance_sale_type_categories": [
+        "spouse",
+        "student"
+      ]
+    },
+    {
+      "id": "53",
+      "name": "UK Student",
+      "rule_type": "slab",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "sale_type_category_id": "3",
+      "is_active": false,
+      "added_by": "62",
+      "created_at": "2026-05-04 03:48:27.317255",
+      "period_id": "17",
+      "description": "Check  After visa payment on Uk Student Enrollment",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "54",
+      "name": "Student",
+      "rule_type": "slab",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "sale_type_category_id": "3",
+      "is_active": false,
+      "added_by": "62",
+      "created_at": "2026-05-04 03:48:27.579598",
+      "period_id": "18",
+      "description": "check Tuition Deposit amount as enrollment",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "55",
+      "name": "Visitor",
+      "rule_type": "budget",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "sale_type_category_id": "2",
+      "is_active": false,
+      "added_by": "62",
+      "created_at": "2026-05-04 03:48:27.692338",
+      "period_id": "19",
+      "description": "Check  Initial payment or before visa payment",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "56",
+      "name": "Spouse",
+      "rule_type": "slab",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "sale_type_category_id": "1",
+      "is_active": false,
+      "added_by": "62",
+      "created_at": "2026-05-04 03:48:27.942159",
+      "period_id": "20",
+      "description": "Check Initial  and Before Visa Payment",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "57",
+      "name": "Spouse",
+      "rule_type": "slab",
+      "start_date": "2026-09-01",
+      "end_date": "2026-12-31",
+      "sale_type_category_id": "1",
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-04 03:52:17.1624",
+      "period_id": "21",
+      "description": "Check Initial  and Before Visa Payment",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "58",
+      "name": "Visitor",
+      "rule_type": "budget",
+      "start_date": "2026-09-01",
+      "end_date": "2026-12-31",
+      "sale_type_category_id": "2",
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-04 03:52:17.534341",
+      "period_id": "22",
+      "description": "Check  Initial payment or before visa payment",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "59",
+      "name": "Student",
+      "rule_type": "slab",
+      "start_date": "2026-09-01",
+      "end_date": "2026-12-31",
+      "sale_type_category_id": "3",
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-04 03:52:17.792506",
+      "period_id": "23",
+      "description": "check Tuition Deposit amount as enrollment",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "60",
+      "name": "UK Student",
+      "rule_type": "slab",
+      "start_date": "2026-09-01",
+      "end_date": "2026-12-31",
+      "sale_type_category_id": "3",
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-04 03:52:17.885682",
+      "period_id": "24",
+      "description": "Check  After visa payment on Uk Student Enrollment",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "61",
+      "name": "ALL Finance Spouse",
+      "rule_type": "budget_threshold_slab",
+      "start_date": "2026-09-01",
+      "end_date": "2026-12-31",
+      "sale_type_category_id": null,
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-04 03:52:18.153463",
+      "period_id": "25",
+      "description": "first check budget  amount and slab  both if slab  is ok then check  budget >= then  its eligible",
+      "min_budget_threshold": "85000.00",
+      "all_finance_sale_type_categories": [
+        "spouse",
+        "student"
+      ]
+    },
+    {
+      "id": "62",
+      "name": "All Finance Visitor",
+      "rule_type": "budget",
+      "start_date": "2026-09-01",
+      "end_date": "2026-12-31",
+      "sale_type_category_id": null,
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-04 03:52:18.247949",
+      "period_id": "26",
+      "description": "check  all  Finance payment of Visitor",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": [
+        "visitor"
+      ]
+    },
+    {
+      "id": "63",
+      "name": "TRV",
+      "rule_type": "budget",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "sale_type_category_id": null,
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-04 04:13:51.620008",
+      "period_id": "27",
+      "description": null,
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "64",
+      "name": "Canada Fund",
+      "rule_type": "budget",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "sale_type_category_id": null,
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-04 04:55:59.161374",
+      "period_id": "28",
+      "description": null,
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "65",
+      "name": "Financial History Charges - India",
+      "rule_type": "budget",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "sale_type_category_id": null,
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-04 05:31:12.282717",
+      "period_id": "29",
+      "description": null,
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "66",
+      "name": "TRV",
+      "rule_type": "budget",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "sale_type_category_id": null,
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-04 05:35:12.466267",
+      "period_id": "30",
+      "description": null,
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "67",
+      "name": "TRV",
+      "rule_type": "budget",
+      "start_date": "2026-09-01",
+      "end_date": "2026-12-31",
+      "sale_type_category_id": null,
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-04 23:04:10.566662",
+      "period_id": "31",
+      "description": null,
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "68",
+      "name": "Spouse",
+      "rule_type": "slab",
+      "start_date": "2025-12-01",
+      "end_date": "2025-12-31",
+      "sale_type_category_id": "1",
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-05 07:22:19.959221",
+      "period_id": "36",
+      "description": "test 1",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "69",
+      "name": "Visitor",
+      "rule_type": "budget",
+      "start_date": "2025-12-01",
+      "end_date": "2025-12-31",
+      "sale_type_category_id": "2",
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-05 07:23:04.073483",
+      "period_id": "37",
+      "description": "test 2",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "70",
+      "name": "All finance",
+      "rule_type": "budget_threshold_slab",
+      "start_date": "2025-12-01",
+      "end_date": "2025-12-31",
+      "sale_type_category_id": null,
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-05 07:26:18.867162",
+      "period_id": "38",
+      "description": "test",
+      "min_budget_threshold": "69000.00",
+      "all_finance_sale_type_categories": [
+        "student",
+        "spouse"
+      ]
+    },
+    {
+      "id": "71",
+      "name": "TRV",
+      "rule_type": "budget",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "sale_type_category_id": null,
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-05 10:55:53.129243",
+      "period_id": "39",
+      "description": null,
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "72",
+      "name": "Financial History Charges - India",
+      "rule_type": "budget",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "sale_type_category_id": null,
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-05 10:55:53.388306",
+      "period_id": "40",
+      "description": null,
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "73",
+      "name": "Canada Fund",
+      "rule_type": "budget",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "sale_type_category_id": null,
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-05 10:55:53.558403",
+      "period_id": "41",
+      "description": null,
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "74",
+      "name": "TRV",
+      "rule_type": "budget",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "sale_type_category_id": null,
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-05 10:55:53.79898",
+      "period_id": "42",
+      "description": null,
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "75",
+      "name": "ALL Finance Spouse & Student",
+      "rule_type": "budget_threshold_slab",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "sale_type_category_id": null,
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-05 10:55:53.954734",
+      "period_id": "43",
+      "description": "first check budget  amount and slab  both if slab  is ok then check  budget >= then  its eligible",
+      "min_budget_threshold": "85000.00",
+      "all_finance_sale_type_categories": [
+        "spouse",
+        "student"
+      ]
+    },
+    {
+      "id": "76",
+      "name": "All Finance Visitor",
+      "rule_type": "budget",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "sale_type_category_id": null,
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-05 10:55:54.237699",
+      "period_id": "44",
+      "description": "check  all  Finance payment of Visitor",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": [
+        "visitor"
+      ]
+    },
+    {
+      "id": "77",
+      "name": "UK Student",
+      "rule_type": "slab",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "sale_type_category_id": "3",
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-05 10:55:54.364965",
+      "period_id": "45",
+      "description": "Check  After visa payment on Uk Student Enrollment",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "78",
+      "name": "Student",
+      "rule_type": "slab",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "sale_type_category_id": "3",
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-05 10:55:54.79216",
+      "period_id": "46",
+      "description": "check Tuition Deposit amount as enrollment",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "79",
+      "name": "Visitor",
+      "rule_type": "budget",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "sale_type_category_id": "2",
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-05 10:55:55.054902",
+      "period_id": "47",
+      "description": "Check  Initial payment or before visa payment",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "80",
+      "name": "Spouse",
+      "rule_type": "slab",
+      "start_date": "2026-05-01",
+      "end_date": "2026-08-31",
+      "sale_type_category_id": "1",
+      "is_active": true,
+      "added_by": "62",
+      "created_at": "2026-05-05 10:55:55.22983",
+      "period_id": "48",
+      "description": "Check Initial  and Before Visa Payment",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "81",
+      "name": "Recent Marraige",
+      "rule_type": "budget",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "sale_type_category_id": null,
+      "is_active": true,
+      "added_by": "43",
+      "created_at": "2026-05-09 00:25:56.344525",
+      "period_id": "49",
+      "description": "Recent Marraige - Genuine Relationship Charges",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "82",
+      "name": "Marriage Photo (Court Marriage)",
+      "rule_type": "budget",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "sale_type_category_id": null,
+      "is_active": true,
+      "added_by": "43",
+      "created_at": "2026-05-09 00:26:26.284524",
+      "period_id": "50",
+      "description": "Common Law Genuine Relationship",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "83",
+      "name": "Employment Summary Charges",
+      "rule_type": "budget",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "sale_type_category_id": null,
+      "is_active": true,
+      "added_by": "43",
+      "created_at": "2026-05-09 00:27:02.669562",
+      "period_id": "51",
+      "description": "Employment Summary Charges",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    },
+    {
+      "id": "84",
+      "name": "Recent Marraige",
+      "rule_type": "budget",
+      "start_date": "2026-01-01",
+      "end_date": "2026-04-30",
+      "sale_type_category_id": null,
+      "is_active": false,
+      "added_by": "43",
+      "created_at": "2026-05-09 03:28:35.44525",
+      "period_id": "52",
+      "description": "Recent Marraige - Genuine Relationship Charges",
+      "min_budget_threshold": null,
+      "all_finance_sale_type_categories": null
+    }
+  ],
+  "rule_configuration_sale_types": [
+    {
+      "id": "371",
+      "rule_configuration_id": "41",
+      "sale_type_id": "14",
+      "created_at": "2026-05-04 03:18:36.48339",
+      "other_product_id": null
+    },
+    {
+      "id": "372",
+      "rule_configuration_id": "41",
+      "sale_type_id": "10",
+      "created_at": "2026-05-04 03:18:36.48339",
+      "other_product_id": null
+    },
+    {
+      "id": "373",
+      "rule_configuration_id": "41",
+      "sale_type_id": "9",
+      "created_at": "2026-05-04 03:18:36.48339",
+      "other_product_id": null
+    },
+    {
+      "id": "374",
+      "rule_configuration_id": "41",
+      "sale_type_id": "1",
+      "created_at": "2026-05-04 03:18:36.48339",
+      "other_product_id": null
+    },
+    {
+      "id": "375",
+      "rule_configuration_id": "42",
+      "sale_type_id": "20",
+      "created_at": "2026-05-04 03:24:10.368415",
+      "other_product_id": null
+    },
+    {
+      "id": "376",
+      "rule_configuration_id": "42",
+      "sale_type_id": "19",
+      "created_at": "2026-05-04 03:24:10.368415",
+      "other_product_id": null
+    },
+    {
+      "id": "377",
+      "rule_configuration_id": "42",
+      "sale_type_id": "18",
+      "created_at": "2026-05-04 03:24:10.368415",
+      "other_product_id": null
+    },
+    {
+      "id": "378",
+      "rule_configuration_id": "42",
+      "sale_type_id": "16",
+      "created_at": "2026-05-04 03:24:10.368415",
+      "other_product_id": null
+    },
+    {
+      "id": "379",
+      "rule_configuration_id": "42",
+      "sale_type_id": "13",
+      "created_at": "2026-05-04 03:24:10.368415",
+      "other_product_id": null
+    },
+    {
+      "id": "380",
+      "rule_configuration_id": "42",
+      "sale_type_id": "12",
+      "created_at": "2026-05-04 03:24:10.368415",
+      "other_product_id": null
+    },
+    {
+      "id": "381",
+      "rule_configuration_id": "42",
+      "sale_type_id": "11",
+      "created_at": "2026-05-04 03:24:10.368415",
+      "other_product_id": null
+    },
+    {
+      "id": "382",
+      "rule_configuration_id": "42",
+      "sale_type_id": "2",
+      "created_at": "2026-05-04 03:24:10.368415",
+      "other_product_id": null
+    },
+    {
+      "id": "383",
+      "rule_configuration_id": "43",
+      "sale_type_id": "7",
+      "created_at": "2026-05-04 03:26:17.5979",
+      "other_product_id": null
+    },
+    {
+      "id": "384",
+      "rule_configuration_id": "43",
+      "sale_type_id": "8",
+      "created_at": "2026-05-04 03:26:17.5979",
+      "other_product_id": null
+    },
+    {
+      "id": "385",
+      "rule_configuration_id": "43",
+      "sale_type_id": "6",
+      "created_at": "2026-05-04 03:26:17.5979",
+      "other_product_id": null
+    },
+    {
+      "id": "386",
+      "rule_configuration_id": "43",
+      "sale_type_id": "4",
+      "created_at": "2026-05-04 03:26:17.5979",
+      "other_product_id": null
+    },
+    {
+      "id": "387",
+      "rule_configuration_id": "43",
+      "sale_type_id": "3",
+      "created_at": "2026-05-04 03:26:17.5979",
+      "other_product_id": null
+    },
+    {
+      "id": "388",
+      "rule_configuration_id": "44",
+      "sale_type_id": "5",
+      "created_at": "2026-05-04 03:27:15.292457",
+      "other_product_id": null
+    },
+    {
+      "id": "389",
+      "rule_configuration_id": "45",
+      "sale_type_id": null,
+      "created_at": "2026-05-04 03:29:55.800433",
+      "other_product_id": "op_1"
+    },
+    {
+      "id": "390",
+      "rule_configuration_id": "46",
+      "sale_type_id": null,
+      "created_at": "2026-05-04 03:40:35.066534",
+      "other_product_id": "op_1"
+    },
+    {
+      "id": "392",
+      "rule_configuration_id": "48",
+      "sale_type_id": null,
+      "created_at": "2026-05-04 03:46:55.01189",
+      "other_product_id": "op_1"
+    },
+    {
+      "id": "393",
+      "rule_configuration_id": "49",
+      "sale_type_id": null,
+      "created_at": "2026-05-04 03:47:11.544238",
+      "other_product_id": "op_1"
+    },
+    {
+      "id": "395",
+      "rule_configuration_id": "51",
+      "sale_type_id": null,
+      "created_at": "2026-05-04 03:48:26.958042",
+      "other_product_id": "op_1"
+    },
+    {
+      "id": "396",
+      "rule_configuration_id": "52",
+      "sale_type_id": null,
+      "created_at": "2026-05-04 03:48:27.213584",
+      "other_product_id": "op_1"
+    },
+    {
+      "id": "397",
+      "rule_configuration_id": "53",
+      "sale_type_id": "5",
+      "created_at": "2026-05-04 03:48:27.317255",
+      "other_product_id": null
+    },
+    {
+      "id": "398",
+      "rule_configuration_id": "54",
+      "sale_type_id": "3",
+      "created_at": "2026-05-04 03:48:27.579598",
+      "other_product_id": null
+    },
+    {
+      "id": "399",
+      "rule_configuration_id": "54",
+      "sale_type_id": "4",
+      "created_at": "2026-05-04 03:48:27.579598",
+      "other_product_id": null
+    },
+    {
+      "id": "400",
+      "rule_configuration_id": "54",
+      "sale_type_id": "6",
+      "created_at": "2026-05-04 03:48:27.579598",
+      "other_product_id": null
+    },
+    {
+      "id": "401",
+      "rule_configuration_id": "54",
+      "sale_type_id": "7",
+      "created_at": "2026-05-04 03:48:27.579598",
+      "other_product_id": null
+    },
+    {
+      "id": "402",
+      "rule_configuration_id": "54",
+      "sale_type_id": "8",
+      "created_at": "2026-05-04 03:48:27.579598",
+      "other_product_id": null
+    },
+    {
+      "id": "403",
+      "rule_configuration_id": "55",
+      "sale_type_id": "2",
+      "created_at": "2026-05-04 03:48:27.692338",
+      "other_product_id": null
+    },
+    {
+      "id": "404",
+      "rule_configuration_id": "55",
+      "sale_type_id": "11",
+      "created_at": "2026-05-04 03:48:27.692338",
+      "other_product_id": null
+    },
+    {
+      "id": "405",
+      "rule_configuration_id": "55",
+      "sale_type_id": "12",
+      "created_at": "2026-05-04 03:48:27.692338",
+      "other_product_id": null
+    },
+    {
+      "id": "406",
+      "rule_configuration_id": "55",
+      "sale_type_id": "13",
+      "created_at": "2026-05-04 03:48:27.692338",
+      "other_product_id": null
+    },
+    {
+      "id": "407",
+      "rule_configuration_id": "55",
+      "sale_type_id": "16",
+      "created_at": "2026-05-04 03:48:27.692338",
+      "other_product_id": null
+    },
+    {
+      "id": "408",
+      "rule_configuration_id": "55",
+      "sale_type_id": "18",
+      "created_at": "2026-05-04 03:48:27.692338",
+      "other_product_id": null
+    },
+    {
+      "id": "409",
+      "rule_configuration_id": "55",
+      "sale_type_id": "19",
+      "created_at": "2026-05-04 03:48:27.692338",
+      "other_product_id": null
+    },
+    {
+      "id": "410",
+      "rule_configuration_id": "55",
+      "sale_type_id": "20",
+      "created_at": "2026-05-04 03:48:27.692338",
+      "other_product_id": null
+    },
+    {
+      "id": "411",
+      "rule_configuration_id": "56",
+      "sale_type_id": "1",
+      "created_at": "2026-05-04 03:48:27.942159",
+      "other_product_id": null
+    },
+    {
+      "id": "412",
+      "rule_configuration_id": "56",
+      "sale_type_id": "9",
+      "created_at": "2026-05-04 03:48:27.942159",
+      "other_product_id": null
+    },
+    {
+      "id": "413",
+      "rule_configuration_id": "56",
+      "sale_type_id": "10",
+      "created_at": "2026-05-04 03:48:27.942159",
+      "other_product_id": null
+    },
+    {
+      "id": "414",
+      "rule_configuration_id": "56",
+      "sale_type_id": "14",
+      "created_at": "2026-05-04 03:48:27.942159",
+      "other_product_id": null
+    },
+    {
+      "id": "416",
+      "rule_configuration_id": "57",
+      "sale_type_id": "1",
+      "created_at": "2026-05-04 03:52:17.1624",
+      "other_product_id": null
+    },
+    {
+      "id": "417",
+      "rule_configuration_id": "57",
+      "sale_type_id": "9",
+      "created_at": "2026-05-04 03:52:17.1624",
+      "other_product_id": null
+    },
+    {
+      "id": "418",
+      "rule_configuration_id": "57",
+      "sale_type_id": "10",
+      "created_at": "2026-05-04 03:52:17.1624",
+      "other_product_id": null
+    },
+    {
+      "id": "419",
+      "rule_configuration_id": "57",
+      "sale_type_id": "14",
+      "created_at": "2026-05-04 03:52:17.1624",
+      "other_product_id": null
+    },
+    {
+      "id": "420",
+      "rule_configuration_id": "58",
+      "sale_type_id": "2",
+      "created_at": "2026-05-04 03:52:17.534341",
+      "other_product_id": null
+    },
+    {
+      "id": "421",
+      "rule_configuration_id": "58",
+      "sale_type_id": "11",
+      "created_at": "2026-05-04 03:52:17.534341",
+      "other_product_id": null
+    },
+    {
+      "id": "422",
+      "rule_configuration_id": "58",
+      "sale_type_id": "12",
+      "created_at": "2026-05-04 03:52:17.534341",
+      "other_product_id": null
+    },
+    {
+      "id": "423",
+      "rule_configuration_id": "58",
+      "sale_type_id": "13",
+      "created_at": "2026-05-04 03:52:17.534341",
+      "other_product_id": null
+    },
+    {
+      "id": "424",
+      "rule_configuration_id": "58",
+      "sale_type_id": "16",
+      "created_at": "2026-05-04 03:52:17.534341",
+      "other_product_id": null
+    },
+    {
+      "id": "425",
+      "rule_configuration_id": "58",
+      "sale_type_id": "18",
+      "created_at": "2026-05-04 03:52:17.534341",
+      "other_product_id": null
+    },
+    {
+      "id": "426",
+      "rule_configuration_id": "58",
+      "sale_type_id": "19",
+      "created_at": "2026-05-04 03:52:17.534341",
+      "other_product_id": null
+    },
+    {
+      "id": "427",
+      "rule_configuration_id": "58",
+      "sale_type_id": "20",
+      "created_at": "2026-05-04 03:52:17.534341",
+      "other_product_id": null
+    },
+    {
+      "id": "428",
+      "rule_configuration_id": "59",
+      "sale_type_id": "3",
+      "created_at": "2026-05-04 03:52:17.792506",
+      "other_product_id": null
+    },
+    {
+      "id": "429",
+      "rule_configuration_id": "59",
+      "sale_type_id": "4",
+      "created_at": "2026-05-04 03:52:17.792506",
+      "other_product_id": null
+    },
+    {
+      "id": "430",
+      "rule_configuration_id": "59",
+      "sale_type_id": "6",
+      "created_at": "2026-05-04 03:52:17.792506",
+      "other_product_id": null
+    },
+    {
+      "id": "431",
+      "rule_configuration_id": "59",
+      "sale_type_id": "7",
+      "created_at": "2026-05-04 03:52:17.792506",
+      "other_product_id": null
+    },
+    {
+      "id": "432",
+      "rule_configuration_id": "59",
+      "sale_type_id": "8",
+      "created_at": "2026-05-04 03:52:17.792506",
+      "other_product_id": null
+    },
+    {
+      "id": "433",
+      "rule_configuration_id": "60",
+      "sale_type_id": "5",
+      "created_at": "2026-05-04 03:52:17.885682",
+      "other_product_id": null
+    },
+    {
+      "id": "434",
+      "rule_configuration_id": "61",
+      "sale_type_id": null,
+      "created_at": "2026-05-04 03:52:18.153463",
+      "other_product_id": "op_1"
+    },
+    {
+      "id": "435",
+      "rule_configuration_id": "62",
+      "sale_type_id": null,
+      "created_at": "2026-05-04 03:52:18.247949",
+      "other_product_id": "op_1"
+    },
+    {
+      "id": "436",
+      "rule_configuration_id": "63",
+      "sale_type_id": null,
+      "created_at": "2026-05-04 04:13:51.620008",
+      "other_product_id": "op_30"
+    },
+    {
+      "id": "441",
+      "rule_configuration_id": "64",
+      "sale_type_id": null,
+      "created_at": "2026-05-04 04:55:59.161374",
+      "other_product_id": "op_9"
+    },
+    {
+      "id": "442",
+      "rule_configuration_id": "65",
+      "sale_type_id": null,
+      "created_at": "2026-05-04 05:31:12.282717",
+      "other_product_id": "op_28"
+    },
+    {
+      "id": "444",
+      "rule_configuration_id": "66",
+      "sale_type_id": null,
+      "created_at": "2026-05-04 05:35:55.980857",
+      "other_product_id": "op_21"
+    },
+    {
+      "id": "445",
+      "rule_configuration_id": "47",
+      "sale_type_id": null,
+      "created_at": "2026-05-04 06:13:03.793498",
+      "other_product_id": "op_1"
+    },
+    {
+      "id": "449",
+      "rule_configuration_id": "50",
+      "sale_type_id": null,
+      "created_at": "2026-05-04 06:37:12.73604",
+      "other_product_id": "op_1"
+    },
+    {
+      "id": "450",
+      "rule_configuration_id": "67",
+      "sale_type_id": null,
+      "created_at": "2026-05-04 23:04:10.566662",
+      "other_product_id": "op_21"
+    },
+    {
+      "id": "451",
+      "rule_configuration_id": "68",
+      "sale_type_id": "1",
+      "created_at": "2026-05-05 07:22:19.959221",
+      "other_product_id": null
+    },
+    {
+      "id": "452",
+      "rule_configuration_id": "68",
+      "sale_type_id": "14",
+      "created_at": "2026-05-05 07:22:19.959221",
+      "other_product_id": null
+    },
+    {
+      "id": "464",
+      "rule_configuration_id": "71",
+      "sale_type_id": null,
+      "created_at": "2026-05-05 10:55:53.129243",
+      "other_product_id": "op_21"
+    },
+    {
+      "id": "465",
+      "rule_configuration_id": "72",
+      "sale_type_id": null,
+      "created_at": "2026-05-05 10:55:53.388306",
+      "other_product_id": "op_28"
+    },
+    {
+      "id": "466",
+      "rule_configuration_id": "73",
+      "sale_type_id": null,
+      "created_at": "2026-05-05 10:55:53.558403",
+      "other_product_id": "op_9"
+    },
+    {
+      "id": "467",
+      "rule_configuration_id": "74",
+      "sale_type_id": null,
+      "created_at": "2026-05-05 10:55:53.79898",
+      "other_product_id": "op_30"
+    },
+    {
+      "id": "468",
+      "rule_configuration_id": "75",
+      "sale_type_id": null,
+      "created_at": "2026-05-05 10:55:53.954734",
+      "other_product_id": "op_1"
+    },
+    {
+      "id": "469",
+      "rule_configuration_id": "76",
+      "sale_type_id": null,
+      "created_at": "2026-05-05 10:55:54.237699",
+      "other_product_id": "op_1"
+    },
+    {
+      "id": "470",
+      "rule_configuration_id": "77",
+      "sale_type_id": "5",
+      "created_at": "2026-05-05 10:55:54.364965",
+      "other_product_id": null
+    },
+    {
+      "id": "471",
+      "rule_configuration_id": "78",
+      "sale_type_id": "3",
+      "created_at": "2026-05-05 10:55:54.79216",
+      "other_product_id": null
+    },
+    {
+      "id": "472",
+      "rule_configuration_id": "78",
+      "sale_type_id": "4",
+      "created_at": "2026-05-05 10:55:54.79216",
+      "other_product_id": null
+    },
+    {
+      "id": "473",
+      "rule_configuration_id": "78",
+      "sale_type_id": "6",
+      "created_at": "2026-05-05 10:55:54.79216",
+      "other_product_id": null
+    },
+    {
+      "id": "474",
+      "rule_configuration_id": "78",
+      "sale_type_id": "7",
+      "created_at": "2026-05-05 10:55:54.79216",
+      "other_product_id": null
+    },
+    {
+      "id": "475",
+      "rule_configuration_id": "78",
+      "sale_type_id": "8",
+      "created_at": "2026-05-05 10:55:54.79216",
+      "other_product_id": null
+    },
+    {
+      "id": "476",
+      "rule_configuration_id": "79",
+      "sale_type_id": "2",
+      "created_at": "2026-05-05 10:55:55.054902",
+      "other_product_id": null
+    },
+    {
+      "id": "477",
+      "rule_configuration_id": "79",
+      "sale_type_id": "11",
+      "created_at": "2026-05-05 10:55:55.054902",
+      "other_product_id": null
+    },
+    {
+      "id": "478",
+      "rule_configuration_id": "79",
+      "sale_type_id": "12",
+      "created_at": "2026-05-05 10:55:55.054902",
+      "other_product_id": null
+    },
+    {
+      "id": "479",
+      "rule_configuration_id": "79",
+      "sale_type_id": "13",
+      "created_at": "2026-05-05 10:55:55.054902",
+      "other_product_id": null
+    },
+    {
+      "id": "480",
+      "rule_configuration_id": "79",
+      "sale_type_id": "16",
+      "created_at": "2026-05-05 10:55:55.054902",
+      "other_product_id": null
+    },
+    {
+      "id": "481",
+      "rule_configuration_id": "79",
+      "sale_type_id": "18",
+      "created_at": "2026-05-05 10:55:55.054902",
+      "other_product_id": null
+    },
+    {
+      "id": "482",
+      "rule_configuration_id": "79",
+      "sale_type_id": "19",
+      "created_at": "2026-05-05 10:55:55.054902",
+      "other_product_id": null
+    },
+    {
+      "id": "483",
+      "rule_configuration_id": "79",
+      "sale_type_id": "20",
+      "created_at": "2026-05-05 10:55:55.054902",
+      "other_product_id": null
+    },
+    {
+      "id": "484",
+      "rule_configuration_id": "80",
+      "sale_type_id": "1",
+      "created_at": "2026-05-05 10:55:55.22983",
+      "other_product_id": null
+    },
+    {
+      "id": "485",
+      "rule_configuration_id": "80",
+      "sale_type_id": "9",
+      "created_at": "2026-05-05 10:55:55.22983",
+      "other_product_id": null
+    },
+    {
+      "id": "486",
+      "rule_configuration_id": "80",
+      "sale_type_id": "10",
+      "created_at": "2026-05-05 10:55:55.22983",
+      "other_product_id": null
+    },
+    {
+      "id": "487",
+      "rule_configuration_id": "80",
+      "sale_type_id": "14",
+      "created_at": "2026-05-05 10:55:55.22983",
+      "other_product_id": null
+    },
+    {
+      "id": "490",
+      "rule_configuration_id": "70",
+      "sale_type_id": null,
+      "created_at": "2026-05-05 22:36:35.657983",
+      "other_product_id": "op_1"
+    },
+    {
+      "id": "491",
+      "rule_configuration_id": "69",
+      "sale_type_id": "2",
+      "created_at": "2026-05-05 22:45:03.12164",
+      "other_product_id": null
+    },
+    {
+      "id": "492",
+      "rule_configuration_id": "69",
+      "sale_type_id": "11",
+      "created_at": "2026-05-05 22:45:03.12164",
+      "other_product_id": null
+    },
+    {
+      "id": "493",
+      "rule_configuration_id": "69",
+      "sale_type_id": "12",
+      "created_at": "2026-05-05 22:45:03.12164",
+      "other_product_id": null
+    },
+    {
+      "id": "494",
+      "rule_configuration_id": "69",
+      "sale_type_id": "13",
+      "created_at": "2026-05-05 22:45:03.12164",
+      "other_product_id": null
+    },
+    {
+      "id": "495",
+      "rule_configuration_id": "69",
+      "sale_type_id": "16",
+      "created_at": "2026-05-05 22:45:03.12164",
+      "other_product_id": null
+    },
+    {
+      "id": "496",
+      "rule_configuration_id": "69",
+      "sale_type_id": "18",
+      "created_at": "2026-05-05 22:45:03.12164",
+      "other_product_id": null
+    },
+    {
+      "id": "497",
+      "rule_configuration_id": "69",
+      "sale_type_id": "19",
+      "created_at": "2026-05-05 22:45:03.12164",
+      "other_product_id": null
+    },
+    {
+      "id": "498",
+      "rule_configuration_id": "69",
+      "sale_type_id": "20",
+      "created_at": "2026-05-05 22:45:03.12164",
+      "other_product_id": null
+    },
+    {
+      "id": "499",
+      "rule_configuration_id": "81",
+      "sale_type_id": null,
+      "created_at": "2026-05-09 00:25:56.344525",
+      "other_product_id": "op_20"
+    },
+    {
+      "id": "500",
+      "rule_configuration_id": "82",
+      "sale_type_id": null,
+      "created_at": "2026-05-09 00:26:26.284524",
+      "other_product_id": "op_18"
+    },
+    {
+      "id": "501",
+      "rule_configuration_id": "83",
+      "sale_type_id": null,
+      "created_at": "2026-05-09 00:27:02.669562",
+      "other_product_id": "op_2"
+    },
+    {
+      "id": "502",
+      "rule_configuration_id": "84",
+      "sale_type_id": null,
+      "created_at": "2026-05-09 03:28:35.44525",
+      "other_product_id": "op_20"
+    }
+  ],
+  "budget_rules": [
+    {
+      "id": "47",
+      "rule_configuration_id": "42",
+      "budget_amount": "8000.00",
+      "incentive_amount": "500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:24:10.368415",
+      "label": "8000"
+    },
+    {
+      "id": "48",
+      "rule_configuration_id": "42",
+      "budget_amount": "10000.00",
+      "incentive_amount": "700.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:24:10.368415",
+      "label": "10000"
+    },
+    {
+      "id": "49",
+      "rule_configuration_id": "42",
+      "budget_amount": "12000.00",
+      "incentive_amount": "1000.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:24:10.368415",
+      "label": "12000"
+    },
+    {
+      "id": "50",
+      "rule_configuration_id": "46",
+      "budget_amount": "50000.00",
+      "incentive_amount": "1500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:40:35.066534",
+      "label": "50000"
+    },
+    {
+      "id": "52",
+      "rule_configuration_id": "49",
+      "budget_amount": "50000.00",
+      "incentive_amount": "1500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:47:11.544238",
+      "label": "50000"
+    },
+    {
+      "id": "53",
+      "rule_configuration_id": "51",
+      "budget_amount": "50000.00",
+      "incentive_amount": "1500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:48:26.958042",
+      "label": "50000"
+    },
+    {
+      "id": "54",
+      "rule_configuration_id": "55",
+      "budget_amount": "8000.00",
+      "incentive_amount": "500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:48:27.692338",
+      "label": "8000"
+    },
+    {
+      "id": "55",
+      "rule_configuration_id": "55",
+      "budget_amount": "10000.00",
+      "incentive_amount": "700.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:48:27.692338",
+      "label": "10000"
+    },
+    {
+      "id": "56",
+      "rule_configuration_id": "55",
+      "budget_amount": "12000.00",
+      "incentive_amount": "1000.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:48:27.692338",
+      "label": "12000"
+    },
+    {
+      "id": "57",
+      "rule_configuration_id": "58",
+      "budget_amount": "8000.00",
+      "incentive_amount": "500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:52:17.534341",
+      "label": "8000"
+    },
+    {
+      "id": "58",
+      "rule_configuration_id": "58",
+      "budget_amount": "10000.00",
+      "incentive_amount": "700.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:52:17.534341",
+      "label": "10000"
+    },
+    {
+      "id": "59",
+      "rule_configuration_id": "58",
+      "budget_amount": "12000.00",
+      "incentive_amount": "1000.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:52:17.534341",
+      "label": "12000"
+    },
+    {
+      "id": "60",
+      "rule_configuration_id": "62",
+      "budget_amount": "50000.00",
+      "incentive_amount": "1500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:52:18.247949",
+      "label": "50000"
+    },
+    {
+      "id": "61",
+      "rule_configuration_id": "63",
+      "budget_amount": "23600.00",
+      "incentive_amount": "1500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 04:13:51.620008",
+      "label": "23600"
+    },
+    {
+      "id": "65",
+      "rule_configuration_id": "64",
+      "budget_amount": "23600.00",
+      "incentive_amount": "1500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 04:55:59.161374",
+      "label": "23600"
+    },
+    {
+      "id": "66",
+      "rule_configuration_id": "64",
+      "budget_amount": "29500.00",
+      "incentive_amount": "2000.00",
+      "is_active": true,
+      "created_at": "2026-05-04 04:55:59.161374",
+      "label": "29500"
+    },
+    {
+      "id": "67",
+      "rule_configuration_id": "65",
+      "budget_amount": "11800.00",
+      "incentive_amount": "800.00",
+      "is_active": true,
+      "created_at": "2026-05-04 05:31:12.282717",
+      "label": "11800"
+    },
+    {
+      "id": "69",
+      "rule_configuration_id": "66",
+      "budget_amount": "11800.00",
+      "incentive_amount": "800.00",
+      "is_active": true,
+      "created_at": "2026-05-04 05:35:55.980857",
+      "label": "11800"
+    },
+    {
+      "id": "70",
+      "rule_configuration_id": "47",
+      "budget_amount": "50000.00",
+      "incentive_amount": "1500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 06:13:03.793498",
+      "label": "50000"
+    },
+    {
+      "id": "71",
+      "rule_configuration_id": "67",
+      "budget_amount": "11800.00",
+      "incentive_amount": "800.00",
+      "is_active": true,
+      "created_at": "2026-05-04 23:04:10.566662",
+      "label": "11800"
+    },
+    {
+      "id": "75",
+      "rule_configuration_id": "71",
+      "budget_amount": "11800.00",
+      "incentive_amount": "800.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:53.129243",
+      "label": "11800"
+    },
+    {
+      "id": "76",
+      "rule_configuration_id": "72",
+      "budget_amount": "11800.00",
+      "incentive_amount": "800.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:53.388306",
+      "label": "11800"
+    },
+    {
+      "id": "77",
+      "rule_configuration_id": "73",
+      "budget_amount": "23600.00",
+      "incentive_amount": "1500.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:53.558403",
+      "label": "23600"
+    },
+    {
+      "id": "78",
+      "rule_configuration_id": "73",
+      "budget_amount": "29500.00",
+      "incentive_amount": "2000.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:53.558403",
+      "label": "29500"
+    },
+    {
+      "id": "79",
+      "rule_configuration_id": "74",
+      "budget_amount": "23600.00",
+      "incentive_amount": "1500.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:53.79898",
+      "label": "23600"
+    },
+    {
+      "id": "80",
+      "rule_configuration_id": "76",
+      "budget_amount": "50000.00",
+      "incentive_amount": "1500.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:54.237699",
+      "label": "50000"
+    },
+    {
+      "id": "81",
+      "rule_configuration_id": "79",
+      "budget_amount": "8000.00",
+      "incentive_amount": "500.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:55.054902",
+      "label": "8000"
+    },
+    {
+      "id": "82",
+      "rule_configuration_id": "79",
+      "budget_amount": "10000.00",
+      "incentive_amount": "700.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:55.054902",
+      "label": "10000"
+    },
+    {
+      "id": "83",
+      "rule_configuration_id": "79",
+      "budget_amount": "12000.00",
+      "incentive_amount": "1000.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:55.054902",
+      "label": "12000"
+    },
+    {
+      "id": "84",
+      "rule_configuration_id": "69",
+      "budget_amount": "8000.00",
+      "incentive_amount": "500.00",
+      "is_active": true,
+      "created_at": "2026-05-05 22:45:03.12164",
+      "label": "8000"
+    },
+    {
+      "id": "85",
+      "rule_configuration_id": "69",
+      "budget_amount": "10000.00",
+      "incentive_amount": "800.00",
+      "is_active": true,
+      "created_at": "2026-05-05 22:45:03.12164",
+      "label": "10000"
+    },
+    {
+      "id": "86",
+      "rule_configuration_id": "69",
+      "budget_amount": "12000.00",
+      "incentive_amount": "1000.00",
+      "is_active": true,
+      "created_at": "2026-05-05 22:45:03.12164",
+      "label": "12000"
+    },
+    {
+      "id": "87",
+      "rule_configuration_id": "81",
+      "budget_amount": "17700.00",
+      "incentive_amount": "800.00",
+      "is_active": true,
+      "created_at": "2026-05-09 00:25:56.344525",
+      "label": "17700"
+    },
+    {
+      "id": "88",
+      "rule_configuration_id": "82",
+      "budget_amount": "35400.00",
+      "incentive_amount": "1800.00",
+      "is_active": true,
+      "created_at": "2026-05-09 00:26:26.284524",
+      "label": "35400"
+    },
+    {
+      "id": "89",
+      "rule_configuration_id": "83",
+      "budget_amount": "8000.00",
+      "incentive_amount": "800.00",
+      "is_active": true,
+      "created_at": "2026-05-09 00:27:02.669562",
+      "label": "8000"
+    },
+    {
+      "id": "90",
+      "rule_configuration_id": "84",
+      "budget_amount": "17700.00",
+      "incentive_amount": "800.00",
+      "is_active": true,
+      "created_at": "2026-05-09 03:28:35.44525",
+      "label": "17700"
+    }
+  ],
+  "slab_rules": [
+    {
+      "id": "176",
+      "rule_configuration_id": "41",
+      "min_slab": "60.00",
+      "max_slab": "89.00",
+      "incentive_amount": "1200.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:18:36.48339"
+    },
+    {
+      "id": "177",
+      "rule_configuration_id": "41",
+      "min_slab": "90.00",
+      "max_slab": "124.00",
+      "incentive_amount": "1700.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:18:36.48339"
+    },
+    {
+      "id": "178",
+      "rule_configuration_id": "41",
+      "min_slab": "125.00",
+      "max_slab": "149.00",
+      "incentive_amount": "2500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:18:36.48339"
+    },
+    {
+      "id": "179",
+      "rule_configuration_id": "41",
+      "min_slab": "150.00",
+      "max_slab": null,
+      "incentive_amount": "3193.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:18:36.48339"
+    },
+    {
+      "id": "180",
+      "rule_configuration_id": "43",
+      "min_slab": "30.00",
+      "max_slab": "49.00",
+      "incentive_amount": "500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:26:17.5979"
+    },
+    {
+      "id": "181",
+      "rule_configuration_id": "43",
+      "min_slab": "50.00",
+      "max_slab": "69.00",
+      "incentive_amount": "1500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:26:17.5979"
+    },
+    {
+      "id": "182",
+      "rule_configuration_id": "43",
+      "min_slab": "70.00",
+      "max_slab": "89.00",
+      "incentive_amount": "2000.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:26:17.5979"
+    },
+    {
+      "id": "183",
+      "rule_configuration_id": "43",
+      "min_slab": "90.00",
+      "max_slab": "124.00",
+      "incentive_amount": "2500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:26:17.5979"
+    },
+    {
+      "id": "184",
+      "rule_configuration_id": "43",
+      "min_slab": "125.00",
+      "max_slab": "149.00",
+      "incentive_amount": "3200.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:26:17.5979"
+    },
+    {
+      "id": "185",
+      "rule_configuration_id": "43",
+      "min_slab": "150.00",
+      "max_slab": null,
+      "incentive_amount": "4000.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:26:17.5979"
+    },
+    {
+      "id": "186",
+      "rule_configuration_id": "44",
+      "min_slab": "1.00",
+      "max_slab": "19.00",
+      "incentive_amount": "5000.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:27:15.292457"
+    },
+    {
+      "id": "187",
+      "rule_configuration_id": "44",
+      "min_slab": "20.00",
+      "max_slab": null,
+      "incentive_amount": "8000.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:27:15.292457"
+    },
+    {
+      "id": "188",
+      "rule_configuration_id": "45",
+      "min_slab": "60.00",
+      "max_slab": "89.00",
+      "incentive_amount": "1000.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:29:55.800433"
+    },
+    {
+      "id": "189",
+      "rule_configuration_id": "45",
+      "min_slab": "90.00",
+      "max_slab": "124.00",
+      "incentive_amount": "1500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:29:55.800433"
+    },
+    {
+      "id": "190",
+      "rule_configuration_id": "45",
+      "min_slab": "125.00",
+      "max_slab": "159.00",
+      "incentive_amount": "2200.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:29:55.800433"
+    },
+    {
+      "id": "191",
+      "rule_configuration_id": "45",
+      "min_slab": "160.00",
+      "max_slab": null,
+      "incentive_amount": "3200.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:29:55.800433"
+    },
+    {
+      "id": "192",
+      "rule_configuration_id": "48",
+      "min_slab": "60.00",
+      "max_slab": "89.00",
+      "incentive_amount": "1000.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:46:55.01189"
+    },
+    {
+      "id": "193",
+      "rule_configuration_id": "48",
+      "min_slab": "90.00",
+      "max_slab": "124.00",
+      "incentive_amount": "1500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:46:55.01189"
+    },
+    {
+      "id": "194",
+      "rule_configuration_id": "48",
+      "min_slab": "125.00",
+      "max_slab": "159.00",
+      "incentive_amount": "2200.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:46:55.01189"
+    },
+    {
+      "id": "195",
+      "rule_configuration_id": "48",
+      "min_slab": "160.00",
+      "max_slab": null,
+      "incentive_amount": "3200.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:46:55.01189"
+    },
+    {
+      "id": "200",
+      "rule_configuration_id": "52",
+      "min_slab": "60.00",
+      "max_slab": "89.00",
+      "incentive_amount": "1000.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:48:27.213584"
+    },
+    {
+      "id": "201",
+      "rule_configuration_id": "52",
+      "min_slab": "90.00",
+      "max_slab": "124.00",
+      "incentive_amount": "1500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:48:27.213584"
+    },
+    {
+      "id": "202",
+      "rule_configuration_id": "52",
+      "min_slab": "125.00",
+      "max_slab": "159.00",
+      "incentive_amount": "2200.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:48:27.213584"
+    },
+    {
+      "id": "203",
+      "rule_configuration_id": "52",
+      "min_slab": "160.00",
+      "max_slab": null,
+      "incentive_amount": "3200.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:48:27.213584"
+    },
+    {
+      "id": "204",
+      "rule_configuration_id": "53",
+      "min_slab": "1.00",
+      "max_slab": "19.00",
+      "incentive_amount": "5000.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:48:27.317255"
+    },
+    {
+      "id": "205",
+      "rule_configuration_id": "53",
+      "min_slab": "20.00",
+      "max_slab": null,
+      "incentive_amount": "8000.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:48:27.317255"
+    },
+    {
+      "id": "206",
+      "rule_configuration_id": "54",
+      "min_slab": "30.00",
+      "max_slab": "49.00",
+      "incentive_amount": "500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:48:27.579598"
+    },
+    {
+      "id": "207",
+      "rule_configuration_id": "54",
+      "min_slab": "50.00",
+      "max_slab": "69.00",
+      "incentive_amount": "1500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:48:27.579598"
+    },
+    {
+      "id": "208",
+      "rule_configuration_id": "54",
+      "min_slab": "70.00",
+      "max_slab": "89.00",
+      "incentive_amount": "2000.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:48:27.579598"
+    },
+    {
+      "id": "209",
+      "rule_configuration_id": "54",
+      "min_slab": "90.00",
+      "max_slab": "124.00",
+      "incentive_amount": "2500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:48:27.579598"
+    },
+    {
+      "id": "210",
+      "rule_configuration_id": "54",
+      "min_slab": "125.00",
+      "max_slab": "149.00",
+      "incentive_amount": "3200.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:48:27.579598"
+    },
+    {
+      "id": "211",
+      "rule_configuration_id": "54",
+      "min_slab": "150.00",
+      "max_slab": null,
+      "incentive_amount": "4000.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:48:27.579598"
+    },
+    {
+      "id": "212",
+      "rule_configuration_id": "56",
+      "min_slab": "60.00",
+      "max_slab": "89.00",
+      "incentive_amount": "1200.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:48:27.942159"
+    },
+    {
+      "id": "213",
+      "rule_configuration_id": "56",
+      "min_slab": "90.00",
+      "max_slab": "124.00",
+      "incentive_amount": "1700.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:48:27.942159"
+    },
+    {
+      "id": "214",
+      "rule_configuration_id": "56",
+      "min_slab": "125.00",
+      "max_slab": "149.00",
+      "incentive_amount": "2500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:48:27.942159"
+    },
+    {
+      "id": "215",
+      "rule_configuration_id": "56",
+      "min_slab": "150.00",
+      "max_slab": null,
+      "incentive_amount": "3193.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:48:27.942159"
+    },
+    {
+      "id": "220",
+      "rule_configuration_id": "57",
+      "min_slab": "60.00",
+      "max_slab": "89.00",
+      "incentive_amount": "1200.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:52:17.1624"
+    },
+    {
+      "id": "221",
+      "rule_configuration_id": "57",
+      "min_slab": "90.00",
+      "max_slab": "124.00",
+      "incentive_amount": "1700.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:52:17.1624"
+    },
+    {
+      "id": "222",
+      "rule_configuration_id": "57",
+      "min_slab": "125.00",
+      "max_slab": "149.00",
+      "incentive_amount": "2500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:52:17.1624"
+    },
+    {
+      "id": "223",
+      "rule_configuration_id": "57",
+      "min_slab": "150.00",
+      "max_slab": null,
+      "incentive_amount": "3193.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:52:17.1624"
+    },
+    {
+      "id": "224",
+      "rule_configuration_id": "59",
+      "min_slab": "30.00",
+      "max_slab": "49.00",
+      "incentive_amount": "500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:52:17.792506"
+    },
+    {
+      "id": "225",
+      "rule_configuration_id": "59",
+      "min_slab": "50.00",
+      "max_slab": "69.00",
+      "incentive_amount": "1500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:52:17.792506"
+    },
+    {
+      "id": "226",
+      "rule_configuration_id": "59",
+      "min_slab": "70.00",
+      "max_slab": "89.00",
+      "incentive_amount": "2000.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:52:17.792506"
+    },
+    {
+      "id": "227",
+      "rule_configuration_id": "59",
+      "min_slab": "90.00",
+      "max_slab": "124.00",
+      "incentive_amount": "2500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:52:17.792506"
+    },
+    {
+      "id": "228",
+      "rule_configuration_id": "59",
+      "min_slab": "125.00",
+      "max_slab": "149.00",
+      "incentive_amount": "3200.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:52:17.792506"
+    },
+    {
+      "id": "229",
+      "rule_configuration_id": "59",
+      "min_slab": "150.00",
+      "max_slab": null,
+      "incentive_amount": "4000.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:52:17.792506"
+    },
+    {
+      "id": "230",
+      "rule_configuration_id": "60",
+      "min_slab": "1.00",
+      "max_slab": "19.00",
+      "incentive_amount": "5000.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:52:17.885682"
+    },
+    {
+      "id": "231",
+      "rule_configuration_id": "60",
+      "min_slab": "20.00",
+      "max_slab": null,
+      "incentive_amount": "8000.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:52:17.885682"
+    },
+    {
+      "id": "232",
+      "rule_configuration_id": "61",
+      "min_slab": "60.00",
+      "max_slab": "89.00",
+      "incentive_amount": "1000.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:52:18.153463"
+    },
+    {
+      "id": "233",
+      "rule_configuration_id": "61",
+      "min_slab": "90.00",
+      "max_slab": "124.00",
+      "incentive_amount": "1500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:52:18.153463"
+    },
+    {
+      "id": "234",
+      "rule_configuration_id": "61",
+      "min_slab": "125.00",
+      "max_slab": "159.00",
+      "incentive_amount": "2200.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:52:18.153463"
+    },
+    {
+      "id": "235",
+      "rule_configuration_id": "61",
+      "min_slab": "160.00",
+      "max_slab": null,
+      "incentive_amount": "3200.00",
+      "is_active": true,
+      "created_at": "2026-05-04 03:52:18.153463"
+    },
+    {
+      "id": "252",
+      "rule_configuration_id": "50",
+      "min_slab": "60.00",
+      "max_slab": "89.00",
+      "incentive_amount": "1000.00",
+      "is_active": true,
+      "created_at": "2026-05-04 06:37:12.73604"
+    },
+    {
+      "id": "253",
+      "rule_configuration_id": "50",
+      "min_slab": "90.00",
+      "max_slab": "124.00",
+      "incentive_amount": "1500.00",
+      "is_active": true,
+      "created_at": "2026-05-04 06:37:12.73604"
+    },
+    {
+      "id": "254",
+      "rule_configuration_id": "50",
+      "min_slab": "125.00",
+      "max_slab": "159.00",
+      "incentive_amount": "2200.00",
+      "is_active": true,
+      "created_at": "2026-05-04 06:37:12.73604"
+    },
+    {
+      "id": "255",
+      "rule_configuration_id": "50",
+      "min_slab": "160.00",
+      "max_slab": null,
+      "incentive_amount": "3200.00",
+      "is_active": true,
+      "created_at": "2026-05-04 06:37:12.73604"
+    },
+    {
+      "id": "256",
+      "rule_configuration_id": "68",
+      "min_slab": "25.00",
+      "max_slab": "30.00",
+      "incentive_amount": "1000.00",
+      "is_active": true,
+      "created_at": "2026-05-05 07:22:19.959221"
+    },
+    {
+      "id": "257",
+      "rule_configuration_id": "68",
+      "min_slab": "31.00",
+      "max_slab": "50.00",
+      "incentive_amount": "1500.00",
+      "is_active": true,
+      "created_at": "2026-05-05 07:22:19.959221"
+    },
+    {
+      "id": "258",
+      "rule_configuration_id": "68",
+      "min_slab": "51.00",
+      "max_slab": null,
+      "incentive_amount": "2000.00",
+      "is_active": true,
+      "created_at": "2026-05-05 07:22:19.959221"
+    },
+    {
+      "id": "265",
+      "rule_configuration_id": "75",
+      "min_slab": "60.00",
+      "max_slab": "89.00",
+      "incentive_amount": "1000.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:53.954734"
+    },
+    {
+      "id": "266",
+      "rule_configuration_id": "75",
+      "min_slab": "90.00",
+      "max_slab": "124.00",
+      "incentive_amount": "1500.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:53.954734"
+    },
+    {
+      "id": "267",
+      "rule_configuration_id": "75",
+      "min_slab": "125.00",
+      "max_slab": "159.00",
+      "incentive_amount": "2200.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:53.954734"
+    },
+    {
+      "id": "268",
+      "rule_configuration_id": "75",
+      "min_slab": "160.00",
+      "max_slab": null,
+      "incentive_amount": "3200.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:53.954734"
+    },
+    {
+      "id": "269",
+      "rule_configuration_id": "77",
+      "min_slab": "1.00",
+      "max_slab": "19.00",
+      "incentive_amount": "5000.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:54.364965"
+    },
+    {
+      "id": "270",
+      "rule_configuration_id": "77",
+      "min_slab": "20.00",
+      "max_slab": null,
+      "incentive_amount": "8000.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:54.364965"
+    },
+    {
+      "id": "271",
+      "rule_configuration_id": "78",
+      "min_slab": "30.00",
+      "max_slab": "49.00",
+      "incentive_amount": "500.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:54.79216"
+    },
+    {
+      "id": "272",
+      "rule_configuration_id": "78",
+      "min_slab": "50.00",
+      "max_slab": "69.00",
+      "incentive_amount": "1500.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:54.79216"
+    },
+    {
+      "id": "273",
+      "rule_configuration_id": "78",
+      "min_slab": "70.00",
+      "max_slab": "89.00",
+      "incentive_amount": "2000.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:54.79216"
+    },
+    {
+      "id": "274",
+      "rule_configuration_id": "78",
+      "min_slab": "90.00",
+      "max_slab": "124.00",
+      "incentive_amount": "2500.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:54.79216"
+    },
+    {
+      "id": "275",
+      "rule_configuration_id": "78",
+      "min_slab": "125.00",
+      "max_slab": "149.00",
+      "incentive_amount": "3200.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:54.79216"
+    },
+    {
+      "id": "276",
+      "rule_configuration_id": "78",
+      "min_slab": "150.00",
+      "max_slab": null,
+      "incentive_amount": "4000.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:54.79216"
+    },
+    {
+      "id": "277",
+      "rule_configuration_id": "80",
+      "min_slab": "60.00",
+      "max_slab": "89.00",
+      "incentive_amount": "1200.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:55.22983"
+    },
+    {
+      "id": "278",
+      "rule_configuration_id": "80",
+      "min_slab": "90.00",
+      "max_slab": "124.00",
+      "incentive_amount": "1700.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:55.22983"
+    },
+    {
+      "id": "279",
+      "rule_configuration_id": "80",
+      "min_slab": "125.00",
+      "max_slab": "149.00",
+      "incentive_amount": "2500.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:55.22983"
+    },
+    {
+      "id": "280",
+      "rule_configuration_id": "80",
+      "min_slab": "150.00",
+      "max_slab": null,
+      "incentive_amount": "3193.00",
+      "is_active": true,
+      "created_at": "2026-05-05 10:55:55.22983"
+    },
+    {
+      "id": "285",
+      "rule_configuration_id": "70",
+      "min_slab": "1.00",
+      "max_slab": "35.00",
+      "incentive_amount": "1000.00",
+      "is_active": true,
+      "created_at": "2026-05-05 22:36:35.657983"
+    },
+    {
+      "id": "286",
+      "rule_configuration_id": "70",
+      "min_slab": "36.00",
+      "max_slab": null,
+      "incentive_amount": "1200.00",
+      "is_active": true,
+      "created_at": "2026-05-05 22:36:35.657983"
+    }
+  ]
+}

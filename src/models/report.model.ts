@@ -561,6 +561,8 @@ export interface PaymentsListRow {
   paymentId: number | null;
   clientId: number | null;
   saleTypeId: number | null;
+  saleType: string | null;
+  productType: string | null;
   totalPayment: string | null;
   invoiceNo: string | null;
   remarks: string | null;
@@ -749,9 +751,11 @@ export const getPaymentsList = async (
 ): Promise<PaymentsListResult> => {
   const { start, end } = getPaymentsListDateRange(filter, startDate, endDate);
   const scope = await getReportScope(userId, userRole, counsellorId != null ? { counsellorId } : undefined);
-  const allowedCounsellorIds = scope.counsellorIds;
+  // Payments attribution can point to handled_by or client owner.
+  // Include both counsellors and managers so manager-handled payments are visible too.
+  const allowedUserIds = [...new Set([...scope.counsellorIds, ...scope.managerIds])];
 
-  if (allowedCounsellorIds.length === 0) {
+  if (allowedUserIds.length === 0) {
     return {
       filter,
       startDate: start,
@@ -778,7 +782,8 @@ export const getPaymentsList = async (
       owner_u.full_name      AS client_owner,
       adder_u.full_name      AS added_by,
       CASE WHEN ci.transfer_status = true THEN 'Yes' ELSE 'No' END AS shared_client,
-      ci.archived
+      ci.archived,
+      st.sale_type           AS sale_type_name
     FROM (
 
       -- ── Core sale payments (INITIAL / BEFORE_VISA / AFTER_VISA) ──────────
@@ -1043,12 +1048,13 @@ export const getPaymentsList = async (
     INNER JOIN client_information ci ON ci.id = p.client_id
     LEFT JOIN users owner_u ON owner_u.id = ci.counsellor_id
     LEFT JOIN users adder_u ON adder_u.id = p.handled_by
+    LEFT JOIN sale_type st ON st.id = p.sale_type_id
     WHERE COALESCE(p.handled_by, ci.counsellor_id) = ANY($3::bigint[])
       AND (ci.archived = false OR ci.archived IS NULL)
     ORDER BY p.payment_date DESC, ci.fullname ASC
   `;
 
-  const result = await pool.query(query, [start, end, allowedCounsellorIds]);
+  const result = await pool.query(query, [start, end, allowedUserIds]);
 
   const toPaymentType = (raw: string | null | undefined): string => {
     if (!raw) return "";
@@ -1059,23 +1065,28 @@ export const getPaymentsList = async (
       .replace(/\b\w/g, (c) => c.toUpperCase());
   };
 
-  const data: PaymentsListRow[] = result.rows.map((row) => ({
-    paymentId: row.payment_id ? Number(row.payment_id) : null,
-    clientId: row.client_id ? Number(row.client_id) : null,
-    saleTypeId: row.sale_type_id ? Number(row.sale_type_id) : null,
-    totalPayment: row.total_payment ?? null,
-    invoiceNo: row.invoice_no ?? null,
-    remarks: row.remarks ?? null,
-    source: row.source === "payment" ? "payment" : "product",
-    date: formatDisplayDate(row.payment_date),
-    clientName: row.client_name ?? "",
-    paymentType: toPaymentType(row.payment_type),
-    amount: row.amount != null ? String(row.amount) : "0",
-    clientOwner: row.client_owner ?? "",
-    addedBy: row.added_by ?? "",
-    sharedClient: row.shared_client === "Yes" ? "Yes" : "No",
-    archived: row.archived === true,
-  }));
+  const data: PaymentsListRow[] = result.rows.map((row) => {
+    const isPayment = row.source === "payment";
+    return {
+      paymentId: row.payment_id ? Number(row.payment_id) : null,
+      clientId: row.client_id ? Number(row.client_id) : null,
+      saleTypeId: row.sale_type_id ? Number(row.sale_type_id) : null,
+      saleType: isPayment ? (row.sale_type_name ?? null) : null,
+      productType: !isPayment ? toPaymentType(row.payment_type) : null,
+      totalPayment: row.total_payment ?? null,
+      invoiceNo: row.invoice_no ?? null,
+      remarks: row.remarks ?? null,
+      source: isPayment ? "payment" : "product",
+      date: formatDisplayDate(row.payment_date),
+      clientName: row.client_name ?? "",
+      paymentType: toPaymentType(row.payment_type),
+      amount: row.amount != null ? String(row.amount) : "0",
+      clientOwner: row.client_owner ?? "",
+      addedBy: row.added_by ?? "",
+      sharedClient: row.shared_client === "Yes" ? "Yes" : "No",
+      archived: row.archived === true,
+    };
+  });
 
   return {
     filter,
