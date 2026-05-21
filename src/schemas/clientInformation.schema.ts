@@ -35,7 +35,7 @@ import {
   boolean,
 } from "drizzle-orm/pg-core";
 import { users } from "./users.schema";
-import { leadTypes } from "./leadType.schema";
+import { leadTypes } from "../Leads/schemas/leadType.schema";
 
 export const clientInformation = pgTable(
   "client_information",

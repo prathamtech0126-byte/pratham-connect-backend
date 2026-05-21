@@ -5,7 +5,7 @@ import { clientInformation } from "./../schemas/clientInformation.schema";
 import { leaderBoard } from "./../schemas/leaderBoard.schema";
 import { managerTargets } from "./../schemas/managerTargets.schema";
 import { activityLog } from "./../schemas/activityLog.schema";
-import { eq, ne, and, count, inArray, or } from "drizzle-orm";
+import { eq, ne, and, count, inArray, or, asc } from "drizzle-orm";
 import { ROLES, Role, isRole } from "../types/role";
 
 /**
@@ -138,6 +138,8 @@ export const createUser = async (
     throw new Error("Only counsellors and telecallers can have a manager");
   }
 
+  // front_desk users don't need a manager and can't be supervisors
+
   // Only managers can be supervisors (Developer is admin-like, skip this check)
   if (data.isSupervisor && finalRole !== "manager" && finalRole !== "developer") {
     throw new Error("Only managers can be supervisors");
@@ -239,7 +241,9 @@ export const getAllUsersWithManagerDetails = async () => {
       or(
         eq(users.role, "admin"),
         eq(users.role, "manager"),
-        eq(users.role, "counsellor")
+        eq(users.role, "counsellor"),
+        eq(users.role, "telecaller"),
+        eq(users.role, "tech_support")
       )
     );
 
@@ -281,7 +285,12 @@ export const getAllUsersWithManagerDetailsExcludeAdmin = async () => {
     .where(
       and(
         ne(users.role, "admin"),
-        or(eq(users.role, "manager"), eq(users.role, "counsellor"))
+        or(
+          eq(users.role, "manager"),
+          eq(users.role, "counsellor"),
+          eq(users.role, "telecaller"),
+          eq(users.role, "tech_support")
+        )
       )
     );
 
@@ -334,7 +343,10 @@ export const getManagerTeamWithManagerDetails = async (managerId: number) => {
     .where(
       or(
         eq(users.id, managerId),
-        and(eq(users.role, "counsellor"), eq(users.managerId, managerId))
+        and(
+          or(eq(users.role, "counsellor"), eq(users.role, "telecaller")),
+          eq(users.managerId, managerId)
+        )
       )
     );
 
@@ -590,6 +602,8 @@ export const getAllManagers = async () => {
     .where(eq(users.role, "manager"));
 };
 
+
+
 // Get all counsellors
 export const getAllCounsellors = async () => {
   // Get all counsellors with their client counts
@@ -607,6 +621,27 @@ export const getAllCounsellors = async () => {
     .groupBy(users.id, users.fullName, users.email, users.managerId);
 
   return counsellorsWithClientCount;
+};
+
+// Get all telecallers
+export const getAllTelecallers = async () => {
+  const telecallers = await db
+    .select({
+      id: users.id,
+      fullName: users.fullName,
+      email: users.email,
+      managerId: users.managerId,
+      officePhone: users.officePhone,
+      personalPhone: users.personalPhone,
+      designation: users.designation,
+      status: users.status,
+      createdAt: users.createdAt,
+    })
+    .from(users)
+    .where(eq(users.role, "telecaller"))
+    .orderBy(asc(users.fullName));
+
+  return telecallers;
 };
 
 // Get counsellor by id

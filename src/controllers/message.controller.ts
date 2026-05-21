@@ -7,6 +7,7 @@ import {
   acknowledgeMessage,
   getMessageAcknowledgmentStatus,
   deactivateMessage,
+  BROADCAST_RECIPIENT_ROLES,
 } from "../models/message.model";
 import {
   sendBroadcastMessage,
@@ -243,10 +244,10 @@ export const getInboxMessagesController = async (
     }
 
     const userRole = authReq.user.role;
-    if (userRole !== "manager" && userRole !== "counsellor") {
+    if (!BROADCAST_RECIPIENT_ROLES.includes(userRole as (typeof BROADCAST_RECIPIENT_ROLES)[number])) {
       return res.status(403).json({
         success: false,
-        message: "Only managers and counsellors can receive messages",
+        message: "Your role cannot receive broadcast messages",
       });
     }
 
@@ -314,10 +315,10 @@ export const getUnacknowledgedMessagesController = async (
     }
 
     const userRole = authReq.user.role;
-    if (userRole !== "manager" && userRole !== "counsellor") {
+    if (!BROADCAST_RECIPIENT_ROLES.includes(userRole as (typeof BROADCAST_RECIPIENT_ROLES)[number])) {
       return res.status(403).json({
         success: false,
-        message: "Only managers and counsellors can receive messages",
+        message: "Your role cannot receive broadcast messages",
       });
     }
 

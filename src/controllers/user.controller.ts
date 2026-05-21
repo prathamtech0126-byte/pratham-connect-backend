@@ -9,6 +9,7 @@ import {
   deleteUserByAdmin,
   getAllManagers,
   getAllCounsellors,
+  getAllTelecallers,
   getCounsellorsByManagerId,
   getManagersWithCounsellors,
   changePassword,
@@ -27,10 +28,12 @@ import jwt from "jsonwebtoken";
 import { Role } from "../types/role";
 import { AuthenticatedRequest } from "../types/express-auth";
 import { logActivity } from "../services/activityLog.service";
+import { logFrontDeskActivity } from "../Leads/frontdesk/models/frontdesk.model";
 import { redisDelByPrefix, redisGetJson, redisSetJson } from "../config/redis";
 import crypto from "crypto";
+import { unassignDevicesForUserLeavingController } from "./deviceInventory.controller";
 
-const USERS_CACHE_TTL_SECONDS = 300; // 5 min
+const USERS_CACHE_TTL_SECONDS = 100; // 5 min
 /* ================================
    REGISTER
 ================================ */
@@ -97,16 +100,18 @@ export const registerUser = async (req: Request, res: Response) => {
       try {
         await redisDelByPrefix("users:");
         // Repopulate user caches so new user appears instantly on next list requests
-        const [usersList, managersList, counsellorsList, managersWithCounsellorsList] =
+        const [usersList, managersList, counsellorsList, managersWithCounsellorsList,telecallersList] =
           await Promise.all([
             getAllUsers(),
             getAllManagers(),
             getAllCounsellors(),
+            getAllTelecallers(),
             getManagersWithCounsellors(),
           ]);
         await Promise.all([
           redisSetJson("users:all", usersList, USERS_CACHE_TTL_SECONDS),
           redisSetJson("users:managers", managersList, USERS_CACHE_TTL_SECONDS),
+          redisSetJson("users:telecallers", telecallersList, USERS_CACHE_TTL_SECONDS),
           redisSetJson("users:counsellors", counsellorsList, USERS_CACHE_TTL_SECONDS),
           redisSetJson("users:managers-with-counsellors", managersWithCounsellorsList, USERS_CACHE_TTL_SECONDS),
         ]);
@@ -249,6 +254,19 @@ export const login = async (req: Request, res: Response) => {
   } catch (activityError) {
     // Don't fail the request if activity log fails
     console.error("Activity log error in login:", activityError);
+  }
+
+  if (user.role === "front_desk") {
+    try {
+      await logFrontDeskActivity({
+        userId: user.id,
+        action: "login",
+        description: `Front desk logged in: ${user.fullName}`,
+        metadata: { email: user.email, sessionId },
+      });
+    } catch (activityError) {
+      console.error("Front desk activity log error in login:", activityError);
+    }
   }
 
   res.json({
@@ -480,6 +498,18 @@ export const logout = async (req: Request, res: Response) => {
       // Don't fail the request if activity log fails
       console.error("Activity log error in logout:", activityError);
     }
+
+    if (authReq.user?.role === "front_desk") {
+      try {
+        await logFrontDeskActivity({
+          userId,
+          action: "logout",
+          description: "Front desk logged out",
+        });
+      } catch (activityError) {
+        console.error("Front desk activity log error in logout:", activityError);
+      }
+    }
   }
 
   // Clear cookies with same options as when they were set
@@ -633,6 +663,17 @@ export const updateUserController = async (req: Request, res: Response) => {
     }
 
     const updatedUser = await updateUserByAdmin(userId, payload as any);
+
+    // If a user is marked inactive/left company, automatically unassign their devices.
+    // This keeps device "current + last 4 past users" history consistent.
+    if (payload.status === false && oldValue?.status === true) {
+      try {
+        await unassignDevicesForUserLeavingController(userId);
+      } catch (e) {
+        // Don't fail the user update request if device unassignment has an issue.
+        console.error("Failed to unassign devices for leaving user:", e);
+      }
+    }
 
     // Log activity
     try {
@@ -879,6 +920,51 @@ export const getAllCounsellorsAdminController = async (req: Request, res: Respon
   const counsellors = await getAllCounsellors();
   await redisSetJson(cacheKey, counsellors, USERS_CACHE_TTL_SECONDS);
   res.json({ success: true, count: counsellors.length, data: counsellors });
+};
+
+/**
+ * Get all telecallers
+ * Admin / Developer / Manager only
+ */
+export const getAllTelecallersController = async (
+  _req: Request,
+  res: Response
+) => {
+  try {
+    const cacheKey = "users:telecallers";
+
+    const cached = await redisGetJson<any[]>(cacheKey);
+
+    if (cached) {
+      return res.json({
+        success: true,
+        count: cached.length,
+        data: cached,
+        cached: true,
+      });
+    }
+
+    const telecallers = await getAllTelecallers();
+
+    await redisSetJson(
+      cacheKey,
+      telecallers,
+      USERS_CACHE_TTL_SECONDS
+    );
+
+    return res.json({
+      success: true,
+      count: telecallers.length,
+      data: telecallers,
+    });
+  } catch (error: any) {
+    console.error("Get telecallers error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load telecallers",
+    });
+  }
 };
 
 export const getCounsellorsByManagerController = async (req: Request, res: Response) => {

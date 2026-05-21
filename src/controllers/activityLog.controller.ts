@@ -12,6 +12,7 @@ const ACTIVITY_LOGS_CACHE_TTL_SECONDS = 90;
  * - Admin: All logs
  * - Manager: Only counsellor activities
  * - Counsellor: Own activities + Manager activities on their clients
+ * - Telecaller: Own activities only
  */
 export const getActivityLogsController = async (
   req: Request,

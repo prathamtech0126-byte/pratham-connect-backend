@@ -8,7 +8,7 @@ import { eq, desc, inArray, and, or, gte, lte, ilike, sql } from "drizzle-orm";
 import { Request, Response } from "express";
 import { getPaymentsByClientId } from "./clientPayment.model";
 import { getProductPaymentsByClientId } from "./clientProductPayments.model";
-import { leadTypes } from "../schemas/leadType.schema";
+import { leadTypes } from "../Leads/schemas/leadType.schema";
 import { saleTypes } from "../schemas/saleType.schema";
 import { parseFrontendDate } from "../utils/date";
 
