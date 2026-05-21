@@ -18,7 +18,7 @@ import { db } from "../config/databaseConnection";
 import { inArray, sql } from "drizzle-orm";
 
 import { users } from "../schemas/users.schema";
-import { leadTypes } from "../schemas/leadType.schema";
+import { leadTypes } from "../Leads/schemas/leadType.schema";
 import { saleTypeCategories } from "../schemas/saleTypeCategory.schema";
 import { saleTypes } from "../schemas/saleType.schema";
 import { teams } from "../schemas/team.schema";
