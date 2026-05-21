@@ -19,7 +19,7 @@ import { newSell } from "../schemas/newSell.schema";
 import { visaExtension } from "../schemas/visaExtension.schema";
 import { allFinance } from "../schemas/allFinance.schema";
 import { users } from "../schemas/users.schema";
-import { eq, inArray, and, ne, sql, desc } from "drizzle-orm";
+import { eq, inArray, and, ne, sql, desc, asc } from "drizzle-orm";
 import { parseFrontendDate } from "../utils/date";
 
 // Helper function to safely fetch entities with error handling
@@ -1311,19 +1311,16 @@ export const saveClientProductPayment = async (
   return { action: "CREATED", record };
 };
 
+type ClientProductPaymentRow = typeof clientProductPayments.$inferSelect;
 
-export const getProductPaymentsByClientId = async (clientId: number) => {
+/** Same shape as rows in `GET /api/client/:id/complete` → `productPayments` (with `entity`). */
+export type ProductPaymentWithEntity = ClientProductPaymentRow & { entity: unknown };
 
-  // Order by payment date first (so "today" filter shows by date), then createdAt for null dates
-  const payments = await db
-    .select()
-    .from(clientProductPayments)
-    .where(eq(clientProductPayments.clientId, clientId))
-    .orderBy(desc(clientProductPayments.paymentDate), desc(clientProductPayments.createdAt));
-
+async function attachEntitiesToProductPayments(
+  payments: ClientProductPaymentRow[]
+): Promise<ProductPaymentWithEntity[]> {
   if (payments.length === 0) return [];
 
-  // Group payments by entity type to fetch data efficiently
   const entityGroups = payments.reduce((groups, payment) => {
     if (payment.entityId && payment.entityType !== "master_only") {
       if (!groups[payment.entityType]) {
@@ -1334,76 +1331,48 @@ export const getProductPaymentsByClientId = async (clientId: number) => {
     return groups;
   }, {} as Record<string, number[]>);
 
-  // Fetch entity data for each type
   const entityMaps: Record<string, Map<number, any>> = {};
 
-  // ---- SIM CARD ----
   if (entityGroups.simCard_id) {
     entityMaps.simCard_id = await fetchEntities(simCard, entityGroups.simCard_id, "simCard_id");
   }
-
-  // ---- AIR TICKET ----
   if (entityGroups.airTicket_id) {
     entityMaps.airTicket_id = await fetchEntities(airTicket, entityGroups.airTicket_id, "airTicket_id");
   }
-
-  // ---- IELTS ----
   if (entityGroups.ielts_id) {
     entityMaps.ielts_id = await fetchEntities(ielts, entityGroups.ielts_id, "ielts_id");
   }
-
-  // ---- LOAN ----
   if (entityGroups.loan_id) {
     entityMaps.loan_id = await fetchEntities(loan, entityGroups.loan_id, "loan_id");
   }
-
-  // ---- FOREX CARD ----
   if (entityGroups.forexCard_id) {
     entityMaps.forexCard_id = await fetchEntities(forexCard, entityGroups.forexCard_id, "forexCard_id");
   }
-
-  // ---- FOREX FEES ----
   if (entityGroups.forexFees_id) {
     entityMaps.forexFees_id = await fetchEntities(forexFees, entityGroups.forexFees_id, "forexFees_id");
   }
-
-  // ---- TUITION FEES ----
   if (entityGroups.tutionFees_id) {
     entityMaps.tutionFees_id = await fetchEntities(tutionFees, entityGroups.tutionFees_id, "tutionFees_id");
   }
-
-  // ---- INSURANCE ----
   if (entityGroups.insurance_id) {
     entityMaps.insurance_id = await fetchEntities(insurance, entityGroups.insurance_id, "insurance_id");
   }
-
-  // ---- BEACON ACCOUNT ----
   if (entityGroups.beaconAccount_id) {
     entityMaps.beaconAccount_id = await fetchEntities(beaconAccount, entityGroups.beaconAccount_id, "beaconAccount_id");
   }
-
-  // ---- CREDIT CARD ----
   if (entityGroups.creditCard_id) {
     entityMaps.creditCard_id = await fetchEntities(creditCard, entityGroups.creditCard_id, "creditCard_id");
   }
-
-  // ---- ALL FINANCE ----
   if (entityGroups.allFinance_id) {
     entityMaps.allFinance_id = await fetchEntities(allFinance, entityGroups.allFinance_id, "allFinance_id");
   }
-
-  // ---- NEW SELL ----
   if (entityGroups.newSell_id) {
     entityMaps.newSell_id = await fetchEntities(newSell, entityGroups.newSell_id, "newSell_id");
   }
-
-  // ---- VISA EXTENSION ----
   if (entityGroups.visaextension_id) {
     entityMaps.visaextension_id = await fetchEntities(visaExtension, entityGroups.visaextension_id, "visaextension_id");
   }
 
-  // ---- FETCH APPROVER DATA FOR ALL FINANCE ----
-  // Get approver user data for allFinance entities that have approvedBy
   const approverMap = new Map<number, any>();
   if (entityMaps.allFinance_id && entityMaps.allFinance_id.size > 0) {
     const allFinanceEntities = Array.from(entityMaps.allFinance_id.values());
@@ -1423,7 +1392,7 @@ export const getProductPaymentsByClientId = async (clientId: number) => {
         .from(users)
         .where(inArray(users.id, uniqueApproverIds));
 
-      approvers.forEach(approver => {
+      approvers.forEach((approver) => {
         approverMap.set(approver.id, {
           id: approver.id,
           name: approver.fullName,
@@ -1434,54 +1403,112 @@ export const getProductPaymentsByClientId = async (clientId: number) => {
     }
   }
 
-  // ---- MERGE ----
-  return payments.map(p => {
+  return payments.map((p) => {
     if (p.entityType === "master_only") {
-      return {
-        ...p,
-        entity: null, // master_only products don't have entity data
-      };
+      return { ...p, entity: null };
     }
 
     if (p.entityId) {
-      // Ensure entity map exists (initialize if missing)
       if (!entityMaps[p.entityType]) {
         entityMaps[p.entityType] = new Map();
       }
 
-      // Ensure both key and lookup use Number for type consistency
       const entityIdNum = Number(p.entityId);
       const entityIdStr = String(p.entityId);
 
-      // Try both number and string lookups
       let entity = entityMaps[p.entityType].get(entityIdNum);
       if (!entity && entityMaps[p.entityType].has(Number(entityIdStr))) {
         entity = entityMaps[p.entityType].get(Number(entityIdStr));
       }
 
-      // For allFinance entities, add approver data if approvedBy exists
       if (p.entityType === "allFinance_id" && entity && entity.approvedBy) {
         const approver = approverMap.get(entity.approvedBy);
-        entity = {
-          ...entity,
-          approver: approver || null,
-        };
+        entity = { ...entity, approver: approver || null };
       }
 
-      const result = {
-        ...p,
-        entity: entity || null,
-      };
-
-      return result;
+      return { ...p, entity: entity || null };
     }
 
-    return {
-      ...p,
-      entity: null,
-    };
+    return { ...p, entity: null };
   });
+}
+
+export const getProductPaymentsByClientId = async (clientId: number) => {
+  const payments = await db
+    .select()
+    .from(clientProductPayments)
+    .where(eq(clientProductPayments.clientId, clientId))
+    .orderBy(desc(clientProductPayments.paymentDate), desc(clientProductPayments.createdAt));
+
+  return attachEntitiesToProductPayments(payments);
 };
+
+/**
+ * Batch-load other product payments (excludes All Finance — same card as incentive `allFinance`)
+ * with joined `entity` data, matching `getProductPaymentsByClientId` / client complete `productPayments`.
+ */
+export async function getOtherProductPaymentsDetailsByClientIds(
+  clientIds: number[]
+): Promise<Map<number, ProductPaymentWithEntity[]>> {
+  const out = new Map<number, ProductPaymentWithEntity[]>();
+  if (clientIds.length === 0) return out;
+  for (const cid of clientIds) out.set(cid, []);
+
+  const payments = await db
+    .select()
+    .from(clientProductPayments)
+    .where(
+      and(
+        inArray(clientProductPayments.clientId, clientIds),
+        ne(clientProductPayments.entityType, "allFinance_id")
+      )
+    )
+    .orderBy(
+      asc(clientProductPayments.clientId),
+      desc(clientProductPayments.paymentDate),
+      desc(clientProductPayments.createdAt)
+    );
+
+  if (payments.length === 0) return out;
+
+  const enriched = await attachEntitiesToProductPayments(payments);
+  for (const row of enriched) {
+    out.get(row.clientId)?.push(row);
+  }
+  return out;
+}
+
+/** Batch-load only All Finance product payment rows (with entity data). */
+export async function getAllFinancePaymentsDetailsByClientIds(
+  clientIds: number[]
+): Promise<Map<number, ProductPaymentWithEntity[]>> {
+  const out = new Map<number, ProductPaymentWithEntity[]>();
+  if (clientIds.length === 0) return out;
+  for (const cid of clientIds) out.set(cid, []);
+
+  const payments = await db
+    .select()
+    .from(clientProductPayments)
+    .where(
+      and(
+        inArray(clientProductPayments.clientId, clientIds),
+        eq(clientProductPayments.entityType, "allFinance_id")
+      )
+    )
+    .orderBy(
+      asc(clientProductPayments.clientId),
+      desc(clientProductPayments.paymentDate),
+      desc(clientProductPayments.createdAt)
+    );
+
+  if (payments.length === 0) return out;
+
+  const enriched = await attachEntitiesToProductPayments(payments);
+  for (const row of enriched) {
+    out.get(row.clientId)?.push(row);
+  }
+  return out;
+}
 
 /* ================================
    GET PENDING ALL FINANCE APPROVALS

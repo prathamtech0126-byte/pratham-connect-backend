@@ -2,13 +2,29 @@ import { db } from "../config/databaseConnection";
 import { users } from "../schemas/users.schema";
 import { managerTargets } from "../schemas/managerTargets.schema";
 import {
-  getCounsellorCoreSaleClientCount,
+  getCounsellorEnrollmentCountByEnrollmentDate,
   getCounsellorCoreSaleAmount,
   getCounsellorCoreProductMetrics,
   getCounsellorOtherProductMetrics,
 } from "./leaderboard.model";
+import {
+  getCoreServiceCount,
+  getCoreSaleAmount,
+  getCoreProductMetrics,
+  getOtherProductMetrics,
+} from "./dashboard.model";
+import type { DateRange } from "./dashboard.model";
 import { eq, and, asc, lte, gte, inArray, or, sql } from "drizzle-orm";
 import type { TargetType } from "../schemas/managerTargets.schema";
+
+const buildDateRange = (startDateStr: string, endDateStr: string): DateRange => {
+  const [y1, m1, d1] = startDateStr.split("-").map(Number);
+  const [y2, m2, d2] = endDateStr.split("-").map(Number);
+  return {
+    start: new Date(y1, m1 - 1, d1, 0, 0, 0, 0),
+    end: new Date(y2, m2 - 1, d2, 23, 59, 59, 999),
+  };
+};
 
 export interface ManagerAchieved {
   coreSale: { clients: number; revenue: number };
@@ -71,50 +87,56 @@ export interface UpdateManagerTargetInput {
   overall?: string | number;
 }
 
-/** Get counsellor IDs assigned to this manager only (for manager target achieved). */
+/** Get counsellor IDs for this manager. Supervisor managers return ALL active counsellors. */
 export const getCounsellorIdsByManagerId = async (
   managerId: number
-): Promise<number[]> => {
+): Promise<{ ids: number[]; isSupervisor: boolean }> => {
   const [manager] = await db
-    .select({ id: users.id, role: users.role })
+    .select({ id: users.id, role: users.role, isSupervisor: users.isSupervisor })
     .from(users)
     .where(eq(users.id, managerId))
     .limit(1);
 
-  if (!manager || manager.role !== "manager") return [];
+  if (!manager || manager.role !== "manager") return { ids: [], isSupervisor: false };
+
+  if (manager.isSupervisor) {
+    const counsellors = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.role, "counsellor"), eq(users.status, true)));
+    return { ids: counsellors.map((c) => c.id), isSupervisor: true };
+  }
 
   const counsellors = await db
     .select({ id: users.id })
     .from(users)
     .where(and(eq(users.role, "counsellor"), eq(users.managerId, managerId)));
-  return counsellors.map((c) => c.id);
+  return { ids: counsellors.map((c) => c.id), isSupervisor: false };
 };
 
-/** Get counsellors assigned to this manager with id, fullName, email (for breakdown). */
+/** Get counsellors for this manager with id, fullName, email. Supervisor managers return ALL active counsellors. */
 export const getCounsellorsByManagerIdWithNames = async (
   managerId: number
 ): Promise<{ id: number; fullName: string; email: string }[]> => {
   const [manager] = await db
-    .select({ id: users.id, role: users.role })
+    .select({ id: users.id, role: users.role, isSupervisor: users.isSupervisor })
     .from(users)
     .where(eq(users.id, managerId))
     .limit(1);
 
   if (!manager || manager.role !== "manager") return [];
 
-  const counsellors = await db
-    .select({
-      id: users.id,
-      fullName: users.fullName,
-      email: users.email,
-    })
-    .from(users)
-    .where(and(eq(users.role, "counsellor"), eq(users.managerId, managerId)));
-  return counsellors.map((c) => ({
-    id: c.id,
-    fullName: c.fullName,
-    email: c.email,
-  }));
+  const counsellors = manager.isSupervisor
+    ? await db
+        .select({ id: users.id, fullName: users.fullName, email: users.email })
+        .from(users)
+        .where(and(eq(users.role, "counsellor"), eq(users.status, true)))
+    : await db
+        .select({ id: users.id, fullName: users.fullName, email: users.email })
+        .from(users)
+        .where(and(eq(users.role, "counsellor"), eq(users.managerId, managerId)));
+
+  return counsellors.map((c) => ({ id: c.id, fullName: c.fullName, email: c.email }));
 };
 
 /** Compute achieved (team aggregate) for a manager in a date range. */
@@ -123,7 +145,25 @@ export const getManagerAchievedForPeriod = async (
   startDateStr: string,
   endDateStr: string
 ): Promise<ManagerAchieved> => {
-  const counsellorIds = await getCounsellorIdsByManagerId(managerId);
+  const { ids: counsellorIds, isSupervisor } = await getCounsellorIdsByManagerId(managerId);
+  const dateRange = buildDateRange(startDateStr, endDateStr);
+
+  // Supervisor: use same global queries as dashboard admin — exact match guaranteed
+  if (isSupervisor) {
+    const [saleCount, saleAmount, coreProduct, otherProduct] = await Promise.all([
+      getCoreServiceCount(dateRange),
+      getCoreSaleAmount(dateRange),
+      getCoreProductMetrics(dateRange),
+      getOtherProductMetrics(dateRange),
+    ]);
+    return {
+      coreSale: { clients: saleCount, revenue: saleAmount },
+      coreProduct: { clients: coreProduct.count, revenue: coreProduct.amount },
+      otherProduct: { clients: otherProduct.count, revenue: otherProduct.amount },
+    };
+  }
+
+  // Non-supervisor: per-counsellor aggregation filtered to this manager's team
   const startTimestamp = `${startDateStr}T00:00:00.000Z`;
   const endTimestamp = `${endDateStr}T23:59:59.999Z`;
 
@@ -133,7 +173,7 @@ export const getManagerAchievedForPeriod = async (
 
   for (const cid of counsellorIds) {
     const [saleCount, saleAmount, coreMetrics, otherMetrics] = await Promise.all([
-      getCounsellorCoreSaleClientCount(cid, startDateStr, endDateStr, startTimestamp, endTimestamp),
+      getCounsellorEnrollmentCountByEnrollmentDate(cid, startDateStr, endDateStr),
       getCounsellorCoreSaleAmount(cid, startDateStr, endDateStr, startTimestamp, endTimestamp),
       getCounsellorCoreProductMetrics(cid, startDateStr, endDateStr),
       getCounsellorOtherProductMetrics(cid, startDateStr, endDateStr),
@@ -158,23 +198,25 @@ export const getManagerAchievedWithBreakdown = async (
   startDateStr: string,
   endDateStr: string
 ): Promise<ManagerAchievedWithBreakdown> => {
+  const { isSupervisor } = await getCounsellorIdsByManagerId(managerId);
   const counsellors = await getCounsellorsByManagerIdWithNames(managerId);
+  const dateRange = buildDateRange(startDateStr, endDateStr);
   const startTimestamp = `${startDateStr}T00:00:00.000Z`;
   const endTimestamp = `${endDateStr}T23:59:59.999Z`;
 
   const byCounsellor: CounsellorAchievedItem[] = [];
-  const coreSale = { clients: 0, revenue: 0 };
-  const coreProduct = { clients: 0, revenue: 0 };
-  const otherProduct = { clients: 0, revenue: 0 };
+  const perCounsellorCoreSale = { clients: 0, revenue: 0 };
+  const perCounsellorCoreProduct = { clients: 0, revenue: 0 };
+  const perCounsellorOtherProduct = { clients: 0, revenue: 0 };
 
   for (const c of counsellors) {
     const [saleCount, saleAmount, coreMetrics, otherMetrics] = await Promise.all([
-      getCounsellorCoreSaleClientCount(c.id, startDateStr, endDateStr, startTimestamp, endTimestamp),
+      getCounsellorEnrollmentCountByEnrollmentDate(c.id, startDateStr, endDateStr),
       getCounsellorCoreSaleAmount(c.id, startDateStr, endDateStr, startTimestamp, endTimestamp),
       getCounsellorCoreProductMetrics(c.id, startDateStr, endDateStr),
       getCounsellorOtherProductMetrics(c.id, startDateStr, endDateStr),
     ]);
-    const item: CounsellorAchievedItem = {
+    byCounsellor.push({
       counsellor_id: c.id,
       full_name: c.fullName,
       email: c.email,
@@ -184,18 +226,39 @@ export const getManagerAchievedWithBreakdown = async (
       core_product_achieved_revenue: coreMetrics.amount,
       other_product_achieved_clients: otherMetrics.count,
       other_product_achieved_revenue: otherMetrics.amount,
+    });
+    perCounsellorCoreSale.clients += saleCount;
+    perCounsellorCoreSale.revenue += saleAmount;
+    perCounsellorCoreProduct.clients += coreMetrics.count;
+    perCounsellorCoreProduct.revenue += coreMetrics.amount;
+    perCounsellorOtherProduct.clients += otherMetrics.count;
+    perCounsellorOtherProduct.revenue += otherMetrics.amount;
+  }
+
+  // Supervisor: use global dashboard totals so achieved matches dashboard cards exactly
+  if (isSupervisor) {
+    const [saleCount, saleAmount, coreProduct, otherProduct] = await Promise.all([
+      getCoreServiceCount(dateRange),
+      getCoreSaleAmount(dateRange),
+      getCoreProductMetrics(dateRange),
+      getOtherProductMetrics(dateRange),
+    ]);
+    return {
+      achieved: {
+        coreSale: { clients: saleCount, revenue: saleAmount },
+        coreProduct: { clients: coreProduct.count, revenue: coreProduct.amount },
+        otherProduct: { clients: otherProduct.count, revenue: otherProduct.amount },
+      },
+      byCounsellor,
     };
-    byCounsellor.push(item);
-    coreSale.clients += saleCount;
-    coreSale.revenue += saleAmount;
-    coreProduct.clients += coreMetrics.count;
-    coreProduct.revenue += coreMetrics.amount;
-    otherProduct.clients += otherMetrics.count;
-    otherProduct.revenue += otherMetrics.amount;
   }
 
   return {
-    achieved: { coreSale, coreProduct, otherProduct },
+    achieved: {
+      coreSale: perCounsellorCoreSale,
+      coreProduct: perCounsellorCoreProduct,
+      otherProduct: perCounsellorOtherProduct,
+    },
     byCounsellor,
   };
 };

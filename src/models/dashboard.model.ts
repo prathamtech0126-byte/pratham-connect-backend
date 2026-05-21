@@ -27,7 +27,7 @@ import { saleTypeCategories } from "../schemas/saleTypeCategory.schema";
 /* ==============================
    TYPES
 ============================== */
-export type DashboardFilter = "today" | "weekly" | "monthly" | "yearly" | "custom";
+export type DashboardFilter = "today" | "weekly" | "monthly" | "yearly" | "custom" | "maximum";
 export type UserRole = "admin" | "manager" | "counsellor";
 
 // Product classification constants
@@ -497,6 +497,14 @@ export const getDateRange = (
       afterDateObj.setHours(23, 59, 59, 999);
       start = beforeDateObj;
       end = afterDateObj;
+      break;
+    }
+
+    case "maximum": {
+      start = new Date(2000, 0, 1);
+      start.setHours(0, 0, 0, 0);
+      end = new Date(now);
+      end.setHours(23, 59, 59, 999);
       break;
     }
 
@@ -1872,7 +1880,7 @@ const getIndividualCounsellorPerformance = async (
 /* ==============================
    CHART DATA AGGREGATION
 ============================== */
-type ChartRange = "today" | "week" | "month" | "year" | "custom";
+type ChartRange = "today" | "week" | "month" | "year" | "custom" | "maximum";
 
 interface ChartDataPoint {
   label: string;
@@ -2027,6 +2035,20 @@ const getChartData = async (
         const day = currentDate.getDate();
         labels.push(`${monthName} ${day}`);
         currentDate.setDate(currentDate.getDate() + 1);
+      }
+      break;
+    }
+    case "maximum": {
+      // All-time data - yearly breakdown
+      const startYear = startDate.getFullYear();
+      const endYear = endDate.getFullYear();
+      for (let year = startYear; year <= endYear; year++) {
+        const start = new Date(year, 0, 1);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(year, 11, 31);
+        end.setHours(23, 59, 59, 999);
+        periods.push({ start, end });
+        labels.push(`${year}`);
       }
       break;
     }
@@ -2215,6 +2237,19 @@ const getChartDataCounsellor = async (
         const day = currentDate.getDate();
         labels.push(`${dayName} ${day}`);
         currentDate.setDate(currentDate.getDate() + 1);
+      }
+      break;
+    }
+    case "maximum": {
+      const startYear = startDate.getFullYear();
+      const endYear = endDate.getFullYear();
+      for (let year = startYear; year <= endYear; year++) {
+        const start = new Date(year, 0, 1);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(year, 11, 31);
+        end.setHours(23, 59, 59, 999);
+        periods.push({ start, end });
+        labels.push(`${year}`);
       }
       break;
     }
