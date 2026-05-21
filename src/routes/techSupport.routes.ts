@@ -32,6 +32,7 @@ import {
   deleteDeviceInventoryController,
   getAssignedDeviceByUserIdController,
   updateDeviceInventoryController,
+  updateUserRetainedAccessoriesController,
 } from "../controllers/deviceInventory.controller";
 
 const router = Router();
@@ -160,6 +161,12 @@ router.get(
   requireAuth,
   requireRole("tech_support", "admin", "superadmin", "manager"),
   getTechAssignableUsersController,
+);
+router.patch(
+  "/users/:userId/retained-accessories",
+  requireAuth,
+  requireRole("tech_support", "admin", "superadmin", "manager"),
+  updateUserRetainedAccessoriesController,
 );
 router.post(
   "/devices/:deviceId/assign",

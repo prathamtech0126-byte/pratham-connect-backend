@@ -7,7 +7,9 @@
     "dev": "nodemon src/server.ts",
     "build": "tsc && echo Build successful! Output in dist/ folder",
     "start": "node dist/server.js",
-    "seed:admin": "ts-node src/scripts/seedAdmin.ts"
+    "seed:admin": "ts-node src/scripts/seedAdmin.ts",
+    "cleanup:seed": "ts-node src/scripts/cleanupAndSeed.ts",
+    "cache:clear": "ts-node src/scripts/clearRedisCache.ts"
   },
   "keywords": [],
   "author": "",
@@ -15,12 +17,14 @@
   "type": "commonjs",
   "dependencies": {
     "@types/multer": "^2.1.0",
+    "axios": "^1.16.0",
     "bcrypt": "^6.0.0",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.45.1",
+    "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "express-rate-limit": "^8.2.1",
     "googleapis": "^170.1.0",

@@ -9,6 +9,7 @@ declare global {
 
     interface Request {
       user?: User;
+      rawBody?: Buffer;
     }
   }
 }

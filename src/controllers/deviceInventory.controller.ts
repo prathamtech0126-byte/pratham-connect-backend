@@ -15,6 +15,7 @@ import {
   deleteDeviceInventory,
   getAssignedDeviceByUserId,
   updateDeviceInventory,
+  setUserRetainedAccessories,
 } from "../models/deviceInventory.model";
 import { emitDeviceInventoryEvent, DEVICE_INVENTORY_EVENT } from "../services/deviceInventory.service";
 import { users } from "../schemas/users.schema";
@@ -57,6 +58,7 @@ const getAssignableUsers = async () => {
       officePhone: users.officePhone,
       personalPhone: users.personalPhone,
       status: users.status,
+      retainedAccessories: users.retainedAccessories,
     })
     .from(users)
     .where(and(eq(users.status, true), inArray(users.role, allowedRoles)));
@@ -347,11 +349,48 @@ export const getTechAssignableUsersController = async (_req: Request, res: Respo
       designation: r.designation,
       officePhone: r.officePhone,
       personalPhone: r.personalPhone,
+      retainedAccessories: r.retainedAccessories ?? null,
     }));
 
     return res.json({ success: true, data: simplified });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error?.message || "Failed to fetch assignable users" });
+  }
+};
+
+export const updateUserRetainedAccessoriesController = async (req: Request, res: Response) => {
+  try {
+    const authReq = req as AuthenticatedRequest;
+    if (!authReq.user) {
+      return res.status(401).json({ success: false, message: "Authentication required" });
+    }
+
+    const userId = Number(req.params.userId);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid userId" });
+    }
+
+    const body = req.body || {};
+    const accessories =
+      body.accessories != null
+        ? String(body.accessories).trim() || null
+        : body.retainedAccessories != null
+          ? String(body.retainedAccessories).trim() || null
+          : null;
+
+    const updated = await setUserRetainedAccessories(userId, accessories);
+    await invalidateDeviceCaches();
+    emitDeviceInventoryEvent(DEVICE_INVENTORY_EVENT);
+
+    return res.json({
+      success: true,
+      data: { userId, retainedAccessories: updated },
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: error?.message || "Failed to update retained accessories",
+    });
   }
 };
 

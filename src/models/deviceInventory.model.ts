@@ -9,6 +9,57 @@ export type DeviceInventoryDeviceType = (typeof deviceInventoryTypeEnum.enumValu
 // Expensive categories must be tracked as single units with a fixed product number.
 const SINGLE_PRODUCT_NUMBER_TYPES = new Set<DeviceInventoryDeviceType>(["laptop", "monitor", "mobile"]);
 
+const ACCESSORIES_MAX_LEN = 300;
+
+export const parseAccessoriesString = (raw: string | null | undefined): string[] => {
+  if (!raw) return [];
+  return String(raw)
+    .split(/[,;]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
+
+export const formatAccessoriesString = (items: string[]): string | null => {
+  const unique = [...new Set(items.map((i) => i.trim()).filter(Boolean))];
+  if (unique.length === 0) return null;
+  const joined = unique.join(", ");
+  return joined.length > ACCESSORIES_MAX_LEN ? joined.slice(0, ACCESSORIES_MAX_LEN) : joined;
+};
+
+export const mergeAccessoriesStrings = (
+  existing: string | null | undefined,
+  incoming: string | null | undefined
+): string | null => {
+  const merged = [...parseAccessoriesString(existing), ...parseAccessoriesString(incoming)];
+  return formatAccessoriesString(merged);
+};
+
+export const getUserRetainedAccessories = async (userId: number): Promise<string | null> => {
+  const [row] = await db
+    .select({ retainedAccessories: users.retainedAccessories })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  return row?.retainedAccessories ?? null;
+};
+
+export const setUserRetainedAccessories = async (
+  userId: number,
+  accessories: string | null
+): Promise<string | null> => {
+  const normalized =
+    accessories != null && String(accessories).trim() !== ""
+      ? formatAccessoriesString(parseAccessoriesString(accessories))
+      : null;
+
+  await db
+    .update(users)
+    .set({ retainedAccessories: normalized })
+    .where(eq(users.id, userId));
+
+  return normalized;
+};
+
 type CreateDeviceInventoryInput = {
   deviceType: string;
   deviceName?: string | null;
@@ -466,6 +517,27 @@ export const unassignDeviceInventory = async (args: { deviceId: number }) => {
   }
 
   const leavingUserId = device.currentUserId;
+
+  const [activeAssignment] = await db
+    .select({ assignmentAccessories: deviceInventoryAssignments.assignmentAccessories })
+    .from(deviceInventoryAssignments)
+    .where(
+      and(
+        eq(deviceInventoryAssignments.deviceId, deviceId),
+        eq(deviceInventoryAssignments.userId, leavingUserId),
+        eq(deviceInventoryAssignments.isActive, true)
+      )
+    )
+    .limit(1);
+
+  if (activeAssignment?.assignmentAccessories) {
+    const currentRetained = await getUserRetainedAccessories(leavingUserId);
+    const merged = mergeAccessoriesStrings(
+      currentRetained,
+      activeAssignment.assignmentAccessories
+    );
+    await setUserRetainedAccessories(leavingUserId, merged);
+  }
 
   // Close active assignment
   await db
