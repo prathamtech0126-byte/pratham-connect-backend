@@ -6,6 +6,7 @@ import { registerUser,login,logout,refreshAccessToken,getCurrentUser,getAllUsers
     getManagersDropdown,
     getAllCounsellorsAdminController,
     getCounsellorsByManagerController,
+    getAllTelecallersController,
     getManagersWithCounsellorsController,
     changePasswordController
 } from "../controllers/user.controller";
@@ -54,7 +55,7 @@ router.delete("/users-delete/:userId",requireAuth,requireRole("developer","admin
  */
 router.get("/managers",requireAuth, requireRole("developer","admin"),getManagersDropdown);
 /** Counsellors list (admin: all; counsellor: self only). */
-router.get("/counsellors", requireAuth, requireRole("developer","admin", "counsellor"), getAllCounsellorsAdminController);
+router.get("/counsellors", requireAuth, requireRole("developer","admin", "counsellor", "telecaller", "marketing_head"), getAllCounsellorsAdminController);
 /**
  * Get counsellors by manager ID (admin only)
  */
@@ -63,6 +64,18 @@ router.get("/managers/:managerId/counsellors",requireAuth, requireRole("develope
  * Get all managers with their counsellors (hierarchical view) (admin only)
  */
 router.get("/managers-with-counsellors",requireAuth, requireRole("developer","admin"),getManagersWithCounsellorsController);
+
+/**
+ * Telecallers dropdown (admin / developer / manager only)
+ * Used in Leads filters, assignment panels, dashboards, etc.
+ */
+router.get(
+  "/telecallers",
+  requireAuth,
+  requireRole("developer", "admin", "manager", "telecaller", "counsellor", "marketing_head"),
+  getAllTelecallersController
+);
+
 
 
 // health check alias under /api/users

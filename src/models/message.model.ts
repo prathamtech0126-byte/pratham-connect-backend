@@ -100,8 +100,16 @@ export const createBroadcastMessage = async (
     throw new Error("Target roles are required for broadcast messages");
   }
 
-  // Validate roles
-  const validRoles = ["manager", "counsellor"];
+  // Validate roles (manager/counsellor by default; maintenance may target more roles)
+  const validRoles = [
+    "manager",
+    "counsellor",
+    "telecaller",
+    "front_desk",
+    "marketing_head",
+    "superadmin",
+    "admin",
+  ];
   const invalidRoles = data.targetRoles.filter(
     (role) => !validRoles.includes(role)
   );
@@ -303,12 +311,21 @@ export const getAllMessages = async (options?: {
    GET UNACKNOWLEDGED MESSAGES FOR USER
 ================================ */
 
+export const BROADCAST_RECIPIENT_ROLES: Role[] = [
+  "manager",
+  "counsellor",
+  "telecaller",
+  "front_desk",
+  "marketing_head",
+  "superadmin",
+  "admin",
+];
+
 export const getUnacknowledgedMessagesForUser = async (
   userId: number,
   userRole: Role
 ): Promise<Message[]> => {
-  // Get user's role to filter broadcast messages
-  if (userRole !== "manager" && userRole !== "counsellor") {
+  if (!BROADCAST_RECIPIENT_ROLES.includes(userRole)) {
     return [];
   }
 
@@ -366,8 +383,7 @@ export const getAllMessagesForUser = async (
   userId: number,
   userRole: Role
 ): Promise<InboxMessage[]> => {
-  // Get user's role to filter broadcast messages
-  if (userRole !== "manager" && userRole !== "counsellor") {
+  if (!BROADCAST_RECIPIENT_ROLES.includes(userRole)) {
     return [];
   }
 

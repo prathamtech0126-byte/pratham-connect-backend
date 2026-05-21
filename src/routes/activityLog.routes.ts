@@ -9,6 +9,7 @@ const router = Router();
  * - Admin: All logs
  * - Manager: Only counsellor activities
  * - Counsellor: Own activities + Manager activities on their clients
+ * - Telecaller: Own activities only
  *
  * Query parameters:
  * - clientId: Filter by client ID
@@ -22,7 +23,7 @@ const router = Router();
 router.get(
   "/",
   requireAuth,
-  requireRole("admin", "manager", "counsellor","developer"),
+  requireRole("admin", "manager", "counsellor", "developer", "telecaller", "marketing_head"),
   getActivityLogsController
 );
 
