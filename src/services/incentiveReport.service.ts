@@ -11,7 +11,11 @@ import {
 import {
   getCounsellorStats,
   getCounsellorSaleTypeCounts,
+  getCounsellorSaleTypeCountsTotal,
+  getCounsellorStudentCountsTotal,
   getCompanyWideSpouseCount,
+  getCompanyWideSpouseCountTotal,
+  getCompanyWideAllFinanceCountByCategory,
   getPaginatedClients,
   getTotalClientCount,
   getClientPaymentStages,
@@ -25,6 +29,7 @@ import {
   getOrCreatePeriodByDateRange,
   getIncentiveActionStateForClientsInRange,
   persistIncentiveAction,
+  getIncentiveRecordById,
   type CounsellorStat,
   type PaymentStage,
 } from "../models/incentiveReport.model";
@@ -75,6 +80,8 @@ export interface CoreSaleRuleDetail {
   ruleType: "slab" | "budget" | "budget_threshold_slab";
   // Slab: company-wide team count drove the tier
   teamCount?: number;
+  /** Total clients enrolled in the period for this rule scope (before qualifying-combination filter). Present when different from teamCount. */
+  enrolledCount?: number;
   slabRange?: string;           // e.g. "50 – 69" or "70+"
   // Budget: amount compared to thresholds (visitor/spouse = Initial, else Before Visa; other types = counsellor aggregate where applicable)
   counsellorTotal?: number;
@@ -88,6 +95,8 @@ export interface CoreSale {
   eligible: boolean;
   incentive: number;
   ruleDetail: CoreSaleRuleDetail | null;
+  /** Which qualifying combination(s) this client has, e.g. "Initial + Before Visa". Null if no combination met. */
+  qualifyingCombination: string | null;
 }
 
 export interface AllFinanceRuleDetail {
@@ -164,6 +173,8 @@ export interface ReportItem {
   counsellor: string;
   enrollmentDate: string;
   paymentDate: string | null;
+  /** Total of all client_payment rows (INITIAL + BEFORE_VISA + AFTER_VISA) for this client. */
+  clientTotalPayment: number;
   /** Broad group from `sale_type_category`. Null for product-only clients with no core sale. */
   saleType: "Spouse" | "Visitor" | "Student" | null;
   /** Specific line from `sale_type.sale_type` (e.g. Canada Spouse, UK Student). Null for product-only clients. */
@@ -175,6 +186,8 @@ export interface ReportItem {
   originalIncentiveAmount: number;
   incentiveAmount: number;
   isOverridden: boolean;
+  /** The incentive_records.id for this client's action record. Null when no action has been taken yet. */
+  incentiveRecordId: number | null;
   overrideAmount?: number | null;
   overrideCoreSale?: number | null;
   overrideAllFinance?: number | null;
@@ -494,6 +507,26 @@ function slabRangeLabel(minCount: number, maxCount: number): string {
   return `${minCount} – ${maxCount}`;
 }
 
+/**
+ * Returns which qualifying combination(s) the client has for core-sale counting:
+ *   Initial + Before Visa | Initial + All Finance | Initial + NOC
+ * Returns null when the client has no Initial payment or none of the required partners.
+ */
+function detectQualifyingCombination(
+  stage: PaymentStage | undefined,
+  allFinanceAmount: number,
+  productRows: ProductPaymentWithEntity[]
+): string | null {
+  if (!stage?.hasInitial) return null;
+  const parts: string[] = [];
+  if (stage.hasBeforeVisa) parts.push("Initial + Before Visa");
+  if (allFinanceAmount > 0) parts.push("Initial + All Finance");
+  if (productRows.some((r) => String(r.productName) === "NOC_LEVEL_JOB_ARRANGEMENT")) {
+    parts.push("Initial + NOC");
+  }
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
 function findMatchedSlabRange(count: number, slabRules: import("../models/incentiveRules.model").RangeRuleItem[]): string | undefined {
   for (const r of slabRules) {
     const max = r.maxCount === -1 ? Infinity : r.maxCount;
@@ -533,6 +566,8 @@ interface AllFinanceResolutionContext {
   companyWideRuleConfigCounts: Map<number, number>;
   spouseCount: number;
   counsellorStat: CounsellorStat;
+  /** Company-wide count of distinct clients with approved All Finance, per sale-type category. */
+  companyWideAllFinanceCountByCategory: Map<string, number>;
 }
 
 /**
@@ -618,15 +653,14 @@ function resolveAllFinancePerClientIncentive(
       const minGate = ruleSource.minBudgetThreshold ?? 0;
       const slabSummary = formatConfiguredSlabRangesSummary(ruleSource.slabRules);
 
-      const coreSaleSlabCount = isSpouseOrStudent
-        ? getCoreSaleSlabCountForAllFinance(resolutionContext)
+      const categoryAfCount = isSpouseOrStudent
+        ? (resolutionContext.companyWideAllFinanceCountByCategory.get(saleTypeLower) ?? 0)
         : undefined;
-      const slabInputCount =
-        isSpouseOrStudent && coreSaleSlabCount != null ? coreSaleSlabCount : counsellorAllFinanceCount;
+      const slabInputCount = isSpouseOrStudent && categoryAfCount != null
+        ? categoryAfCount
+        : counsellorAllFinanceCount;
       const slabBasisText = isSpouseOrStudent
-        ? coreSaleSlabCount != null
-          ? "Company-wide team client count for this client's core-sale rule (same basis as core-sale slab)"
-          : "Distinct clients of this counsellor with all-finance product payment (entity_type = allFinance_id) — fallback because core-sale team count is unavailable"
+        ? `Company-wide count of ${saleTypeLower} clients with approved All Finance payment in the period`
         : "Distinct clients of this counsellor with all-finance product payment (entity_type = allFinance_id) in selected period";
 
       if (minGate > 0) {
@@ -748,7 +782,12 @@ function resolveCoreSale(
   spouseCount: number,
   stat: CounsellorStat,
   rules: IncentiveRulesPayload,
-  stage: PaymentStage | undefined
+  stage: PaymentStage | undefined,
+  rawEnrolled?: {
+    ruleConfigCounts: Map<number, number>;
+    spouseCount: number;
+    studentCount: number;
+  }
 ): CoreSaleResult {
   const saleTypeLower = saleType.toLowerCase();
   const ruleConfig = saleTypeRuleMap.get(saleTypeId);
@@ -782,17 +821,23 @@ function resolveCoreSale(
       }
 
       const teamCount = companyWideRuleConfigCounts.get(ruleConfig.configId) ?? 0;
+      const enrolledCount = rawEnrolled?.ruleConfigCounts.get(ruleConfig.configId);
       const incentive = findSlab(teamCount, ruleConfig.slabRules);
       const slabRange = findMatchedSlabRange(teamCount, ruleConfig.slabRules);
+      const enrolledSuffix =
+        enrolledCount != null && enrolledCount !== teamCount
+          ? ` out of ${enrolledCount} enrolled`
+          : "";
       const detail: CoreSaleRuleDetail = {
-        ruleName:     ruleConfig.name,
-        ruleType:     ruleConfig.ruleType === "budget_threshold_slab" ? "budget_threshold_slab" : "slab",
+        ruleName:      ruleConfig.name,
+        ruleType:      ruleConfig.ruleType === "budget_threshold_slab" ? "budget_threshold_slab" : "slab",
         teamCount,
+        enrolledCount: enrolledCount != null && enrolledCount !== teamCount ? enrolledCount : undefined,
         slabRange,
         ratePerClient: incentive,
         reason: incentive > 0
-          ? `Team total for "${ruleConfig.name}" is ${teamCount} client${teamCount !== 1 ? "s" : ""} (slab ${slabRange}). Rate: ₹${incentive.toLocaleString("en-IN")} per client.`
-          : `Team total for "${ruleConfig.name}" is ${teamCount} client${teamCount !== 1 ? "s" : ""}. No slab threshold reached — not eligible.`,
+          ? `Team total for "${ruleConfig.name}" is ${teamCount} qualifying client${teamCount !== 1 ? "s" : ""}${enrolledSuffix} (slab ${slabRange}). Rate: ₹${incentive.toLocaleString("en-IN")} per client.`
+          : `Team total for "${ruleConfig.name}" is ${teamCount} qualifying client${teamCount !== 1 ? "s" : ""}${enrolledSuffix}. No slab threshold reached — not eligible.`,
       };
       return { incentive, detail };
     }
@@ -829,15 +874,21 @@ function resolveCoreSale(
   if (saleTypeLower === "spouse") {
     const incentive = getSpouseIncentive(spouseCount, rules.coreSpouseRules);
     const slabRange = findMatchedSlabRange(spouseCount, rules.coreSpouseRules);
+    const enrolledCount = rawEnrolled?.spouseCount;
+    const enrolledSuffix =
+      enrolledCount != null && enrolledCount !== spouseCount
+        ? ` out of ${enrolledCount} enrolled`
+        : "";
     const detail: CoreSaleRuleDetail = {
-      ruleName:     "Spouse",
-      ruleType:     "slab",
-      teamCount:    spouseCount,
+      ruleName:      "Spouse",
+      ruleType:      "slab",
+      teamCount:     spouseCount,
+      enrolledCount: enrolledCount != null && enrolledCount !== spouseCount ? enrolledCount : undefined,
       slabRange,
       ratePerClient: incentive,
       reason: incentive > 0
-        ? `Company-wide spouse count is ${spouseCount} (slab ${slabRange}). Rate: ₹${incentive.toLocaleString("en-IN")} per client.`
-        : `Company-wide spouse count is ${spouseCount}. No slab threshold reached — not eligible.`,
+        ? `Company-wide qualifying spouse count is ${spouseCount}${enrolledSuffix} (slab ${slabRange}). Rate: ₹${incentive.toLocaleString("en-IN")} per client.`
+        : `Company-wide qualifying spouse count is ${spouseCount}${enrolledSuffix}. No slab threshold reached — not eligible.`,
     };
     return { incentive, detail };
   }
@@ -864,15 +915,21 @@ function resolveCoreSale(
     const canadaBonus     = getCanadaStudentBonus(stat.canadaStudentCount, rules.canadaStudentRules);
     const incentive       = studentIncentive + canadaBonus;
     const slabRange       = findMatchedSlabRange(stat.studentCount, rules.studentRules);
+    const enrolledCount   = rawEnrolled?.studentCount;
+    const enrolledSuffix  =
+      enrolledCount != null && enrolledCount !== stat.studentCount
+        ? ` out of ${enrolledCount} enrolled`
+        : "";
     const detail: CoreSaleRuleDetail = {
-      ruleName:     "Student",
-      ruleType:     "slab",
-      teamCount:    stat.studentCount,
+      ruleName:      "Student",
+      ruleType:      "slab",
+      teamCount:     stat.studentCount,
+      enrolledCount: enrolledCount != null && enrolledCount !== stat.studentCount ? enrolledCount : undefined,
       slabRange,
       ratePerClient: studentIncentive,
       reason: incentive > 0
-        ? `Counsellor's student count is ${stat.studentCount} (slab ${slabRange}). Rate: ₹${studentIncentive.toLocaleString("en-IN")} per client${canadaBonus > 0 ? ` + ₹${canadaBonus.toLocaleString("en-IN")} Canada bonus` : ""}.`
-        : `Counsellor's student count is ${stat.studentCount}. No slab threshold reached — not eligible.`,
+        ? `Counsellor's qualifying student count is ${stat.studentCount}${enrolledSuffix} (slab ${slabRange}). Rate: ₹${studentIncentive.toLocaleString("en-IN")} per client${canadaBonus > 0 ? ` + ₹${canadaBonus.toLocaleString("en-IN")} Canada bonus` : ""}.`
+        : `Counsellor's qualifying student count is ${stat.studentCount}${enrolledSuffix}. No slab threshold reached — not eligible.`,
     };
     return { incentive, detail };
   }
@@ -914,7 +971,11 @@ export async function getIncentiveReport(
     productNameToOpKey,
     counsellorStats,
     saleTypeCounts,
+    saleTypeCountsTotal,
     spouseCount,
+    spouseCountTotal,
+    studentCountsTotal,
+    companyWideAllFinanceCountByCategory,
     totalRecords,
   ] = await Promise.all([
     getCachedRules(startDate, endDate),
@@ -923,7 +984,11 @@ export async function getIncentiveReport(
     getProductNameToOpRuleKeyMap(),
     getCounsellorStats(startDate, endDate),
     getCounsellorSaleTypeCounts(startDate, endDate),
+    getCounsellorSaleTypeCountsTotal(startDate, endDate),
     getCompanyWideSpouseCount(startDate, endDate),
+    getCompanyWideSpouseCountTotal(startDate, endDate),
+    getCounsellorStudentCountsTotal(startDate, endDate),
+    getCompanyWideAllFinanceCountByCategory(startDate, endDate),
     getTotalClientCount(startDate, endDate, clientId),
   ]);
 
@@ -964,6 +1029,16 @@ export async function getIncentiveReport(
       const rc = saleTypeRuleMap.get(stId);
       if (!rc || (rc.ruleType !== "slab" && rc.ruleType !== "budget_threshold_slab")) continue;
       companyWideRuleConfigCounts.set(rc.configId, (companyWideRuleConfigCounts.get(rc.configId) ?? 0) + cnt);
+    }
+  }
+
+  // Raw (unfiltered) company-wide counts per rule config — for display alongside qualifying counts.
+  const companyWideRuleConfigCountsTotal = new Map<number, number>();
+  for (const [, stCountMap] of saleTypeCountsTotal) {
+    for (const [stId, cnt] of stCountMap) {
+      const rc = saleTypeRuleMap.get(stId);
+      if (!rc || (rc.ruleType !== "slab" && rc.ruleType !== "budget_threshold_slab")) continue;
+      companyWideRuleConfigCountsTotal.set(rc.configId, (companyWideRuleConfigCountsTotal.get(rc.configId) ?? 0) + cnt);
     }
   }
 
@@ -1084,6 +1159,7 @@ export async function getIncentiveReport(
         companyWideRuleConfigCounts,
         spouseCount,
         counsellorStat: stat,
+        companyWideAllFinanceCountByCategory,
       };
       ({ incentive: allFinanceIncentive } = resolveAllFinancePerClientIncentive(
         allFinanceResolvedForClient,
@@ -1095,7 +1171,20 @@ export async function getIncentiveReport(
       ));
     }
 
-    const { incentive: coreSaleIncentive } = !client.isHandledByRow && !isTransferredToRowTotals && !isProductOnlyClient && client.saleType
+    const qualifyingCombinationTotals =
+      !client.isHandledByRow && !isTransferredToRowTotals && !isProductOnlyClient
+        ? detectQualifyingCombination(
+            allPaymentStagesForTotals.get(client.clientId),
+            allFinanceAmountsForTotals.get(client.clientId) ?? 0,
+            allRawProductRows
+          )
+        : null;
+    const isUKStudentTotals = client.saleTypeName?.toLowerCase() === "uk student";
+    const comboBlockedTotals =
+      !isUKStudentTotals &&
+      !client.isHandledByRow && !isTransferredToRowTotals && !isProductOnlyClient &&
+      client.saleType !== null && qualifyingCombinationTotals === null;
+    const { incentive: rawCoreSaleIncentiveTotals } = !client.isHandledByRow && !isTransferredToRowTotals && !isProductOnlyClient && client.saleType
       ? resolveCoreSale(
           client.saleType,
           client.saleTypeId!,
@@ -1106,9 +1195,15 @@ export async function getIncentiveReport(
           spouseCount,
           stat,
           rules,
-          allPaymentStagesForTotals.get(client.clientId)
+          allPaymentStagesForTotals.get(client.clientId),
+          {
+            ruleConfigCounts: companyWideRuleConfigCountsTotal,
+            spouseCount: spouseCountTotal,
+            studentCount: studentCountsTotal.get(client.counsellorId) ?? stat.studentCount,
+          }
         )
       : { incentive: 0 };
+    const coreSaleIncentive = comboBlockedTotals ? 0 : rawCoreSaleIncentiveTotals;
 
     const otherProductsIncentive = APPLY_OTHER_PRODUCT_INCENTIVES_IN_REPORT
       ? productRowsForThisCounsellor.reduce((sum, row) => {
@@ -1187,7 +1282,18 @@ export async function getIncentiveReport(
 
     // Card 1: Core Sale — 0 for handled-by, transferred-to, and product-only rows.
     const receivedAmount = (client.isHandledByRow || isTransferredToRow) ? 0 : computeReceivedAmount(stage);
-    const { incentive: coreSaleIncentive, detail: coreSaleDetail } =
+
+    // Detect qualifying combination first — it gates whether this client earns core sale incentive.
+    const qualifyingCombination =
+      !client.isHandledByRow && !isTransferredToRow && !isProductOnlyClient
+        ? detectQualifyingCombination(
+            paymentStages.get(client.clientId),
+            allFinanceAmounts.get(client.clientId) ?? 0,
+            allRawProductRows
+          )
+        : null;
+
+    const { incentive: rawCoreSaleIncentive, detail: rawCoreSaleDetail } =
       !client.isHandledByRow && !isTransferredToRow && !isProductOnlyClient && client.saleType
         ? resolveCoreSale(
             client.saleType,
@@ -1199,16 +1305,40 @@ export async function getIncentiveReport(
             spouseCount,
             resolvedStat,
             rules,
-            paymentStages.get(client.clientId)
+            paymentStages.get(client.clientId),
+            {
+              ruleConfigCounts: companyWideRuleConfigCountsTotal,
+              spouseCount: spouseCountTotal,
+              studentCount: studentCountsTotal.get(client.counsellorId) ?? resolvedStat.studentCount,
+            }
           )
         : { incentive: 0, detail: null };
 
+    // Gate: client must have a qualifying combination (Initial + Before Visa / All Finance / NOC).
+    // UK Student is exempt — it has its own direct slab rule and does not require a combination.
+    const isUKStudent = client.saleTypeName?.toLowerCase() === "uk student";
+    const comboBlocked =
+      !isUKStudent &&
+      !client.isHandledByRow && !isTransferredToRow && !isProductOnlyClient &&
+      client.saleType !== null && qualifyingCombination === null;
+    const coreSaleIncentive = comboBlocked ? 0 : rawCoreSaleIncentive;
+    const coreSaleDetail: CoreSaleRuleDetail | null =
+      comboBlocked && rawCoreSaleDetail
+        ? {
+            ...rawCoreSaleDetail,
+            ratePerClient: 0,
+            reason:
+              `Not eligible — client requires Initial + Before Visa, All Finance, or NOC combination. ` +
+              rawCoreSaleDetail.reason,
+          }
+        : rawCoreSaleDetail;
+
     const coreSaleItems: CoreSaleItem[] = [];
     if (!client.isHandledByRow && !isTransferredToRow && stage) {
-      if (stage.initialAmount > 0) {
+      if (stage.hasInitial) {
         coreSaleItems.push({ label: "Initial", amount: stage.initialAmount, paymentDate: stage.initialPaymentDate });
       }
-      if (stage.beforeVisaAmount > 0) {
+      if (stage.hasBeforeVisa) {
         coreSaleItems.push({
           label: "Before Visa",
           amount: stage.beforeVisaAmount,
@@ -1219,11 +1349,13 @@ export async function getIncentiveReport(
         coreSaleItems.push({ label: "After Visa", amount: stage.afterVisaAmount, paymentDate: stage.afterVisaPaymentDate });
       }
     }
+
     const coreSale: CoreSale = {
-      items:      coreSaleItems,
-      eligible:   coreSaleIncentive > 0,
-      incentive:  coreSaleIncentive,
-      ruleDetail: coreSaleDetail,
+      items:                coreSaleItems,
+      eligible:             coreSaleIncentive > 0,
+      incentive:            coreSaleIncentive,
+      ruleDetail:           coreSaleDetail,
+      qualifyingCombination,
     };
 
     // Card 2: All Finance — attribute to whoever handled the payment.
@@ -1257,6 +1389,7 @@ export async function getIncentiveReport(
         companyWideRuleConfigCounts,
         spouseCount,
         counsellorStat: resolvedStat,
+        companyWideAllFinanceCountByCategory,
       };
       ({ incentive: financeBonus, detail: allFinanceRuleDetail } = resolveAllFinancePerClientIncentive(
         allFinanceResolvedForClientRow,
@@ -1344,6 +1477,8 @@ export async function getIncentiveReport(
       return effectiveCore + effectiveFinance + effectiveProducts;
     })();
 
+    const clientTotalPayment = stage ? stage.totalPaymentAmount : 0;
+
     return {
       clientId:             client.clientId,
       counsellorId:         client.counsellorId,
@@ -1351,6 +1486,7 @@ export async function getIncentiveReport(
       counsellor:           client.counsellor,
       enrollmentDate:       client.enrollmentDate,
       paymentDate:          (client.isHandledByRow || isTransferredToRow) ? null : (stage?.latestPaymentDate ?? null),
+      clientTotalPayment,
       saleType:             client.saleType
                               ? (client.saleType.charAt(0).toUpperCase() + client.saleType.slice(1)) as "Spouse" | "Visitor" | "Student"
                               : null,
@@ -1361,6 +1497,7 @@ export async function getIncentiveReport(
       originalIncentiveAmount,
       incentiveAmount,
       isOverridden,
+      incentiveRecordId:    actionState?.incentiveRecordId ?? null,
       overrideAmount:       actionState?.overrideAmount ?? null,
       overrideCoreSale:     actionState?.overrideCoreSale ?? null,
       overrideAllFinance:   actionState?.overrideAllFinance ?? null,
@@ -1396,6 +1533,8 @@ export async function getIncentiveReport(
 export interface ProcessIncentiveActionInput {
   clientId: number;
   periodId?: number;
+  /** When provided, the period is resolved from this record's stored period_id instead of being derived from enrollment date. */
+  incentiveRecordId?: number;
   action: "APPROVE" | "REJECT" | "PENDING";
   overrideAmount?: number;
   overrides?: {
@@ -1433,21 +1572,30 @@ export async function processIncentiveAction(input: ProcessIncentiveActionInput)
     throw new Error("overrides.otherProducts must be a non-negative number");
   }
 
-  let resolvedPeriodId: number;
-  let period: { id: number; startDate: string; endDate: string | null } | null;
-  if (input.periodId !== undefined) {
-    period = await getPeriodRangeById(input.periodId);
-    if (period && period.endDate) {
-      resolvedPeriodId = input.periodId;
-    } else {
-      const now = new Date();
-      const startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-      const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
-      resolvedPeriodId = await getOrCreatePeriodByDateRange(startDate, endDate);
+  let resolvedPeriodId!: number;
+  let period: { id: number; startDate: string; endDate: string | null } | null = null;
+
+  // Priority 1: resolve from the existing record's stored period (most reliable)
+  if (input.incentiveRecordId !== undefined) {
+    const recordById = await getIncentiveRecordById(input.incentiveRecordId);
+    if (recordById?.periodId) {
+      resolvedPeriodId = recordById.periodId;
       period = await getPeriodRangeById(resolvedPeriodId);
-      if (!period || !period.endDate) throw new Error("Invalid periodId");
+      if (!period || !period.endDate) period = null;
     }
-  } else {
+  }
+
+  // Priority 2: explicit periodId from the caller
+  if (!period && input.periodId !== undefined) {
+    const p = await getPeriodRangeById(input.periodId);
+    if (p && p.endDate) {
+      resolvedPeriodId = input.periodId;
+      period = p;
+    }
+  }
+
+  // Priority 3: current calendar month
+  if (!period) {
     const now = new Date();
     const startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
     const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
@@ -1460,7 +1608,7 @@ export async function processIncentiveAction(input: ProcessIncentiveActionInput)
     page: 1,
     pageSize: 1,
     startDate: period.startDate,
-    endDate: period.endDate,
+    endDate: period.endDate!,
     clientId: input.clientId,
   });
 
