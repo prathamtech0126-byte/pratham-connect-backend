@@ -41,8 +41,7 @@ export const incentiveRecords = pgTable(
     rule_id: bigint("rule_id", { mode: "number" })
       .references(() => ruleConfiguration.id, { onDelete: "set null" }),
     rule_sale_type_id: bigint("rule_sale_type_id", { mode: "number" })
-      .references(() => ruleConfigurationSaleTypes.id)
-      .notNull(),
+      .references(() => ruleConfigurationSaleTypes.id, { onDelete: "set null" }),
     sale_type_category_id: bigint("sale_type_category_id", { mode: "number" }).references(
       () => saleTypeCategories.id,
       { onDelete: "set null" }

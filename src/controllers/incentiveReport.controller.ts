@@ -96,6 +96,8 @@ export const postIncentiveActionController = async (req: Request, res: Response)
     const clientId = Number(req.body?.clientId);
     const hasPeriodId = req.body?.periodId !== undefined && req.body?.periodId !== null;
     const periodId = hasPeriodId ? Number(req.body?.periodId) : undefined;
+    const hasIncentiveRecordId = req.body?.incentive_record_id !== undefined && req.body?.incentive_record_id !== null;
+    const incentiveRecordId = hasIncentiveRecordId ? Number(req.body.incentive_record_id) : undefined;
     const actionRaw = String(req.body?.action ?? "").toUpperCase();
     const action =
       actionRaw === "APPROVE" || actionRaw === "REJECT" || actionRaw === "PENDING"
@@ -122,6 +124,9 @@ export const postIncentiveActionController = async (req: Request, res: Response)
     if (periodId !== undefined && (!Number.isFinite(periodId) || periodId <= 0)) {
       return res.status(400).json({ success: false, message: "periodId must be a positive number" });
     }
+    if (incentiveRecordId !== undefined && (!Number.isFinite(incentiveRecordId) || incentiveRecordId <= 0)) {
+      return res.status(400).json({ success: false, message: "incentive_record_id must be a positive number" });
+    }
     if (!action) {
       return res.status(400).json({ success: false, message: "action must be APPROVE, REJECT or PENDING" });
     }
@@ -147,6 +152,7 @@ export const postIncentiveActionController = async (req: Request, res: Response)
     await processIncentiveAction({
       clientId,
       periodId,
+      incentiveRecordId,
       action,
       overrideAmount,
       overrides,
@@ -166,7 +172,7 @@ export const postIncentiveActionController = async (req: Request, res: Response)
     if (message === "Already approved") {
       return res.status(409).json({ success: false, message });
     }
-    if (message === "Invalid periodId" || message === "Client not found in selected period") {
+    if (message === "Invalid periodId" || message === "Client not found in selected period" || message === "Incentive record not found") {
       return res.status(404).json({ success: false, message });
     }
     console.error("postIncentiveActionController", error);
@@ -183,6 +189,8 @@ export const putIncentiveActionController = async (req: Request, res: Response) 
     const clientId = Number(req.body?.clientId);
     const hasPeriodId = req.body?.periodId !== undefined && req.body?.periodId !== null;
     const periodId = hasPeriodId ? Number(req.body?.periodId) : undefined;
+    const hasIncentiveRecordId = req.body?.incentive_record_id !== undefined && req.body?.incentive_record_id !== null;
+    const incentiveRecordId = hasIncentiveRecordId ? Number(req.body.incentive_record_id) : undefined;
     const actionRaw = String(req.body?.action ?? "").toUpperCase();
     const action =
       actionRaw === "APPROVE" || actionRaw === "REJECT" || actionRaw === "PENDING"
@@ -209,6 +217,9 @@ export const putIncentiveActionController = async (req: Request, res: Response) 
     if (periodId !== undefined && (!Number.isFinite(periodId) || periodId <= 0)) {
       return res.status(400).json({ success: false, message: "periodId must be a positive number" });
     }
+    if (incentiveRecordId !== undefined && (!Number.isFinite(incentiveRecordId) || incentiveRecordId <= 0)) {
+      return res.status(400).json({ success: false, message: "incentive_record_id must be a positive number" });
+    }
     if (!action) {
       return res.status(400).json({ success: false, message: "action must be APPROVE, REJECT or PENDING" });
     }
@@ -234,6 +245,7 @@ export const putIncentiveActionController = async (req: Request, res: Response) 
     await processIncentiveAction({
       clientId,
       periodId,
+      incentiveRecordId,
       action,
       overrideAmount,
       overrides,
@@ -251,7 +263,7 @@ export const putIncentiveActionController = async (req: Request, res: Response) 
     if (message === "overrideAmount must be a positive number" || String(message).startsWith("overrides.")) {
       return res.status(400).json({ success: false, message });
     }
-    if (message === "Invalid periodId" || message === "Client not found in selected period") {
+    if (message === "Invalid periodId" || message === "Client not found in selected period" || message === "Incentive record not found") {
       return res.status(404).json({ success: false, message });
     }
     console.error("putIncentiveActionController", error);

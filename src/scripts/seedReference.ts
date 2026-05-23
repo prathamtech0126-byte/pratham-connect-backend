@@ -13,7 +13,7 @@
 
 import "dotenv/config";
 import { db } from "../config/databaseConnection";
-import { leadTypes } from "../schemas/leadType.schema";
+import { leadTypes } from "../Leads/schemas/leadType.schema";
 import { saleTypeCategories } from "../schemas/saleTypeCategory.schema";
 import { saleTypes } from "../schemas/saleType.schema";
 

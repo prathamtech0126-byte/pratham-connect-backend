@@ -48,6 +48,8 @@ export interface PaymentStage {
   initialAmount: number;
   beforeVisaAmount: number;
   afterVisaAmount: number;
+  /** Agreed total service fees (client_payment.total_payment). Max across all stage rows for this client. */
+  totalPaymentAmount: number;
   latestPaymentDate: string | null;
   initialPaymentDate: string | null;
   beforeVisaPaymentDate: string | null;
@@ -234,6 +236,22 @@ export async function getCounsellorStats(
       WHERE ci.date BETWEEN ${startDate}::date AND ${endDate}::date
         AND ci.archived = false
         AND stc.name IN ('spouse', 'visitor', 'student')
+        AND EXISTS (
+          SELECT 1 FROM client_payment cp_i
+          WHERE cp_i.client_id = ci.id AND cp_i.stage = 'INITIAL'
+        )
+        AND (
+          EXISTS (SELECT 1 FROM client_payment cp_bv WHERE cp_bv.client_id = ci.id AND cp_bv.stage = 'BEFORE_VISA')
+          OR EXISTS (
+            SELECT 1 FROM client_product_payment cpp_af
+            INNER JOIN all_finance af_c ON cpp_af.entity_type = 'allFinance_id' AND cpp_af.entity_id = af_c.id
+            WHERE cpp_af.client_id = ci.id AND af_c.approval_status = 'approved'
+          )
+          OR EXISTS (
+            SELECT 1 FROM client_product_payment cpp_noc
+            WHERE cpp_noc.client_id = ci.id AND cpp_noc.product_name = 'NOC_LEVEL_JOB_ARRANGEMENT'
+          )
+        )
     ),
     client_stages AS (
       SELECT
@@ -320,6 +338,22 @@ export async function getCompanyWideSpouseCount(
     WHERE ci.date BETWEEN ${startDate}::date AND ${endDate}::date
       AND ci.archived = false
       AND stc.name = 'spouse'
+      AND EXISTS (
+        SELECT 1 FROM client_payment cp_i
+        WHERE cp_i.client_id = ci.id AND cp_i.stage = 'INITIAL'
+      )
+      AND (
+        EXISTS (SELECT 1 FROM client_payment cp_bv WHERE cp_bv.client_id = ci.id AND cp_bv.stage = 'BEFORE_VISA')
+        OR EXISTS (
+          SELECT 1 FROM client_product_payment cpp_af
+          INNER JOIN all_finance af_c ON cpp_af.entity_type = 'allFinance_id' AND cpp_af.entity_id = af_c.id
+          WHERE cpp_af.client_id = ci.id AND af_c.approval_status = 'approved'
+        )
+        OR EXISTS (
+          SELECT 1 FROM client_product_payment cpp_noc
+          WHERE cpp_noc.client_id = ci.id AND cpp_noc.product_name = 'NOC_LEVEL_JOB_ARRANGEMENT'
+        )
+      )
   `);
   return Number(result.rows[0]?.spouse_count) || 0;
 }
@@ -776,6 +810,7 @@ export async function getIncentiveRecordStatusesForPeriod(
 }
 
 export interface IncentiveActionState {
+  incentiveRecordId: number;
   status: "Pending" | "Approved" | "Rejected";
   /** The amount saved to incentive_records.total_incentive_amount at the time the action was taken. Used as the locked amount for Approved/Rejected records. */
   totalIncentiveAmount: number;
@@ -799,6 +834,7 @@ export async function getIncentiveActionStateForClientsInRange(
   );
 
   const result = await db.execute<{
+    id: string;
     client_id: string;
     status: "PENDING" | "APPROVED" | "REJECTED";
     total_incentive_amount: string | null;
@@ -810,9 +846,10 @@ export async function getIncentiveActionStateForClientsInRange(
     remark: string | null;
     rn: string;
   }>(sql`
-    SELECT t.client_id, t.status, t.total_incentive_amount, t.override_amount, t.override_core_sale, t.override_all_finance, t.override_other_products, t.approved_by, t.remark, t.rn
+    SELECT t.id, t.client_id, t.status, t.total_incentive_amount, t.override_amount, t.override_core_sale, t.override_all_finance, t.override_other_products, t.approved_by, t.remark, t.rn
     FROM (
       SELECT
+        ir.id,
         ir.client_id,
         ir.status,
         ir.total_incentive_amount,
@@ -844,6 +881,7 @@ export async function getIncentiveActionStateForClientsInRange(
           ? "Rejected"
           : "Pending";
     map.set(Number(row.client_id), {
+      incentiveRecordId: Number(row.id),
       status,
       totalIncentiveAmount: parseFloat(row.total_incentive_amount ?? "0") || 0,
       overrideAmount: row.override_amount === null ? null : parseFloat(row.override_amount) || 0,
@@ -856,6 +894,45 @@ export async function getIncentiveActionStateForClientsInRange(
     });
   }
   return map;
+}
+
+export async function getIncentiveRecordById(
+  id: number
+): Promise<(ExistingIncentiveRecord & { clientId: number; periodId: number }) | null> {
+  const result = await db.execute<{
+    id: string;
+    client_id: string;
+    period_id: string;
+    status: "PENDING" | "APPROVED" | "REJECTED";
+    total_incentive_amount: string | null;
+    override_amount: string | null;
+    override_core_sale: string | null;
+    override_all_finance: string | null;
+    override_other_products: string | null;
+    remark: string | null;
+    calculation_snapshot: unknown;
+  }>(sql`
+    SELECT id, client_id, period_id, status, total_incentive_amount, override_amount,
+           override_core_sale, override_all_finance, override_other_products, remark, calculation_snapshot
+    FROM incentive_records
+    WHERE id = ${id}
+    LIMIT 1
+  `);
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    clientId: Number(row.client_id),
+    periodId: Number(row.period_id),
+    status: row.status,
+    totalIncentiveAmount: parseFloat(row.total_incentive_amount ?? "0") || 0,
+    overrideAmount: row.override_amount === null ? null : parseFloat(row.override_amount) || 0,
+    overrideCoreSale: row.override_core_sale === null ? null : parseFloat(row.override_core_sale) || 0,
+    overrideAllFinance: row.override_all_finance === null ? null : parseFloat(row.override_all_finance) || 0,
+    overrideOtherProducts: row.override_other_products === null ? null : parseFloat(row.override_other_products) || 0,
+    remark: row.remark ?? null,
+    calculationSnapshot: row.calculation_snapshot,
+  };
 }
 
 export async function getIncentiveRecordByClientPeriod(
@@ -1014,10 +1091,7 @@ export async function persistIncentiveAction(input: PersistIncentiveActionInput)
     const ruleSaleTypeRow = await tx.execute<{ id: string }>(sql`
       SELECT id FROM rule_configuration_sale_types ORDER BY id ASC LIMIT 1
     `);
-    const ruleSaleTypeId = Number(ruleSaleTypeRow.rows[0]?.id);
-    if (!ruleSaleTypeId) {
-      throw new Error("Missing rule sale type configuration");
-    }
+    const ruleSaleTypeId = ruleSaleTypeRow.rows[0]?.id ? Number(ruleSaleTypeRow.rows[0].id) : null;
 
     const snapshotJson = JSON.stringify(input.calculationSnapshot ?? null);
     const approvedAtValue = input.status === "PENDING" ? null : new Date();
@@ -1266,8 +1340,7 @@ export async function persistBulkIncentiveApprovals(rows: BulkApprovalRowInput[]
     const ruleSaleTypeRow = await tx.execute<{ id: string }>(sql`
       SELECT id FROM rule_configuration_sale_types ORDER BY id ASC LIMIT 1
     `);
-    const ruleSaleTypeId = Number(ruleSaleTypeRow.rows[0]?.id);
-    if (!ruleSaleTypeId) throw new Error("Missing rule sale type configuration");
+    const ruleSaleTypeId = ruleSaleTypeRow.rows[0]?.id ? Number(ruleSaleTypeRow.rows[0].id) : null;
 
     for (const row of rows) {
       const snapshotJson = JSON.stringify(row.calculationSnapshot ?? null);
@@ -1596,6 +1669,27 @@ export async function getCounsellorSaleTypeCounts(
     WHERE ci.date BETWEEN ${startDate}::date AND ${endDate}::date
       AND ci.archived = false
       AND stc.name IN ('spouse', 'visitor', 'student')
+      AND (
+        LOWER(st.sale_type) = 'uk student'
+        OR (
+          EXISTS (
+            SELECT 1 FROM client_payment cp_i
+            WHERE cp_i.client_id = ci.id AND cp_i.stage = 'INITIAL'
+          )
+          AND (
+            EXISTS (SELECT 1 FROM client_payment cp_bv WHERE cp_bv.client_id = ci.id AND cp_bv.stage = 'BEFORE_VISA')
+            OR EXISTS (
+              SELECT 1 FROM client_product_payment cpp_af
+              INNER JOIN all_finance af_c ON cpp_af.entity_type = 'allFinance_id' AND cpp_af.entity_id = af_c.id
+              WHERE cpp_af.client_id = ci.id AND af_c.approval_status = 'approved'
+            )
+            OR EXISTS (
+              SELECT 1 FROM client_product_payment cpp_noc
+              WHERE cpp_noc.client_id = ci.id AND cpp_noc.product_name = 'NOC_LEVEL_JOB_ARRANGEMENT'
+            )
+          )
+        )
+      )
     GROUP BY ci.counsellor_id, st.id
   `);
 
@@ -1606,6 +1700,109 @@ export async function getCounsellorSaleTypeCounts(
     const cnt          = Number(row.cnt);
     if (!map.has(counsellorId)) map.set(counsellorId, new Map());
     map.get(counsellorId)!.set(saleTypeId, cnt);
+  }
+  return map;
+}
+
+// ── Raw (unfiltered) counts — used alongside qualifying counts for display ────
+
+export async function getCompanyWideSpouseCountTotal(
+  startDate: string,
+  endDate: string
+): Promise<number> {
+  const result = await db.execute<{ spouse_count: string }>(sql`
+    SELECT COUNT(DISTINCT ci.id)::int AS spouse_count
+    FROM client_information ci
+    INNER JOIN client_payment cp      ON cp.client_id  = ci.id
+    INNER JOIN sale_type st            ON st.id          = cp.sale_type_id
+    INNER JOIN sale_type_category stc  ON stc.id         = st.category_id
+    WHERE ci.date BETWEEN ${startDate}::date AND ${endDate}::date
+      AND ci.archived = false
+      AND stc.name = 'spouse'
+  `);
+  return Number(result.rows[0]?.spouse_count) || 0;
+}
+
+export async function getCounsellorStudentCountsTotal(
+  startDate: string,
+  endDate: string
+): Promise<Map<number, number>> {
+  const result = await db.execute<{
+    counsellor_id: string;
+    student_count: string;
+  }>(sql`
+    SELECT ci.counsellor_id, COUNT(DISTINCT ci.id)::int AS student_count
+    FROM client_information ci
+    INNER JOIN client_payment cp      ON cp.client_id  = ci.id
+    INNER JOIN sale_type st            ON st.id          = cp.sale_type_id
+    INNER JOIN sale_type_category stc  ON stc.id         = st.category_id
+    WHERE ci.date BETWEEN ${startDate}::date AND ${endDate}::date
+      AND ci.archived = false
+      AND stc.name = 'student'
+    GROUP BY ci.counsellor_id
+  `);
+  const map = new Map<number, number>();
+  for (const row of result.rows) {
+    map.set(Number(row.counsellor_id), Number(row.student_count) || 0);
+  }
+  return map;
+}
+
+export async function getCounsellorSaleTypeCountsTotal(
+  startDate: string,
+  endDate: string
+): Promise<Map<number, Map<number, number>>> {
+  const result = await db.execute<{
+    counsellor_id: string;
+    sale_type_id: string;
+    cnt: string;
+  }>(sql`
+    SELECT ci.counsellor_id, st.id AS sale_type_id, COUNT(DISTINCT ci.id)::int AS cnt
+    FROM client_information ci
+    INNER JOIN client_payment cp      ON cp.client_id  = ci.id
+    INNER JOIN sale_type st            ON st.id          = cp.sale_type_id
+    INNER JOIN sale_type_category stc  ON stc.id         = st.category_id
+    WHERE ci.date BETWEEN ${startDate}::date AND ${endDate}::date
+      AND ci.archived = false
+      AND stc.name IN ('spouse', 'visitor', 'student')
+    GROUP BY ci.counsellor_id, st.id
+  `);
+  const map = new Map<number, Map<number, number>>();
+  for (const row of result.rows) {
+    const counsellorId = Number(row.counsellor_id);
+    const saleTypeId   = Number(row.sale_type_id);
+    const cnt          = Number(row.cnt);
+    if (!map.has(counsellorId)) map.set(counsellorId, new Map());
+    map.get(counsellorId)!.set(saleTypeId, cnt);
+  }
+  return map;
+}
+
+/**
+ * Company-wide count of distinct clients with at least one approved All Finance payment in the period,
+ * broken down by sale-type category name (e.g. 'spouse', 'student', 'visitor').
+ * Use this so that Spouse slabs and Student slabs are checked against their own category counts, not combined.
+ */
+export async function getCompanyWideAllFinanceCountByCategory(
+  startDate: string,
+  endDate: string
+): Promise<Map<string, number>> {
+  const result = await db.execute<{ category: string; af_count: string }>(sql`
+    SELECT stc.name AS category, COUNT(DISTINCT cpp.client_id)::int AS af_count
+    FROM client_product_payment cpp
+    INNER JOIN all_finance af      ON cpp.entity_type = 'allFinance_id' AND cpp.entity_id = af.id
+    INNER JOIN client_information ci ON ci.id = cpp.client_id
+    INNER JOIN client_payment cp   ON cp.client_id = ci.id
+    INNER JOIN sale_type st        ON st.id = cp.sale_type_id
+    INNER JOIN sale_type_category stc ON stc.id = st.category_id
+    WHERE af.approval_status = 'approved'
+      AND af.payment_date BETWEEN ${startDate}::date AND ${endDate}::date
+      AND ci.archived = false
+    GROUP BY stc.name
+  `);
+  const map = new Map<string, number>();
+  for (const row of result.rows) {
+    map.set(row.category, Number(row.af_count) || 0);
   }
   return map;
 }
@@ -1744,10 +1941,11 @@ export async function getClientPaymentStages(
 
   const rows = await db
     .select({
-      clientId: clientPayments.clientId,
-      stage:    clientPayments.stage,
-      amount:   clientPayments.amount,
-      paymentDate: clientPayments.paymentDate,
+      clientId:     clientPayments.clientId,
+      stage:        clientPayments.stage,
+      amount:       clientPayments.amount,
+      totalPayment: clientPayments.totalPayment,
+      paymentDate:  clientPayments.paymentDate,
     })
     .from(clientPayments)
     .where(inArray(clientPayments.clientId, clientIds));
@@ -1755,17 +1953,22 @@ export async function getClientPaymentStages(
   const map = new Map<number, PaymentStage>();
   for (const row of rows) {
     const existing: PaymentStage = map.get(row.clientId) ?? {
-      clientId:         row.clientId,
-      hasBeforeVisa:    false,
-      hasInitial:       false,
-      initialAmount:    0,
-      beforeVisaAmount: 0,
-      afterVisaAmount:  0,
-      latestPaymentDate: null,
+      clientId:           row.clientId,
+      hasBeforeVisa:      false,
+      hasInitial:         false,
+      initialAmount:      0,
+      beforeVisaAmount:   0,
+      afterVisaAmount:    0,
+      totalPaymentAmount: 0,
+      latestPaymentDate:  null,
       initialPaymentDate: null,
       beforeVisaPaymentDate: null,
-      afterVisaPaymentDate: null,
+      afterVisaPaymentDate:  null,
     };
+    const rowTotalPayment = parseFloat(row.totalPayment ?? "0") || 0;
+    if (rowTotalPayment > existing.totalPaymentAmount) {
+      existing.totalPaymentAmount = rowTotalPayment;
+    }
     const paymentDate = row.paymentDate ? String(row.paymentDate).slice(0, 10) : null;
     if (paymentDate && (!existing.latestPaymentDate || paymentDate > existing.latestPaymentDate)) {
       existing.latestPaymentDate = paymentDate;
