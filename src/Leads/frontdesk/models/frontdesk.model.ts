@@ -329,6 +329,9 @@ export async function assignLeadToCounsellor(leadId: number, counsellorId: numbe
     currentCounsellorId: counsellorId,
     assignedBy: assignedByUserId,
     assignmentStatus: "assigned",
+    progressStatus: "contacted",
+    eligibilityStatus: "eligible",
+    leadQuality: "excellent",
     updatedAt: new Date(),
   };
   if (leadType?.trim()) updatePayload.leadType = leadType.trim();

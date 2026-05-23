@@ -8,6 +8,7 @@ import {
   ilike,
   inArray,
   isNotNull,
+  isNull,
   lte,
   ne,
   or,
@@ -25,8 +26,10 @@ import { leadStudentProfiles } from "../leadregistration/schemas/leadStudentProf
 import { leadStudentEducation } from "../leadregistration/schemas/leadStudentEducation.schema";
 import { leadLanguageExamScores } from "../leadregistration/schemas/leadLanguageExamScores.schema";
 import { leadFamilyMembers } from "../leadregistration/schemas/leadFamilyMembers.schema";
-import { getFacebookLeadMetaByLeadId } from "../facebookautomation/facebook_models/facebookLead.model";
+import { getFacebookLeadMetaByLeadId, getFacebookLeadSentStatus } from "../facebookautomation/facebook_models/facebookLead.model";
+import { facebookLead } from "../facebookautomation/facebook_schemas/facebookLead.schema";
 import { attachReferencesToLeadRows } from "../services/leadReference.service";
+import { assertEnglishNameField, assertLeadCityField } from "../../utils/leadTextNormalization";
 
 type LeadInsert = typeof leads.$inferInsert;
 type ActivityInsert = typeof leadActivities.$inferInsert;
@@ -73,8 +76,25 @@ export interface LeadListFilters {
   limit?: number;
   sortBy?: "created_at" | "updated_at" | "next_followup_at";
   sortOrder?: "asc" | "desc";
-  /** Counsellor list buckets: in_progress | follow_up | converted | dropped */
-  counsellorListFilter?: "in_progress" | "follow_up" | "converted" | "dropped";
+  /** Counsellor list buckets: not_contacted | in_progress | follow_up | converted | dropped */
+  counsellorListFilter?:
+    | "not_contacted"
+    | "in_progress"
+    | "follow_up"
+    | "converted"
+    | "dropped";
+  /** When true, do not hide converted/dropped on counsellor-scoped lists (reports). */
+  forReport?: boolean;
+  withoutTelecaller?: boolean;
+  withTelecaller?: boolean;
+  /** Filter by sent_to_meta flag in facebook_lead table. Omit to skip filter. */
+  sentToMeta?: boolean;
+  /** When true, restrict to leads that have a facebook_lead record (both FB and Instagram). */
+  metaLeadsOnly?: boolean;
+  /** true = leadQuality IS NOT NULL; false = leadQuality IS NULL */
+  hasQuality?: boolean;
+  /** When true, only show leads with assignmentStatus IN ('transferred','dropped','converted') OR progressStatus='junk' */
+  excludeUnassigned?: boolean;
 }
 
 /** Current IST wall clock for naive PG `timestamp` columns (see `utils/pgTimestamp.ts`). */
@@ -151,7 +171,16 @@ const buildWhereClause = (filters: LeadListFilters) => {
     conditions.push(eq(leads.assignmentStatus, filters.assignmentStatus as any));
   }
 
-  if (filters.counsellorListFilter === "in_progress") {
+  if (filters.counsellorListFilter === "not_contacted") {
+    conditions.push(
+      and(
+        eq(leads.isJunk, false),
+        ne(leads.assignmentStatus, "converted"),
+        ne(leads.assignmentStatus, "dropped"),
+        eq(leads.progressStatus, "not_contacted")
+      )
+    );
+  } else if (filters.counsellorListFilter === "in_progress") {
     conditions.push(
       and(
         eq(leads.isJunk, false),
@@ -159,7 +188,9 @@ const buildWhereClause = (filters: LeadListFilters) => {
         ne(leads.assignmentStatus, "dropped"),
         ne(leads.progressStatus, "follow_up"),
         ne(leads.progressStatus, "converted"),
-        ne(leads.progressStatus, "junk")
+        ne(leads.progressStatus, "junk"),
+        ne(leads.progressStatus, "not_contacted"),
+        eq(leads.progressStatus, "contacted")
       )
     );
   } else if (filters.counsellorListFilter === "follow_up") {
@@ -172,6 +203,12 @@ const buildWhereClause = (filters: LeadListFilters) => {
     conditions.push(eq(leads.progressStatus, filters.progressStatus as any));
   }
 
+  // When a counsellor views their leads with no specific filter, hide converted/dropped by default
+  if (filters.currentCounsellorId && !filters.counsellorListFilter && !filters.forReport) {
+    conditions.push(ne(leads.assignmentStatus, "converted"));
+    conditions.push(ne(leads.assignmentStatus, "dropped"));
+  }
+
   if (filters.eligibilityStatus) {
     conditions.push(eq(leads.eligibilityStatus, filters.eligibilityStatus as any));
   }
@@ -182,6 +219,12 @@ const buildWhereClause = (filters: LeadListFilters) => {
 
   if (filters.currentTelecallerId) {
     conditions.push(eq(leads.currentTelecallerId, filters.currentTelecallerId));
+  }
+
+  if (filters.withoutTelecaller) {
+    conditions.push(isNull(leads.currentTelecallerId));
+  } else if (filters.withTelecaller) {
+    conditions.push(isNotNull(leads.currentTelecallerId));
   }
 
   if (filters.currentCounsellorId) {
@@ -214,6 +257,41 @@ const buildWhereClause = (filters: LeadListFilters) => {
 
   if (filters.createdTo) {
     conditions.push(lte(leads.createdAt, new Date(filters.createdTo)));
+  }
+
+  if (filters.metaLeadsOnly) {
+    conditions.push(
+      sql`EXISTS (SELECT 1 FROM facebook_lead fl WHERE fl.lead_id = ${leads.id})`
+    );
+  }
+
+  if (typeof filters.sentToMeta === "boolean") {
+    if (filters.sentToMeta) {
+      conditions.push(
+        sql`EXISTS (SELECT 1 FROM facebook_lead fl WHERE fl.lead_id = ${leads.id} AND fl.sent_to_meta = true)`
+      );
+    } else {
+      conditions.push(
+        sql`NOT EXISTS (SELECT 1 FROM facebook_lead fl WHERE fl.lead_id = ${leads.id} AND fl.sent_to_meta = true)`
+      );
+    }
+  }
+
+  if (typeof filters.hasQuality === "boolean") {
+    if (filters.hasQuality) {
+      conditions.push(isNotNull(leads.leadQuality));
+    } else {
+      conditions.push(isNull(leads.leadQuality));
+    }
+  }
+
+  if (filters.excludeUnassigned) {
+    conditions.push(
+      or(
+        inArray(leads.assignmentStatus, ["transferred", "dropped", "converted"] as any[]),
+        eq(leads.progressStatus, "junk" as any)
+      )!
+    );
   }
 
   return conditions.length > 0 ? and(...conditions) : undefined;
@@ -364,8 +442,24 @@ export const listLeads = async (filters: LeadListFilters) => {
   const withPending = await attachPendingFollowUpFlags(enriched);
   const withReferences = await attachReferencesToLeadRows(withPending);
 
+  // Attach sentToMeta when the query is scoped to Meta leads so the UI can display the status.
+  let sentToMetaMap: Map<number, boolean> | null = null;
+  const isMetaScoped =
+    filters.metaLeadsOnly ||
+    (filters.leadSource &&
+      ["facebook", "instagram"].includes(filters.leadSource.toLowerCase()));
+  if (isMetaScoped) {
+    const ids = withReferences.map((r) => r.id);
+    sentToMetaMap = await getFacebookLeadSentStatus(ids);
+  }
+
   return {
-    items: withReferences.map((row) => serializeLeadTimestampsForApi(row)),
+    items: withReferences.map((row) =>
+      serializeLeadTimestampsForApi({
+        ...row,
+        sentToMeta: sentToMetaMap ? (sentToMetaMap.get(row.id) ?? false) : undefined,
+      })
+    ),
     pagination: {
       page,
       limit,
@@ -847,6 +941,10 @@ export const convertLeadToClient = async (leadId: number, counsellorId: number) 
     throw new Error("Lead is already converted");
   }
 
+  // Validate and normalize name + city before conversion (throws LeadFieldValidationError on failure)
+  const normalizedName = assertEnglishNameField(lead.fullName, "Full name", { required: true });
+  assertLeadCityField(lead.city, { required: true });
+
   const now = getPgNaiveIndianNow();
   const y = now.getUTCFullYear();
   const m = String(now.getUTCMonth() + 1).padStart(2, "0");
@@ -866,7 +964,7 @@ export const convertLeadToClient = async (leadId: number, counsellorId: number) 
   const leadTypeId = await resolveLeadTypeIdForClient(lead.leadSource);
   const client = await saveClient(
     {
-      fullName: lead.fullName,
+      fullName: normalizedName,
       enrollmentDate,
       passportDetails,
       leadTypeId,
@@ -877,6 +975,7 @@ export const convertLeadToClient = async (leadId: number, counsellorId: number) 
   const [updated] = await db
     .update(leads)
     .set({
+      fullName: normalizedName,
       progressStatus: "converted",
       assignmentStatus: "converted",
       convertedAt: now,

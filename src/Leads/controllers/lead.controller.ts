@@ -54,6 +54,7 @@ import { assertLeadTransferReady } from "../../utils/leadTextNormalization";
 import { getCachedTelecallerDashboardStats } from "../services/telecallerStatsCache.service";
 import { redisGetJson, redisSetJson } from "../../config/redis";
 import {
+  getLeadListCacheGen,
   invalidateLeadListCaches,
   LEAD_LIST_CACHE_PREFIX,
   publishLeadChange,
@@ -63,6 +64,7 @@ import {
   importLeadsFromCsvBuffer,
 } from "../services/leadCsvImport.service";
 import { applyAutoContactedProgressIfNeeded } from "../services/leadProgressRules.service";
+import { buildCounsellorAssignPatch } from "../services/leadAssignment.service";
 import { AuthenticatedRequest } from "../../types/express-auth";
 import { db } from "../../config/databaseConnection";
 import { eq, inArray } from "drizzle-orm";
@@ -215,11 +217,19 @@ export const getLeadsController = async (req: Request, res: Response) => {
       sortBy: (req.query.sortBy as any) || "updated_at",
       sortOrder: (req.query.sortOrder as any) || "desc",
       counsellorListFilter: req.query.counsellorListFilter as
+        | "not_contacted"
         | "in_progress"
         | "follow_up"
         | "converted"
         | "dropped"
         | undefined,
+      forReport: req.query.forReport === "true",
+      withoutTelecaller: req.query.withoutTelecaller === "true",
+      withTelecaller: req.query.withTelecaller === "true",
+      sentToMeta: req.query.sentToMeta === undefined ? undefined : req.query.sentToMeta === "true",
+      metaLeadsOnly: req.query.metaLeadsOnly === "true" ? true : undefined,
+      hasQuality: req.query.hasQuality === undefined ? undefined : req.query.hasQuality === "true",
+      excludeUnassigned: req.query.excludeUnassigned === "true" ? true : undefined,
     };
 
     // Telecallers / counsellors only see their assigned leads (search runs within that scope)
@@ -229,7 +239,10 @@ export const getLeadsController = async (req: Request, res: Response) => {
       filters.currentCounsellorId = authReq.user.id;
     }
 
-    const cacheKey = `${LEAD_LIST_CACHE_PREFIX}${JSON.stringify(filters)}`;
+    // Include the current cache generation in the key so that a single atomic
+    // INCR on invalidation makes every stale entry unreadable without needing SCAN.
+    const cacheGen = await getLeadListCacheGen();
+    const cacheKey = `${LEAD_LIST_CACHE_PREFIX}v${cacheGen}:${JSON.stringify(filters)}`;
     const cached = await redisGetJson<any>(cacheKey);
     if (cached) {
       return res.json({ success: true, ...cached, cached: true });
@@ -526,6 +539,11 @@ export const updateLeadController = async (req: Request, res: Response) => {
     }
     Object.assign(patch, normalizedText);
 
+    // When explicitly marking as converted via generic update, stamp convertedAt
+    if (patch.assignmentStatus === "converted" && !previous.convertedAt) {
+      patch.convertedAt = getIndianNow();
+    }
+
     if (Object.keys(patch).length > 0) {
       await updateLeadById(id, patch);
     }
@@ -598,7 +616,8 @@ export const updateLeadController = async (req: Request, res: Response) => {
     }
 
     const enrichedWithRef = await enrichLeadWithReference(enriched);
-    await publishLeadChange("lead:updated", enrichedWithRef as Record<string, unknown>);
+    const changeEvent = patch.assignmentStatus === "converted" ? "lead:converted" : "lead:updated";
+    await publishLeadChange(changeEvent, enrichedWithRef as Record<string, unknown>);
 
     res.json({ success: true, data: { ...enrichedWithRef, ...structured } });
   } catch (error: any) {
@@ -779,28 +798,17 @@ export const assignLeadController = async (req: Request, res: Response) => {
       }
     }
 
-    const existingTelecallerId = currentLead.currentTelecallerId ?? null;
-    const assignPatch: Record<string, unknown> = {
-      assignedBy: authReq.user?.id,
-    };
-
-    if (counsellorId != null) {
-      assignPatch.currentCounsellorId = counsellorId;
-      if (existingTelecallerId != null) {
-        assignPatch.currentTelecallerId = existingTelecallerId;
-      }
-      assignPatch.assignmentStatus = "transferred";
-      assignPatch.eligibilityStatus = "eligible";
-      if (currentLead.progressStatus === "not_contacted") {
-        assignPatch.progressStatus = "contacted";
-      } else if (currentLead.progressStatus === "follow_up") {
-        assignPatch.progressStatus = "contacted";
-      }
-    } else {
-      assignPatch.currentTelecallerId = telecallerId;
-      assignPatch.currentCounsellorId = null;
-      assignPatch.assignmentStatus = "assigned";
-    }
+    const assignPatch: Record<string, unknown> =
+      counsellorId != null
+        ? buildCounsellorAssignPatch(currentLead, counsellorId, authReq.user?.id ?? 0, {
+            isAdminLike,
+          })
+        : {
+            assignedBy: authReq.user?.id,
+            currentTelecallerId: telecallerId,
+            currentCounsellorId: null,
+            assignmentStatus: "assigned",
+          };
 
     await updateLeadById(leadId, assignPatch);
     const updated = await getLeadById(leadId);
@@ -1263,7 +1271,8 @@ export const getTelecallerLeaderboardController = async (_req: Request, res: Res
 export const bulkAssignLeadsController = async (req: Request, res: Response) => {
   try {
     const authReq = req as AuthenticatedRequest;
-    const { leadIds, telecallerId, counsellorId } = req.body ?? {};
+    const { leadIds, telecallerId, counsellorId, removeFromCounsellor, removeFromTelecaller } =
+      req.body ?? {};
 
     if (!Array.isArray(leadIds) || leadIds.length === 0) {
       return res.status(400).json({ success: false, message: "leadIds is required" });
@@ -1283,6 +1292,10 @@ export const bulkAssignLeadsController = async (req: Request, res: Response) => 
     const rows = await getLeadsByIds(ids);
     const rowMap = new Map(rows.map((row) => [row.id, row]));
 
+    const isAdminLike = ["admin", "developer", "manager", "superadmin", "marketing_head"].includes(
+      authReq.user?.role ?? ""
+    );
+
     const blocked: number[] = [];
     const missing: number[] = [];
     const toUpdate: number[] = [];
@@ -1297,7 +1310,11 @@ export const bulkAssignLeadsController = async (req: Request, res: Response) => 
         blocked.push(id);
         continue;
       }
-      if (counsellorId != null && (!lead.eligibilityStatus || !lead.leadQuality)) {
+      if (
+        counsellorId != null &&
+        !isAdminLike &&
+        (!lead.eligibilityStatus || !lead.leadQuality)
+      ) {
         blocked.push(id);
         continue;
       }
@@ -1305,13 +1322,15 @@ export const bulkAssignLeadsController = async (req: Request, res: Response) => 
     }
 
     const assigneeId = counsellorId ?? telecallerId;
-    const nameRows =
+    const [nameRows, performerName] = await Promise.all([
       assigneeId != null
-        ? await db
+        ? db
             .select({ id: users.id, fullName: users.fullName })
             .from(users)
             .where(eq(users.id, Number(assigneeId)))
-        : [];
+        : Promise.resolve([]),
+      getUserFullName(authReq.user?.id),
+    ]);
     const assigneeName = nameRows[0]?.fullName ?? null;
 
     const updatedItems: Awaited<ReturnType<typeof updateLeadById>>[] = [];
@@ -1320,22 +1339,22 @@ export const bulkAssignLeadsController = async (req: Request, res: Response) => 
       const currentLead = rowMap.get(leadId);
       if (!currentLead) continue;
 
-      const existingTelecallerId = currentLead.currentTelecallerId ?? null;
-      const assignPatch: Record<string, unknown> = {
-        assignedBy: authReq.user?.id,
-      };
-
+      let assignPatch: Record<string, unknown>;
       if (counsellorId != null) {
-        assignPatch.currentCounsellorId = counsellorId;
-        if (existingTelecallerId != null) {
-          assignPatch.currentTelecallerId = existingTelecallerId;
+        assignPatch = buildCounsellorAssignPatch(currentLead, counsellorId, authReq.user?.id ?? 0, {
+          isAdminLike,
+        });
+        if (removeFromTelecaller === true) {
+          assignPatch.currentTelecallerId = null;
         }
-        assignPatch.assignmentStatus = "transferred";
-        assignPatch.eligibilityStatus = "eligible";
       } else {
-        assignPatch.currentTelecallerId = telecallerId;
-        assignPatch.currentCounsellorId = null;
-        assignPatch.assignmentStatus = "assigned";
+        assignPatch = {
+          assignedBy: authReq.user?.id,
+          currentTelecallerId: telecallerId,
+          currentCounsellorId:
+            removeFromCounsellor === true ? null : (currentLead.currentCounsellorId ?? null),
+          assignmentStatus: "assigned",
+        };
       }
 
       const updated = await updateLeadById(leadId, assignPatch);
@@ -1344,8 +1363,17 @@ export const bulkAssignLeadsController = async (req: Request, res: Response) => 
         leadId,
         userId: authReq.user?.id ?? null,
         activityType: counsellorId ? "counselor_assign" : "assignment_change",
-        message: counsellorId ? "Lead transferred to counsellor" : "Lead assigned to telecaller",
-        meta: { telecallerId, counsellorId, bulk: true },
+        message: counsellorId
+          ? `${performerName ?? "Someone"} transferred this lead to counsellor ${assigneeName ?? counsellorId}`
+          : `${performerName ?? "Someone"} assigned this lead to telecaller ${assigneeName ?? telecallerId}`,
+        meta: {
+          telecallerId,
+          counsellorId,
+          bulk: true,
+          telecallerName: counsellorId == null ? assigneeName : null,
+          counsellorName: counsellorId != null ? assigneeName : null,
+          performedByName: performerName,
+        },
         updatedAt: getIndianNow(),
       });
 

@@ -236,7 +236,7 @@ const mapFacebookLead = (
     pageId: meta.pageId,
     pageName: meta.pageName ?? null,
     customAnswers,
-    latestNote: `Imported from Facebook page ${meta.pageName || meta.pageId}`,
+    latestNote: "",
   };
 };
 

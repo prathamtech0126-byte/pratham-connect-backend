@@ -28,6 +28,8 @@ export type MetaGraphBatchResponse = {
   errorMessage?: string;
 };
 
+export type MetaConversionsSendMode = "progress" | "quality";
+
 export type SendMetaConversionEventsOutput = {
   results: MetaConversionSendResult[];
   metaResponses: MetaGraphBatchResponse[];
@@ -114,7 +116,12 @@ const resolveExternalLeadIdForMeta = (lead: LeadRow) => {
   return externalLeadId || null;
 };
 
-const resolveEventName = (lead: LeadRow) => String(lead.progressStatus || "not_contacted");
+const resolveEventName = (lead: LeadRow, sendMode: MetaConversionsSendMode = "progress") => {
+  if (sendMode === "quality") return String(lead.leadQuality || "unknown");
+  // For progress mode: junk is a progressStatus; everything else uses assignmentStatus.
+  if (lead.progressStatus === "junk") return "junk";
+  return String(lead.assignmentStatus || lead.progressStatus || "not_contacted");
+};
 
 const resolveEventTime = () => Math.floor(Date.now() / 1000);
 
@@ -147,14 +154,14 @@ const buildUserData = (lead: LeadRow, externalLeadId: string) => {
   return userData;
 };
 
-const buildEventPayload = (lead: LeadRow) => {
+const buildEventPayload = (lead: LeadRow, sendMode: MetaConversionsSendMode = "progress") => {
   const externalLeadId = resolveExternalLeadIdForMeta(lead);
   if (!externalLeadId) {
     throw new Error(`Lead ${lead.id} is missing external_lead_id`);
   }
 
   return {
-    event_name: resolveEventName(lead),
+    event_name: resolveEventName(lead, sendMode),
     event_time: resolveEventTime(),
     action_source: "system_generated",
     user_data: buildUserData(lead, externalLeadId),
@@ -162,24 +169,26 @@ const buildEventPayload = (lead: LeadRow) => {
   };
 };
 
-const summarizeLeadForLog = (lead: LeadRow) => ({
+const summarizeLeadForLog = (lead: LeadRow, sendMode: MetaConversionsSendMode = "progress") => ({
   crmLeadId: lead.id,
   externalLeadId: resolveExternalLeadIdForMeta(lead),
   metaLeadIdSent: resolveExternalLeadIdForMeta(lead),
   progressStatus: lead.progressStatus,
-  eventName: resolveEventName(lead),
+  leadQuality: lead.leadQuality,
+  eventName: resolveEventName(lead, sendMode),
   eventTime: resolveEventTime(),
 });
 
 const buildResult = (
   lead: LeadRow,
   success: boolean,
+  sendMode: MetaConversionsSendMode = "progress",
   error?: string,
   eventsReceived = 0,
   fbTraceId = ""
 ) => {
   const externalLeadId = resolveExternalLeadIdForMeta(lead) || "";
-  const eventName = resolveEventName(lead);
+  const eventName = resolveEventName(lead, sendMode);
   const eventTime = resolveEventTime();
 
   return {
@@ -219,7 +228,8 @@ const shouldAttachAppSecretProof = () => {
 
 export const sendMetaConversionEvents = async (
   accessToken: string,
-  leadRows: LeadRow[]
+  leadRows: LeadRow[],
+  sendMode: MetaConversionsSendMode = "progress"
 ): Promise<SendMetaConversionEventsOutput> => {
   const pixelId = getMetaPixelId();
   const results: MetaConversionSendResult[] = [];
@@ -244,12 +254,12 @@ export const sendMetaConversionEvents = async (
   for (const lead of leadRows) {
     const externalLeadId = resolveExternalLeadIdForMeta(lead);
     if (!externalLeadId) {
-      logWarn("Skipping lead without external_lead_id", summarizeLeadForLog(lead));
+      logWarn("Skipping lead without external_lead_id", summarizeLeadForLog(lead, sendMode));
       results.push({
         leadId: lead.id,
         externalLeadId: "",
         success: false,
-        eventName: resolveEventName(lead),
+        eventName: resolveEventName(lead, sendMode),
         eventId: `missing-external-id-${resolveEventTime()}`,
         error: "external_lead_id is required to send this lead to Meta",
       });
@@ -257,12 +267,12 @@ export const sendMetaConversionEvents = async (
     }
 
     if (externalLeadId === String(lead.id)) {
-      logWarn("Skipping lead because external_lead_id matches CRM row id", summarizeLeadForLog(lead));
+      logWarn("Skipping lead because external_lead_id matches CRM row id", summarizeLeadForLog(lead, sendMode));
       results.push({
         leadId: lead.id,
         externalLeadId,
         success: false,
-        eventName: resolveEventName(lead),
+        eventName: resolveEventName(lead, sendMode),
         eventId: `invalid-external-id-${resolveEventTime()}`,
         error: "external_lead_id must be the Facebook leadgen id, not the CRM row id",
       });
@@ -279,7 +289,7 @@ export const sendMetaConversionEvents = async (
 
   for (let i = 0; i < sendable.length; i += MAX_EVENTS_PER_REQUEST) {
     const batch = sendable.slice(i, i + MAX_EVENTS_PER_REQUEST);
-    const data = batch.map((lead) => buildEventPayload(lead));
+    const data = batch.map((lead) => buildEventPayload(lead, sendMode));
     const batchIndex = Math.floor(i / MAX_EVENTS_PER_REQUEST) + 1;
 
     logInfo("Sending batch to Meta", {
@@ -320,7 +330,7 @@ export const sendMetaConversionEvents = async (
       });
 
       for (const lead of batch) {
-        results.push(buildResult(lead, eventsReceived > 0, undefined, eventsReceived, fbTraceId));
+        results.push(buildResult(lead, eventsReceived > 0, sendMode, undefined, eventsReceived, fbTraceId));
       }
     } catch (error: any) {
       const message = formatMetaApiError(error);
@@ -348,7 +358,7 @@ export const sendMetaConversionEvents = async (
       });
 
       for (const lead of batch) {
-        results.push(buildResult(lead, false, message));
+        results.push(buildResult(lead, false, sendMode, message));
       }
     }
   }

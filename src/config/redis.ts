@@ -126,6 +126,24 @@ export async function redisDelByPrefix(prefix: string): Promise<void> {
   }
 }
 
+/**
+ * Atomically increment a Redis counter and return the new value.
+ * If ttlSeconds is provided, sets EX on first creation (newValue === 1).
+ */
+export async function redisIncr(key: string, ttlSeconds?: number): Promise<number | null> {
+  try {
+    const c = await getRedisClient();
+    if (!c) return null;
+    const newValue = await c.incr(key);
+    if (ttlSeconds && newValue === 1) {
+      await c.expire(key, ttlSeconds);
+    }
+    return newValue;
+  } catch {
+    return null;
+  }
+}
+
 /** Optional eager connect at startup (safe: failure doesn't crash). Returns client if connected, null otherwise. */
 export async function initRedis(): Promise<RedisClientInstance | null> {
   return getRedisClient();

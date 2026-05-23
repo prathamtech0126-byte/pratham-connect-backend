@@ -5,10 +5,12 @@ import {
   getFacebookAccessToken,
   getFacebookAuthState,
 } from "../facebook_models/facebookAuthState.model";
+import { markLeadsSentToMeta } from "../facebook_models/facebookLead.model";
 import {
   getMetaPixelId,
   resolveMetaConversionsAccessToken,
   sendMetaConversionEvents,
+  type MetaConversionsSendMode,
 } from "../facebook_services/metaConversions.service";
 
 export const getMetaConversionsStatusController = async (req: Request, res: Response) => {
@@ -34,6 +36,8 @@ export const sendMetaConversionsEventsController = async (req: Request, res: Res
   const leadIds = Array.isArray(req.body?.leadIds)
     ? req.body.leadIds.map((id: unknown) => Number(id)).filter((id: number) => Number.isFinite(id) && id > 0)
     : [];
+  const sendMode: MetaConversionsSendMode =
+    req.body?.sendMode === "quality" ? "quality" : "progress";
 
   if (!leadIds.length) {
     return res.status(400).json({ success: false, message: "leadIds is required" });
@@ -69,9 +73,17 @@ export const sendMetaConversionsEventsController = async (req: Request, res: Res
     return res.status(404).json({ success: false, message: "No matching leads found" });
   }
 
-  const { results, metaResponses } = await sendMetaConversionEvents(accessToken, leadRows);
+  const { results, metaResponses } = await sendMetaConversionEvents(accessToken, leadRows, sendMode);
   const sent = results.filter((result) => result.success).length;
   const failed = results.length - sent;
+
+  // Mark successfully sent leads so they won't appear unsent next time.
+  const successfulLeadIds = results.filter((r) => r.success).map((r) => r.leadId);
+  if (successfulLeadIds.length) {
+    await markLeadsSentToMeta(successfulLeadIds).catch((err) =>
+      console.error("[MetaConversions] Failed to mark leads as sent", err)
+    );
+  }
 
   console.log("[MetaConversions] Send request completed", {
     userId: authReq.user.id,
@@ -79,6 +91,7 @@ export const sendMetaConversionsEventsController = async (req: Request, res: Res
     matched: leadRows.length,
     sent,
     failed,
+    markedSent: successfulLeadIds.length,
     metaResponses,
   });
 
