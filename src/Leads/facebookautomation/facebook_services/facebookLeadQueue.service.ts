@@ -95,7 +95,6 @@ const mapFacebookLead = (
     pageId: meta.pageId,
     pageName: meta.pageName ?? null,
     customAnswers,
-    latestNote: `Imported from Facebook page ${meta.pageName || meta.pageId}`,
     leadCreatedAt: leadData.created_time ? new Date(leadData.created_time) : new Date(),
   };
 };

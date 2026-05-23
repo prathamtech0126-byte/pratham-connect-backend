@@ -2,6 +2,7 @@ import {
   AnyPgColumn,
   bigserial,
   bigint,
+  boolean,
   index,
   jsonb,
   pgTable,
@@ -36,6 +37,8 @@ export const facebookLead = pgTable(
       .$type<Record<string, unknown>>()
       .default({})
       .notNull(),
+
+    sentToMeta: boolean("sent_to_meta").default(false).notNull(),
 
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),

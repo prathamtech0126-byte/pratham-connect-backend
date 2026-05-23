@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db } from "../../../config/databaseConnection";
 import { facebookLead } from "../facebook_schemas/facebookLead.schema";
 
@@ -55,6 +55,24 @@ export async function getFacebookLeadMetaByLeadId(leadId: number) {
     .where(eq(facebookLead.leadId, leadId))
     .limit(1);
   return row ?? null;
+}
+
+export async function markLeadsSentToMeta(leadIds: number[]) {
+  if (!leadIds.length) return;
+  const unique = [...new Set(leadIds.filter((id) => id > 0))];
+  await db
+    .update(facebookLead)
+    .set({ sentToMeta: true, updatedAt: new Date() })
+    .where(inArray(facebookLead.leadId, unique));
+}
+
+export async function getFacebookLeadSentStatus(leadIds: number[]): Promise<Map<number, boolean>> {
+  if (!leadIds.length) return new Map();
+  const rows = await db
+    .select({ leadId: facebookLead.leadId, sentToMeta: facebookLead.sentToMeta })
+    .from(facebookLead)
+    .where(inArray(facebookLead.leadId, leadIds));
+  return new Map(rows.map((r) => [r.leadId, r.sentToMeta]));
 }
 
 export function isMetaLeadSource(leadSource?: string | null) {

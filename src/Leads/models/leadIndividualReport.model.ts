@@ -62,6 +62,23 @@ export type CounsellorSourceBreakdownRow = {
   dropped: number;
 };
 
+export type CounsellorTelecallerBreakdownRow = {
+  telecallerId: number;
+  assigned: number;
+  inProgress: number;
+  followUp: number;
+  converted: number;
+  dropped: number;
+  notContacted: number;
+  contacted: number;
+};
+
+export type CounsellorReportSegment = {
+  stats: CounsellorReportStats;
+  typeBreakdown: CounsellorTypeBreakdownRow[];
+  sourceBreakdown: CounsellorSourceBreakdownRow[];
+};
+
 const num = (r: Record<string, unknown>, camel: string, snake: string) =>
   Number(r[camel] ?? r[snake] ?? 0);
 
@@ -179,11 +196,20 @@ export const getTelecallerIndividualReport = async (
   return { stats, categoryBreakdown, sourceBreakdown, counsellorBreakdown };
 };
 
-export const getCounsellorIndividualReport = async (
+const counsellorSegmentFilter = (segment: "all" | "direct" | "via") => {
+  if (segment === "direct") return sql`AND current_telecaller_id IS NULL`;
+  if (segment === "via") return sql`AND current_telecaller_id IS NOT NULL`;
+  return sql``;
+};
+
+const fetchCounsellorSegment = async (
   counsellorId: number,
-  createdFrom?: Date,
-  createdTo?: Date
-) => {
+  createdFrom: Date | undefined,
+  createdTo: Date | undefined,
+  segment: "all" | "direct" | "via"
+): Promise<CounsellorReportSegment> => {
+  const segmentSql = counsellorSegmentFilter(segment);
+
   const statsResult = await db.execute(sql`
     SELECT
       COUNT(*) FILTER (WHERE NOT is_junk)::int AS "total",
@@ -209,6 +235,7 @@ export const getCounsellorIndividualReport = async (
       )::int AS "contacted"
     FROM leads
     WHERE current_counsellor_id = ${counsellorId}
+    ${segmentSql}
     ${dateRangeSql(createdFrom, createdTo)}
   `);
 
@@ -231,6 +258,7 @@ export const getCounsellorIndividualReport = async (
       COUNT(*) FILTER (WHERE assignment_status = 'dropped')::int AS "dropped"
     FROM leads
     WHERE current_counsellor_id = ${counsellorId}
+    ${segmentSql}
     ${dateRangeSql(createdFrom, createdTo)}
     GROUP BY COALESCE(NULLIF(TRIM(lead_type), ''), 'Unknown')
     ORDER BY "assigned" DESC
@@ -244,24 +272,90 @@ export const getCounsellorIndividualReport = async (
       COUNT(*) FILTER (WHERE assignment_status = 'dropped')::int AS "dropped"
     FROM leads
     WHERE current_counsellor_id = ${counsellorId}
+    ${segmentSql}
     ${dateRangeSql(createdFrom, createdTo)}
     GROUP BY COALESCE(NULLIF(TRIM(lead_source), ''), 'Unknown')
     ORDER BY "assigned" DESC
   `);
 
-  const typeBreakdown: CounsellorTypeBreakdownRow[] = mapRows(typeResult).map((r) => ({
-    type: String(r.type ?? "Unknown"),
-    assigned: num(r, "assigned", "assigned"),
-    converted: num(r, "converted", "converted"),
-    dropped: num(r, "dropped", "dropped"),
-  }));
+  return {
+    stats,
+    typeBreakdown: mapRows(typeResult).map((r) => ({
+      type: String(r.type ?? "Unknown"),
+      assigned: num(r, "assigned", "assigned"),
+      converted: num(r, "converted", "converted"),
+      dropped: num(r, "dropped", "dropped"),
+    })),
+    sourceBreakdown: mapRows(sourceResult).map((r) => ({
+      source: String(r.source ?? "Unknown"),
+      assigned: num(r, "assigned", "assigned"),
+      converted: num(r, "converted", "converted"),
+      dropped: num(r, "dropped", "dropped"),
+    })),
+  };
+};
 
-  const sourceBreakdown: CounsellorSourceBreakdownRow[] = mapRows(sourceResult).map((r) => ({
-    source: String(r.source ?? "Unknown"),
-    assigned: num(r, "assigned", "assigned"),
-    converted: num(r, "converted", "converted"),
-    dropped: num(r, "dropped", "dropped"),
-  }));
+export const getCounsellorIndividualReport = async (
+  counsellorId: number,
+  createdFrom?: Date,
+  createdTo?: Date
+) => {
+  const [overall, direct, viaTelecaller, telecallerResult] = await Promise.all([
+    fetchCounsellorSegment(counsellorId, createdFrom, createdTo, "all"),
+    fetchCounsellorSegment(counsellorId, createdFrom, createdTo, "direct"),
+    fetchCounsellorSegment(counsellorId, createdFrom, createdTo, "via"),
+    db.execute(sql`
+      SELECT
+        current_telecaller_id::int AS "telecallerId",
+        COUNT(*) FILTER (WHERE NOT is_junk)::int AS "assigned",
+        COUNT(*) FILTER (
+          WHERE NOT is_junk
+          AND assignment_status NOT IN ('converted', 'dropped')
+          AND progress_status NOT IN ('follow_up', 'converted', 'junk')
+        )::int AS "inProgress",
+        COUNT(*) FILTER (
+          WHERE NOT is_junk AND progress_status = 'follow_up'
+        )::int AS "followUp",
+        COUNT(*) FILTER (
+          WHERE NOT is_junk AND assignment_status = 'converted'
+        )::int AS "converted",
+        COUNT(*) FILTER (
+          WHERE NOT is_junk AND assignment_status = 'dropped'
+        )::int AS "dropped",
+        COUNT(*) FILTER (
+          WHERE NOT is_junk AND progress_status = 'not_contacted'
+        )::int AS "notContacted",
+        COUNT(*) FILTER (
+          WHERE NOT is_junk AND progress_status = 'contacted'
+        )::int AS "contacted"
+      FROM leads
+      WHERE current_counsellor_id = ${counsellorId}
+        AND current_telecaller_id IS NOT NULL
+      ${dateRangeSql(createdFrom, createdTo)}
+      GROUP BY current_telecaller_id
+      ORDER BY "assigned" DESC
+    `),
+  ]);
 
-  return { stats, typeBreakdown, sourceBreakdown };
+  const telecallerBreakdown: CounsellorTelecallerBreakdownRow[] = mapRows(telecallerResult).map(
+    (r) => ({
+      telecallerId: Number(r.telecallerId ?? r.telecaller_id ?? 0),
+      assigned: num(r, "assigned", "assigned"),
+      inProgress: num(r, "inProgress", "inprogress"),
+      followUp: num(r, "followUp", "followup"),
+      converted: num(r, "converted", "converted"),
+      dropped: num(r, "dropped", "dropped"),
+      notContacted: num(r, "notContacted", "notcontacted"),
+      contacted: num(r, "contacted", "contacted"),
+    })
+  );
+
+  return {
+    stats: overall.stats,
+    typeBreakdown: overall.typeBreakdown,
+    sourceBreakdown: overall.sourceBreakdown,
+    direct,
+    viaTelecaller,
+    telecallerBreakdown,
+  };
 };
