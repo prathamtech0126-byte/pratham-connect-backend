@@ -421,6 +421,8 @@ export async function getPaginatedClients(
   offset: number,
   clientId?: number
 ): Promise<ClientRow[]> {
+  const fetchAll    = pageSize === 0;
+  const limitClause = fetchAll ? sql`` : sql`LIMIT ${pageSize} OFFSET ${offset}`;
   const clientFilter = typeof clientId === "number" ? sql`AND ci.id = ${clientId}` : sql``;
   const result = await db.execute<{
     client_id: string;
@@ -604,7 +606,7 @@ export async function getPaginatedClients(
     FROM deduped
     WHERE rn = 1
     ORDER BY enrollment_date DESC
-    LIMIT ${pageSize} OFFSET ${offset}
+    ${limitClause}
   `);
 
   return result.rows.map((row) => ({
