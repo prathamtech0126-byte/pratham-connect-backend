@@ -40,8 +40,10 @@ export const getIncentiveReportController = async (
       });
     }
 
-    const page     = Math.max(1, parseInt(String(req.query.page     ?? "1"),  10) || 1);
-    const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize ?? "10"), 10) || 10));
+    const page        = Math.max(1, parseInt(String(req.query.page     ?? "1"),  10) || 1);
+    const rawPageSize = parseInt(String(req.query.pageSize ?? "10"), 10) || 10;
+    const fetchAll    = rawPageSize >= 99999 || rawPageSize === 0;
+    const pageSize    = fetchAll ? 0 : Math.min(100, Math.max(1, rawPageSize));
 
     const report = await getIncentiveReport({ page, pageSize, startDate, endDate });
 

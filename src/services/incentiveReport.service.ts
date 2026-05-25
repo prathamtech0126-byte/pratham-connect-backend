@@ -1524,7 +1524,7 @@ export async function getIncentiveReport(
       page,
       pageSize,
       totalRecords,
-      totalPages: Math.ceil(totalRecords / pageSize),
+      totalPages: pageSize === 0 ? 1 : Math.ceil(totalRecords / pageSize),
       totalIncentiveAmount,
     },
   };
