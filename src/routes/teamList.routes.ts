@@ -14,9 +14,6 @@ const router = Router();
 /**
  * POST /api/team - Add new team (admin or superadmin)
  */
-<<<<<<< HEAD
-router.post("/", requireAuth, requireRole("developer","admin"), preventDuplicateRequests, createTeamController);
-=======
 router.post(
   "/",
   requireAuth,
@@ -24,7 +21,6 @@ router.post(
   preventDuplicateRequests,
   createTeamController
 );
->>>>>>> e2d1767 (my local changes)
 
 /**
  * GET /api/team - Get all teams (Authenticated users)
@@ -39,9 +35,6 @@ router.get("/:id", requireAuth, requireRole("admin", "superadmin"), getTeamByIdC
 /**
  * PUT /api/team/:id - Update team (admin or superadmin)
  */
-<<<<<<< HEAD
-router.put("/:id", requireAuth, requireRole("developer","admin"), preventDuplicateRequests, updateTeamController);
-=======
 router.put(
   "/:id",
   requireAuth,
@@ -49,14 +42,10 @@ router.put(
   preventDuplicateRequests,
   updateTeamController
 );
->>>>>>> e2d1767 (my local changes)
 
 /**
  * DELETE /api/team/:id - Delete team (admin or superadmin)
  */
-<<<<<<< HEAD
-router.delete("/:id", requireAuth, requireRole("developer","admin"), preventDuplicateRequests, deleteTeamController);
-=======
 router.delete(
   "/:id",
   requireAuth,
@@ -64,6 +53,5 @@ router.delete(
   preventDuplicateRequests,
   deleteTeamController
 );
->>>>>>> e2d1767 (my local changes)
 
 export default router;

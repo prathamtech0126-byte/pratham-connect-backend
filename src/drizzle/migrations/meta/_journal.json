@@ -64,6 +64,13 @@
       "when": 1776059109171,
       "tag": "0005_peaceful_tarantula",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1778219389147,
+      "tag": "0006_cloudy_grey_gargoyle",
+      "breakpoints": true
     }
   ]
 }
