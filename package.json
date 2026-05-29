@@ -9,7 +9,8 @@
     "start": "node dist/server.js",
     "seed:admin": "ts-node src/scripts/seedAdmin.ts",
     "seed:rbac": "ts-node src/scripts/seedRbac.ts",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "migrate:finance-payments": "ts-node src/scripts/migrate-finance-payments.ts"
   },
   "keywords": [],
   "author": "",
