@@ -16,7 +16,11 @@ import {
 } from "drizzle-orm";
 import { db } from "../../config/databaseConnection";
 import { saveClient } from "../../models/client.model";
-import { getPgNaiveIndianNow, serializeLeadTimestampsForApi } from "../../utils/pgTimestamp";
+import {
+  getPgNaiveIndianNow,
+  serializeLeadActivityTimestampsForApi,
+  serializeLeadTimestampsForApi,
+} from "../../utils/pgTimestamp";
 import { leads } from "../schemas/leads.schema";
 import { leadActivities } from "../schemas/leadActivities.schema";
 import { leadTypes } from "../schemas/leadType.schema";
@@ -85,6 +89,14 @@ export interface LeadListFilters {
     | "dropped";
   /** When true, do not hide converted/dropped on counsellor-scoped lists (reports). */
   forReport?: boolean;
+  /** Counsellor viewing their own lead list (hide converted/dropped unless forReport). */
+  counsellorOwnList?: boolean;
+  /** All leads linked to currentTelecallerId / currentCounsellorId (any assignment status). */
+  assignedScope?: boolean;
+  /** Report drilldown bucket computed on backend. */
+  reportBucket?: "contacted" | "transferred";
+  /** Leads with at least one pending follow-up activity. */
+  hasPendingFollowUp?: boolean;
   withoutTelecaller?: boolean;
   withTelecaller?: boolean;
   /** Filter by sent_to_meta flag in facebook_lead table. Omit to skip filter. */
@@ -167,8 +179,44 @@ const buildWhereClause = (filters: LeadListFilters) => {
     );
   }
 
-  if (filters.assignmentStatus) {
+  if (filters.assignmentStatus && !filters.assignedScope) {
     conditions.push(eq(leads.assignmentStatus, filters.assignmentStatus as any));
+  }
+
+  if (filters.reportBucket === "transferred") {
+    conditions.push(
+      and(
+        eq(leads.isJunk, false),
+        isNotNull(leads.currentTelecallerId),
+        inArray(leads.assignmentStatus, ["transferred", "dropped", "converted"] as any[])
+      )
+    );
+  } else if (filters.reportBucket === "contacted") {
+    conditions.push(
+      and(
+        eq(leads.isJunk, false),
+        or(
+          eq(leads.progressStatus, "contacted"),
+          eq(leads.progressStatus, "follow_up"),
+          inArray(leads.assignmentStatus, ["transferred", "dropped", "converted"] as any[])
+        )
+      )
+    );
+  }
+
+  if (filters.hasPendingFollowUp) {
+    conditions.push(
+      and(
+        eq(leads.isJunk, false),
+        sql`EXISTS (
+          SELECT 1
+          FROM lead_activities la
+          WHERE la.lead_id = ${leads.id}
+            AND la.activity_type = 'followup'
+            AND la.status = 'pending'
+        )`
+      )
+    );
   }
 
   if (filters.counsellorListFilter === "not_contacted") {
@@ -199,12 +247,25 @@ const buildWhereClause = (filters: LeadListFilters) => {
     conditions.push(eq(leads.assignmentStatus, "converted"));
   } else if (filters.counsellorListFilter === "dropped") {
     conditions.push(eq(leads.assignmentStatus, "dropped"));
+  } else if (filters.progressStatus === "contacted") {
+    // Lead list "Contacted" should also include converted leads.
+    conditions.push(
+      or(
+        eq(leads.progressStatus, "contacted"),
+        eq(leads.assignmentStatus, "converted")
+      )!
+    );
   } else if (filters.progressStatus) {
     conditions.push(eq(leads.progressStatus, filters.progressStatus as any));
   }
 
-  // When a counsellor views their leads with no specific filter, hide converted/dropped by default
-  if (filters.currentCounsellorId && !filters.counsellorListFilter && !filters.forReport) {
+  // Counsellor's own inbox hides closed leads unless a bucket filter, report mode, or assigned scope
+  if (
+    filters.counsellorOwnList &&
+    !filters.counsellorListFilter &&
+    !filters.forReport &&
+    !filters.assignedScope
+  ) {
     conditions.push(ne(leads.assignmentStatus, "converted"));
     conditions.push(ne(leads.assignmentStatus, "dropped"));
   }
@@ -477,7 +538,6 @@ export type TelecallerLeadSummaryRow = {
   transferred: number;
   converted: number;
   followUp: number;
-  followUpDone: number;
   junk: number;
 };
 
@@ -489,7 +549,7 @@ export const getTelecallerLeadSummaryRows = async (
     SELECT
       current_telecaller_id::int AS "telecallerId",
 
-      COUNT(*) FILTER (WHERE NOT is_junk)::int AS "total",
+      COUNT(*)::int AS "total",
 
       COUNT(*) FILTER (
         WHERE NOT is_junk
@@ -514,13 +574,8 @@ export const getTelecallerLeadSummaryRows = async (
       COUNT(*) FILTER (
         WHERE NOT is_junk
         AND progress_status = 'follow_up'
+        AND assignment_status NOT IN ('transferred', 'dropped', 'converted')
       )::int AS "followUp",
-
-      COUNT(*) FILTER (
-        WHERE NOT is_junk
-        AND progress_status <> 'follow_up'
-        AND next_followup_at IS NOT NULL
-      )::int AS "followUpDone",
 
       COUNT(*) FILTER (
         WHERE is_junk OR progress_status = 'junk'
@@ -548,7 +603,6 @@ export const getTelecallerLeadSummaryRows = async (
     transferred: num(r, "transferred", "transferred"),
     converted: num(r, "converted", "converted"),
     followUp: num(r, "followUp", "followup"),
-    followUpDone: num(r, "followUpDone", "followupdone"),
     junk: num(r, "junk", "junk"),
   }));
 };
@@ -600,19 +654,21 @@ export const getLeadActivitiesEnriched = async (leadId: number) => {
     .where(eq(leadActivities.leadId, leadId))
     .orderBy(desc(leadActivities.createdAt));
 
-  return rows.map((row) => ({
-    id: row.id,
-    leadId: row.leadId,
-    userId: row.userId,
-    activityType: row.activityType,
-    message: row.message,
-    followupAt: row.followupAt,
-    status: row.status,
-    meta: row.meta ?? {},
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-    userName: row.userName ?? null,
-  }));
+  return rows.map((row) =>
+    serializeLeadActivityTimestampsForApi({
+      id: row.id,
+      leadId: row.leadId,
+      userId: row.userId,
+      activityType: row.activityType,
+      message: row.message,
+      followupAt: row.followupAt,
+      status: row.status,
+      meta: row.meta ?? {},
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      userName: row.userName ?? null,
+    })
+  );
 };
 
 /** Pending follow-up activity not yet completed. */
@@ -833,6 +889,23 @@ export const getLeadReportSummary = async (params: {
   };
 };
 
+export const updateLeadActivityMessage = async (activityId: number, message: string) => {
+  const trimmed = message.trim();
+  if (!trimmed) throw new Error("Note message is required");
+
+  const [updated] = await db
+    .update(leadActivities)
+    .set({
+      message: trimmed,
+      updatedAt: getPgNaiveIndianNow(),
+    })
+    .where(eq(leadActivities.id, activityId))
+    .returning();
+
+  if (!updated) throw new Error("Activity not found");
+  return updated;
+};
+
 export const updateActivityStatus = async (
   activityId: number,
   status: "pending" | "completed" | "cancelled",
@@ -939,6 +1012,16 @@ export const convertLeadToClient = async (leadId: number, counsellorId: number) 
   }
   if (lead.progressStatus === "converted" || lead.assignmentStatus === "converted") {
     throw new Error("Lead is already converted");
+  }
+  if (!lead.eligibilityStatus) {
+    throw new Error("Set eligibility before converting to client");
+  }
+  if (!lead.leadQuality) {
+    throw new Error("Set lead quality before converting to client");
+  }
+  const pendingFollowUp = await hasPendingFollowUpForLead(leadId);
+  if (pendingFollowUp) {
+    throw new Error("Complete the pending follow-up before converting to client");
   }
 
   // Validate and normalize name + city before conversion (throws LeadFieldValidationError on failure)

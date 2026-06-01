@@ -67,7 +67,7 @@ export const getActivityLogsController = async (
       });
     }
 
-    const cacheKey = `activity-logs:${userId}:${userRole}:${clientId ?? ""}:${action ?? ""}:${entityType ?? ""}:${startDate?.toISOString() ?? ""}:${endDate?.toISOString() ?? ""}:${validLimit}:${validOffset}`;
+    const cacheKey = `activity-logs:v2:${userId}:${userRole}:${clientId ?? ""}:${action ?? ""}:${entityType ?? ""}:${startDate?.toISOString() ?? ""}:${endDate?.toISOString() ?? ""}:${validLimit}:${validOffset}`;
     const cached = await redisGetJson<{ data: any[]; pagination: any }>(cacheKey);
     if (cached) {
       return res.json({

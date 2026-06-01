@@ -5,6 +5,7 @@ import {
   addLeadActivityController,
   assignLeadController,
   bulkAssignLeadsController,
+  bulkStrategyAssignLeadsController,
   createLeadController,
   downloadLeadImportTemplateController,
   getLeadByIdController,
@@ -22,6 +23,7 @@ import {
   convertLeadToClientController,
   dropLeadByCounsellorController,
   updateLeadActivityStatusController,
+  updateLeadActivityMessageController,
   updateLeadController,
   searchLeadReferenceClientsController,
 } from "../controllers/lead.controller";
@@ -81,6 +83,14 @@ router.post(
   requireRole("developer", "admin", "manager", "superadmin"),
   preventDuplicateRequests,
   bulkAssignLeadsController
+);
+
+router.post(
+  "/bulk-assign-strategy",
+  requireAuth,
+  requireRole("developer", "admin", "manager", "superadmin"),
+  preventDuplicateRequests,
+  bulkStrategyAssignLeadsController
 );
 
 router.get("/:id", requireAuth, getLeadByIdController);
@@ -162,6 +172,13 @@ router.put(
   requireAuth,
   requireRole("developer", "admin", "manager", "telecaller", "counsellor"),
   updateLeadActivityStatusController
+);
+
+router.patch(
+  "/:id/activities/:activityId",
+  requireAuth,
+  requireRole("developer", "admin", "manager", "telecaller", "counsellor"),
+  updateLeadActivityMessageController
 );
 
 export default router;

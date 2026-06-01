@@ -94,7 +94,7 @@ export const getTelecallerIndividualReport = async (
 ) => {
   const statsResult = await db.execute(sql`
     SELECT
-      COUNT(*) FILTER (WHERE NOT is_junk)::int AS "assigned",
+      COUNT(*)::int AS "assigned",
       COUNT(*) FILTER (
         WHERE NOT is_junk
         AND progress_status IN ('contacted', 'follow_up', 'converted')
@@ -217,6 +217,7 @@ const fetchCounsellorSegment = async (
         WHERE NOT is_junk
         AND assignment_status NOT IN ('converted', 'dropped')
         AND progress_status NOT IN ('follow_up', 'converted', 'junk')
+        AND progress_status <> 'not_contacted'
       )::int AS "inProgress",
       COUNT(*) FILTER (
         WHERE NOT is_junk AND progress_status = 'follow_up'
@@ -312,6 +313,7 @@ export const getCounsellorIndividualReport = async (
           WHERE NOT is_junk
           AND assignment_status NOT IN ('converted', 'dropped')
           AND progress_status NOT IN ('follow_up', 'converted', 'junk')
+          AND progress_status <> 'not_contacted'
         )::int AS "inProgress",
         COUNT(*) FILTER (
           WHERE NOT is_junk AND progress_status = 'follow_up'

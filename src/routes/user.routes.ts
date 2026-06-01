@@ -54,8 +54,21 @@ router.delete("/users-delete/:userId",requireAuth,requireRole("developer","admin
  * Managers dropdown (admin only)
  */
 router.get("/managers",requireAuth, requireRole("developer","admin"),getManagersDropdown);
-/** Counsellors list (admin: all; counsellor: self only). */
-router.get("/counsellors", requireAuth, requireRole("developer","admin", "counsellor", "telecaller", "marketing_head"), getAllCounsellorsAdminController);
+/** Counsellors list (admin/manager: all; counsellor: self only). */
+router.get(
+  "/counsellors",
+  requireAuth,
+  requireRole(
+    "developer",
+    "admin",
+    "superadmin",
+    "manager",
+    "counsellor",
+    "telecaller",
+    "marketing_head"
+  ),
+  getAllCounsellorsAdminController
+);
 /**
  * Get counsellors by manager ID (admin only)
  */

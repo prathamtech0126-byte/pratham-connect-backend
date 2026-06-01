@@ -28,6 +28,10 @@ import { deleteOldMessages } from "./models/message.model";
 import { ensureSystemLeadTypes } from "./Leads/models/leadType.model";
 import { refreshExpiredFacebookTokensAndImportActiveForms } from "./Leads/facebookautomation/facebook_services/facebookAutomationStore.service";
 import { startMaintenanceScheduler } from "./services/maintenance.service";
+import {
+  startNotificationScheduler,
+  stopNotificationScheduler,
+} from "./notification/services/notificationScheduler.service";
 import * as cron from "node-cron";
 
 
@@ -66,6 +70,7 @@ const httpServer = createServer(app);
 // Initialize WebSocket server
 initializeSocket(httpServer);
 startMaintenanceScheduler();
+startNotificationScheduler();
 
 const shutdown = async (signal: string) => {
   try {
@@ -74,6 +79,12 @@ const shutdown = async (signal: string) => {
     await new Promise<void>((resolve) => {
       httpServer.close(() => resolve());
     });
+
+    try {
+      await stopNotificationScheduler();
+    } catch (e) {
+      logger.warn("⚠️ Error stopping notification scheduler:", e);
+    }
 
     try {
       await pool.end();

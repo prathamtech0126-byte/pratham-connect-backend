@@ -118,6 +118,24 @@ export const initializeSocket = (httpServer: HttpServer) => {
       if (socketDebug) console.log(`👋 Socket ${socket.id} left room: ${room}`);
     });
 
+    // Join user-specific room (notifications, individual messages)
+    socket.on("join:user", (userId: number | string) => {
+      const id = typeof userId === "string" ? parseInt(userId, 10) : userId;
+      if (isNaN(id) || id <= 0) {
+        console.error(`❌ Invalid userId for join:user: ${userId}`);
+        return;
+      }
+      const room = `user:${id}`;
+      socket.join(room);
+      if (socketDebug) console.log(`👤 Socket ${socket.id} joined user room: ${room}`);
+    });
+
+    socket.on("leave:user", (userId: number | string) => {
+      const id = typeof userId === "string" ? parseInt(userId, 10) : userId;
+      if (isNaN(id) || id <= 0) return;
+      socket.leave(`user:${id}`);
+    });
+
     // Join admin room
     socket.on("join:admin", () => {
       socket.join("admin");
@@ -193,6 +211,14 @@ export const emitToCounsellor = (counsellorId: number, event: string, data: any)
   const room = `counsellor:${counsellorId}`;
   io.to(room).emit(event, data);
   // Avoid noisy logs in production
+};
+
+/**
+ * Emit event to a specific user's room (join:user).
+ */
+export const emitToUser = (userId: number, event: string, data: unknown) => {
+  const io = getIO();
+  io.to(`user:${userId}`).emit(event, data);
 };
 
 /**

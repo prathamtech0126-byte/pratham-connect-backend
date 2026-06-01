@@ -1,6 +1,6 @@
 import { db } from "../config/databaseConnection";
 import { activityLog } from "../schemas/activityLog.schema";
-import { serializePgNaiveTimestampAsIst } from "../utils/pgTimestamp";
+import { serializeActivityLogTimestampAsIst } from "../utils/pgTimestamp";
 import { users } from "../schemas/users.schema";
 import { clientInformation } from "../schemas/clientInformation.schema";
 import { eq, and, or, desc, sql, gte, lte, isNotNull } from "drizzle-orm";
@@ -118,8 +118,8 @@ export const getActivityLogs = async (filters: GetActivityLogsFilters) => {
   const conditions: any[] = [];
 
   // Role-based filtering
-  if (userRole === "admin") {
-    // Admin sees all logs - no filter needed
+  if (["admin", "superadmin", "developer", "marketing_head"].includes(userRole ?? "")) {
+    // Admin-like roles see all logs
   } else if (userRole === "manager") {
     // Manager sees only counsellor activities
     conditions.push(eq(users.role, "counsellor"));
@@ -185,7 +185,7 @@ export const getActivityLogs = async (filters: GetActivityLogsFilters) => {
     const { productName, productLabel } = getProductFromLogRow(row);
     return {
       ...row,
-      createdAt: serializePgNaiveTimestampAsIst(row.createdAt),
+      createdAt: serializeActivityLogTimestampAsIst(row.createdAt),
       productName,
       productLabel,
       oldValue: row.oldValue != null ? sanitizeValueForJson(row.oldValue) : null,
@@ -214,8 +214,8 @@ export const getActivityLogsCount = async (filters: GetActivityLogsFilters) => {
   const conditions: any[] = [];
 
   // Role-based filtering (same as getActivityLogs)
-  if (userRole === "admin") {
-    // Admin sees all logs
+  if (["admin", "superadmin", "developer", "marketing_head"].includes(userRole ?? "")) {
+    // Admin-like roles see all logs
   } else if (userRole === "manager") {
     conditions.push(eq(users.role, "counsellor"));
   } else if (userRole === "counsellor" && userId) {

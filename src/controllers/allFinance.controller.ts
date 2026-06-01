@@ -14,6 +14,10 @@ import { clientInformation } from "../schemas/clientInformation.schema";
 import { users } from "../schemas/users.schema";
 import { eq,and } from "drizzle-orm";
 import { redisDel, redisDelByPrefix, redisGetJson, redisSetJson } from "../config/redis";
+import {
+  notifyPaymentApproved,
+  notifyPaymentRejected,
+} from "../notification/integrations/paymentNotifications";
 
 const ALL_FINANCE_HISTORY_CACHE_TTL_SECONDS = 60;
 
@@ -35,10 +39,13 @@ export const getPendingApprovalsController = async (
     }
 
     const userRole = req.user.role;
-    if (userRole !== "admin" && userRole !== "manager" && userRole !== "developer") {
+    const canViewPending = ["admin", "manager", "developer", "superadmin", "director"].includes(
+      userRole ?? ""
+    );
+    if (!canViewPending) {
       return res.status(403).json({
         success: false,
-        message: "Only admins, managers, and developers can view pending approvals",
+        message: "Only approver roles can view pending approvals",
       });
     }
 
@@ -162,6 +169,13 @@ export const approveAllFinanceController = async (
           clientName: client.fullName,
           amount: approvedFinance.amount,
         });
+        notifyPaymentApproved({
+          counsellorId: client.counsellorId,
+          financeId,
+          clientId: productPayment.clientId,
+          clientName: client.fullName ?? undefined,
+          amount: approvedFinance.amount,
+        }).catch((e) => console.error("[notification] payment approved:", e));
       }
     }
 
@@ -321,6 +335,13 @@ export const rejectAllFinanceController = async (
           clientName: client.fullName,
           amount: rejectedFinance.amount,
         });
+        notifyPaymentRejected({
+          counsellorId: client.counsellorId,
+          financeId,
+          clientId: productPayment.clientId,
+          clientName: client.fullName ?? undefined,
+          amount: rejectedFinance.amount,
+        }).catch((e) => console.error("[notification] payment rejected:", e));
       }
     }
 
