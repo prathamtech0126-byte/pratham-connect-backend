@@ -36,7 +36,7 @@ export const categoriesController = async (req: Request, res: Response) => {
     if (cached) return res.json({ success: true, data: cached });
 
     const data = await getAllCategories();
-    await redisSetJson(cacheKey, data, CACHE_TTL);
+    if (data.length > 0) await redisSetJson(cacheKey, data, CACHE_TTL);
     res.json({ success: true, data });
   } catch (err: any) {
     res

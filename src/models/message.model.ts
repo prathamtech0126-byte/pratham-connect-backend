@@ -313,6 +313,7 @@ export const getAllMessages = async (options?: {
 
 export const BROADCAST_RECIPIENT_ROLES: Role[] = [
   "manager",
+  "developer",
   "counsellor",
   "telecaller",
   "front_desk",

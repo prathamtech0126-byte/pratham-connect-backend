@@ -44,7 +44,7 @@ router.get(
 router.get(
   "/read",
   requireAuth,
-  requireRole("developer","admin", "manager", "counsellor"),
+  requireRole("developer","admin", "manager", "counsellor","cx", "binding", "application"),
   readSheetController
 );
 

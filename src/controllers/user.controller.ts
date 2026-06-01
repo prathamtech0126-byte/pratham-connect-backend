@@ -13,6 +13,7 @@ import {
   getCounsellorsByManagerId,
   getManagersWithCounsellors,
   changePassword,
+  markTourPageSeen,
 } from "../models/user.model";
 import bcrypt from "bcrypt";
 import { db } from "../config/databaseConnection";
@@ -549,6 +550,7 @@ export const getCurrentUser = async (req: Request, res: Response) => {
         role: users.role,
         managerId: users.managerId,
         isSupervisor: users.isSupervisor,
+        tourSeenPages: users.tourSeenPages,
       })
       .from(users)
       .where(eq(users.id, userId));
@@ -570,6 +572,7 @@ export const getCurrentUser = async (req: Request, res: Response) => {
       role: user.role,
       managerId: user.managerId,
       isSupervisor: user.isSupervisor,
+      tourSeenPages: user.tourSeenPages ?? [],
     });
   } catch (error: any) {
     console.error("Error fetching current user:", error);
@@ -1079,5 +1082,26 @@ export const changePasswordController = async (req: Request, res: Response) => {
       success: false,
       message: error?.message || "Failed to change password",
     });
+  }
+};
+
+/* ================================
+   MARK TOUR PAGE SEEN
+================================ */
+
+export const markTourPageSeenController = async (req: Request, res: Response) => {
+  try {
+    const authReq = req as AuthenticatedRequest;
+    const userId = authReq.user.id;
+    const { pageKey } = req.body;
+
+    if (!pageKey || typeof pageKey !== "string") {
+      return res.status(400).json({ message: "pageKey is required" });
+    }
+
+    await markTourPageSeen(userId, pageKey);
+    res.json({ message: "Tour page marked as seen" });
+  } catch (error: any) {
+    res.status(500).json({ message: error?.message || "Failed to update tour status" });
   }
 };
