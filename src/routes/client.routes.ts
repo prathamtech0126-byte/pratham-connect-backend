@@ -22,7 +22,7 @@ router.post(
 router.get(
   "/counsellor-clients",
   requireAuth,
-  requireRole("admin", "counsellor", "manager","developer"),
+  requireRole("admin", "counsellor", "manager","developer",),
   getAllClientsController
 );
 
@@ -78,7 +78,7 @@ router.put(
  */
 router.get(
   "/:clientId/complete",
-  requireAuth, requireRole("admin", "counsellor", "manager","developer"),
+  requireAuth, requireRole("admin", "counsellor", "manager", "developer", "cx", "binding", "application"),
   getClientCompleteDetailsController
 );
 

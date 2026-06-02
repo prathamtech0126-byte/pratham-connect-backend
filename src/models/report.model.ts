@@ -1044,6 +1044,36 @@ export const getPaymentsList = async (
         AND af.another_payment_amount IS NOT NULL
         AND af.another_payment_date >= $1::date AND af.another_payment_date <= $2::date
 
+      UNION ALL
+
+      -- ── all_finance: third installment ──
+      SELECT
+        cpp.id, af.another_payment_date2, cpp.client_id, NULL::bigint,
+        cpp.product_name::text,
+        COALESCE(af.another_payment_amount2, '0')::numeric,
+        cpp.handled_by, NULL::text, af.invoice_no, af.remarks, 'product'
+      FROM client_product_payment cpp
+      INNER JOIN all_finance af ON af.id = cpp.entity_id
+      WHERE cpp.entity_type = 'allFinance_id'
+        AND af.another_payment_date2 IS NOT NULL
+        AND af.another_payment_amount2 IS NOT NULL
+        AND af.another_payment_date2 >= $1::date AND af.another_payment_date2 <= $2::date
+
+      UNION ALL
+
+      -- ── all_finance: fourth installment ──
+      SELECT
+        cpp.id, af.another_payment_date3, cpp.client_id, NULL::bigint,
+        cpp.product_name::text,
+        COALESCE(af.another_payment_amount3, '0')::numeric,
+        cpp.handled_by, NULL::text, af.invoice_no, af.remarks, 'product'
+      FROM client_product_payment cpp
+      INNER JOIN all_finance af ON af.id = cpp.entity_id
+      WHERE cpp.entity_type = 'allFinance_id'
+        AND af.another_payment_date3 IS NOT NULL
+        AND af.another_payment_amount3 IS NOT NULL
+        AND af.another_payment_date3 >= $1::date AND af.another_payment_date3 <= $2::date
+
     ) p
     INNER JOIN client_information ci ON ci.id = p.client_id
     LEFT JOIN users owner_u ON owner_u.id = ci.counsellor_id
