@@ -127,15 +127,25 @@ export const createUser = async (
     finalRole = data.role;
   }
 
-  const roleRequiresManager = finalRole === "counsellor" || finalRole === "telecaller";
+  const roleRequiresManager = ["counsellor", "telecaller", "cx", "binding", "application"].includes(finalRole);
   if (finalRole === "counsellor" && !data.managerId) {
     throw new Error("Counsellor must be assigned to a manager");
   }
   if (finalRole === "telecaller" && !data.managerId) {
     throw new Error("Telecaller must be assigned to a manager");
   }
+
+  if (finalRole === "cx" && !data.managerId) {
+    throw new Error("CX team member must be assigned to a manager");
+  }
+  if (finalRole === "binding" && !data.managerId) {
+    throw new Error("Binding team member must be assigned to a manager");
+  }
+  if (finalRole === "application" && !data.managerId) {
+    throw new Error("Application team member must be assigned to a manager");
+  }
   if (!roleRequiresManager && data.managerId) {
-    throw new Error("Only counsellors and telecallers can have a manager");
+    throw new Error("Only counsellors, telecallers, CX team, binding team, and application team can have a manager");
   }
 
   // front_desk users don't need a manager and can't be supervisors
@@ -458,7 +468,7 @@ export const updateUserByAdmin = async (
 
   const finalRole = data.role ?? existingUser.role;
 
-  const roleRequiresManager = finalRole === "counsellor" || finalRole === "telecaller";
+  const roleRequiresManager = ["counsellor", "telecaller", "cx", "binding", "application"].includes(finalRole);
   const rawManagerId =
     data.managerId !== undefined ? data.managerId : existingUser.managerId;
   const finalManagerId = roleRequiresManager ? rawManagerId : null;
@@ -470,7 +480,7 @@ export const updateUserByAdmin = async (
     throw new Error("Telecaller must have a manager");
   }
   if (!roleRequiresManager && rawManagerId != null) {
-    throw new Error("Only counsellors and telecallers can have a manager");
+    throw new Error("Only counsellors, telecallers, CX team, binding team, and application team can have a manager");
   }
 
   // Only managers can be supervisors (Developer is admin-like, skip this check)
@@ -839,4 +849,26 @@ export const changePassword = async (
     userId: user.id,
     email: user.email,
   };
+};
+
+/* ================================
+   TOUR SEEN PAGES
+================================ */
+
+export const markTourPageSeen = async (userId: number, pageKey: string) => {
+  const [user] = await db
+    .select({ tourSeenPages: users.tourSeenPages })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  if (!user) throw new Error("User not found");
+
+  const pages: string[] = user.tourSeenPages ?? [];
+  if (pages.includes(pageKey)) return; // already recorded
+
+  await db
+    .update(users)
+    .set({ tourSeenPages: [...pages, pageKey] })
+    .where(eq(users.id, userId));
 };

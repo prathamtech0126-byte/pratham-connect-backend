@@ -406,7 +406,7 @@ export const getAllClientsController = async (req: Request, res: Response) => {
     const userId = req.user.id as number;
     const userPayload = { id: userId, role: userRole };
 
-    const allowedRoles = ["admin", "manager", "counsellor","developer"];
+    const allowedRoles = ["admin", "manager", "counsellor","developer"  ];
     if (!allowedRoles.includes(userRole)) {
       return res.status(403).json({
         success: false,

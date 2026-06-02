@@ -29,6 +29,7 @@ import {
   timestamp,
   boolean,
   index,
+  json,
   AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
@@ -62,6 +63,9 @@ export const users = pgTable(
 
     /** Comma-separated accessories kept with user after device unassign (tech support). */
     retainedAccessories: varchar("retained_accessories", { length: 300 }),
+
+    /** Page keys for product tours already dismissed by this user. */
+    tourSeenPages: json("tour_seen_pages").$type<string[]>().default([]),
 
     createdAt: timestamp("created_at").defaultNow(),
   },
