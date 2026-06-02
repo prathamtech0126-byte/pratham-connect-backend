@@ -15,7 +15,7 @@ export const NOTIFICATION_EVENT_REGISTRY: Record<NotificationType, RegistryEntry
   lead_assigned_counsellor: { category: "leads", defaultPriority: "normal" },
   lead_transferred_to_counsellor: { category: "leads", defaultPriority: "high" },
   lead_reassigned: { category: "leads", defaultPriority: "high" },
-  lead_followup_reminder: { category: "alerts", defaultPriority: "normal" },
+  lead_followup_reminder: { category: "leads", defaultPriority: "normal" },
   lead_followup_overdue: { category: "alerts", defaultPriority: "high" },
   lead_converted: { category: "leads", defaultPriority: "normal" },
   lead_dropped: { category: "leads", defaultPriority: "low" },

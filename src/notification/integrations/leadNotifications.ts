@@ -20,7 +20,11 @@ import {
   getFollowupRepeatOverdueDeliverAt,
   notifyUsers,
 } from "../services/notification.service";
-import { pgNaiveIst, serializePgNaiveTimestampAsIst } from "../../utils/pgTimestamp";
+import {
+  pgNaiveIst,
+  pgNaiveIstWallClockToInstant,
+  serializePgNaiveTimestampAsIst,
+} from "../../utils/pgTimestamp";
 import { db } from "../../config/databaseConnection";
 import { notifications } from "../schemas/notifications.schema";
 import { eq } from "drizzle-orm";
@@ -59,6 +63,14 @@ function leadsInboxUrl(role: "counsellor" | "telecaller"): string {
 
 function resolveLeadOwnerId(lead: LeadLike): number | null {
   return lead.currentCounsellorId ?? lead.currentTelecallerId ?? null;
+}
+
+function getReminderMinutesForBody(followupWall: Date): number {
+  const configuredMinutes = Math.max(1, getFollowupReminderMinutesBefore());
+  const followupInstant = pgNaiveIstWallClockToInstant(followupWall);
+  const diffMs = followupInstant.getTime() - Date.now();
+  const remainingMinutes = Math.max(1, Math.ceil(diffMs / 60000));
+  return Math.min(configuredMinutes, remainingMinutes);
 }
 
 function buildBatchCopy(assignments: BatchAssignment[]) {
@@ -210,7 +222,7 @@ export async function scheduleLeadFollowupReminder(
   const followupWall = options?.alreadyPgNaive ? followupAt : pgNaiveIst(followupAt);
   const whenLabel = formatFollowupTime(followupWall);
   const leadName = lead.fullName ?? `lead #${lead.id}`;
-  const minutesBefore = getFollowupReminderMinutesBefore();
+  const minutesBefore = getReminderMinutesForBody(followupWall);
   const followupAtIso = serializePgNaiveTimestampAsIst(followupWall);
   const baseMeta = {
     leadName: lead.fullName,
@@ -268,7 +280,7 @@ async function scheduleLeadFollowupOverdueAlerts(
     type: "lead_followup_overdue",
     userIds: [ownerId],
     title: "Follow-up missed",
-    body: `Follow-up with ${leadName} was due at ${whenLabel} and is now overdue. Please contact the lead.`,
+    body: `Follow-up with ${leadName} was due at ${whenLabel}. Complete it as soon as possible or your manager may be updated.`,
     priority: "high",
     category: "alerts",
     entityType: "lead",
@@ -285,7 +297,7 @@ async function scheduleLeadFollowupOverdueAlerts(
     type: "lead_followup_overdue",
     userIds: [ownerId],
     title: "Follow-up still overdue",
-    body: `Follow-up with ${leadName} (due ${whenLabel}) is still not completed. Please follow up as soon as possible.`,
+    body: `Follow-up with ${leadName} (due ${whenLabel}) is still not completed. Complete it now or your manager may be updated.`,
     priority: "high",
     category: "alerts",
     entityType: "lead",
@@ -316,8 +328,8 @@ export async function notifyLeadFollowupOverdue(
     userIds: [ownerId],
     title: isEarly ? "Follow-up missed" : "Follow-up still overdue",
     body: isEarly
-      ? `Follow-up with ${leadName} was due at ${whenLabel} and is now overdue. Please contact the lead.`
-      : `Follow-up with ${leadName} (due ${whenLabel}) is still not completed. Please follow up as soon as possible.`,
+      ? `Follow-up with ${leadName} was due at ${whenLabel}. Complete it as soon as possible or your manager may be updated.`
+      : `Follow-up with ${leadName} (due ${whenLabel}) is still not completed. Complete it now or your manager may be updated.`,
     priority: "high",
     category: "alerts",
     entityType: "lead",
