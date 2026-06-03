@@ -17,18 +17,21 @@ import {
   isLeadJunkLocked,
   revertJunkLead,
   updateActivityStatus,
+  updateLeadActivityMessage,
   updateLeadById,
   updateLeadStructuredDetails,
   getLeadsByIds,
   convertLeadToClient,
   dropLeadByCounsellor,
   type LeadStructuredDetailsInput,
+  type LeadListFilters,
 } from "../models/lead.model";
 import {
   getTelecallerIndividualReport,
   getCounsellorIndividualReport,
 } from "../models/leadIndividualReport.model";
 import { insertLeadRecord } from "../services/leadInsert.service";
+import { pgNaiveIst, serializeLeadActivityTimestampsForApi } from "../../utils/pgTimestamp";
 import {
   createLeadCreatedActivity,
   createLeadReasonNote,
@@ -65,6 +68,20 @@ import {
 } from "../services/leadCsvImport.service";
 import { applyAutoContactedProgressIfNeeded } from "../services/leadProgressRules.service";
 import { buildCounsellorAssignPatch } from "../services/leadAssignment.service";
+import {
+  assertValidStrategy,
+  buildStrategyAssignPatch,
+  computeBulkStrategyAssignments,
+  getLeadsForStrategyAssign,
+} from "../services/leadBulkStrategyAssign.service";
+import {
+  flushLeadAssignmentBatch,
+  onLeadAssignmentChange,
+  scheduleLeadFollowupReminder,
+  notifyLeadConverted,
+  notifyLeadDropped,
+  notifyLeadJunked,
+} from "../../notification/integrations/leadNotifications";
 import { AuthenticatedRequest } from "../../types/express-auth";
 import { db } from "../../config/databaseConnection";
 import { eq, inArray } from "drizzle-orm";
@@ -193,17 +210,31 @@ export const getLeadsController = async (req: Request, res: Response) => {
   try {
     const authReq = req as AuthenticatedRequest;
     const rawSearch = typeof req.query.search === "string" ? req.query.search.trim() : "";
-    const filters = {
+    const counsellorIdFromQuery = req.query.counsellorId ?? req.query.currentCounsellorId;
+    const telecallerIdFromQuery = req.query.telecallerId ?? req.query.currentTelecallerId;
+    const assignedScope =
+      req.query.assignedScope === "true" || req.query.assignedScope === "1";
+    const reportBucketRaw = req.query.reportBucket;
+    const reportBucket =
+      reportBucketRaw === "contacted" || reportBucketRaw === "transferred"
+        ? reportBucketRaw
+        : undefined;
+
+    const filters: LeadListFilters = {
       search: rawSearch.length >= 3 ? rawSearch : undefined,
-      assignmentStatus: req.query.assignmentStatus as string | undefined,
-      progressStatus: req.query.progressStatus as string | undefined,
+      assignmentStatus: assignedScope || reportBucket
+        ? undefined
+        : (req.query.assignmentStatus as string | undefined),
+      progressStatus: assignedScope || reportBucket
+        ? undefined
+        : (req.query.progressStatus as string | undefined),
       eligibilityStatus: req.query.eligibilityStatus as string | undefined,
       leadQuality: req.query.leadQuality as string | undefined,
-      currentTelecallerId: req.query.currentTelecallerId
-        ? Number(req.query.currentTelecallerId)
+      currentTelecallerId: telecallerIdFromQuery
+        ? Number(telecallerIdFromQuery)
         : undefined,
-      currentCounsellorId: req.query.currentCounsellorId
-        ? Number(req.query.currentCounsellorId)
+      currentCounsellorId: counsellorIdFromQuery
+        ? Number(counsellorIdFromQuery)
         : undefined,
       isJunk: req.query.isJunk === undefined ? undefined : req.query.isJunk === "true",
       nextFollowupFrom: req.query.nextFollowupFrom as string | undefined,
@@ -223,7 +254,18 @@ export const getLeadsController = async (req: Request, res: Response) => {
         | "converted"
         | "dropped"
         | undefined,
-      forReport: req.query.forReport === "true",
+      forReport:
+        req.query.forReport === "true" ||
+        req.query.forReport === "1" ||
+        assignedScope ||
+        Boolean(reportBucket),
+      counsellorOwnList: authReq.user?.role === "counsellor",
+      assignedScope,
+      reportBucket,
+      hasPendingFollowUp:
+        req.query.hasPendingFollowUp === "true" || req.query.hasPendingFollowUp === "1"
+          ? true
+          : undefined,
       withoutTelecaller: req.query.withoutTelecaller === "true",
       withTelecaller: req.query.withTelecaller === "true",
       sentToMeta: req.query.sentToMeta === undefined ? undefined : req.query.sentToMeta === "true",
@@ -512,6 +554,31 @@ export const updateLeadController = async (req: Request, res: Response) => {
       });
     }
 
+    const isCounsellor = role === "counsellor";
+    const marksConverted =
+      patch.assignmentStatus === "converted" || patch.progressStatus === "converted";
+    if (isCounsellor && marksConverted) {
+      if (!previous.eligibilityStatus) {
+        return res.status(400).json({
+          success: false,
+          message: "Set eligibility before converting to client",
+        });
+      }
+      if (!previous.leadQuality) {
+        return res.status(400).json({
+          success: false,
+          message: "Set lead quality before converting to client",
+        });
+      }
+      const pendingFollowUp = await hasPendingFollowUpForLead(id);
+      if (pendingFollowUp) {
+        return res.status(400).json({
+          success: false,
+          message: "Complete the pending follow-up before converting to client",
+        });
+      }
+    }
+
     const normalizedText = normalizeAndValidateLeadPayload(patch);
     if (patch.leadType !== undefined) {
       patch.leadType = (await assertValidSaleTypeLabel(patch.leadType as string)) ?? null;
@@ -676,7 +743,7 @@ export const addLeadActivityController = async (req: Request, res: Response) => 
       userId: authReq.user?.id ?? null,
       activityType: body.activityType,
       message: body.message ?? null,
-      followupAt: body.followupAt ? new Date(body.followupAt) : null,
+      followupAt: body.followupAt ? pgNaiveIst(new Date(body.followupAt)) : null,
       status: body.status ?? "pending",
       meta: body.meta ?? {},
       updatedAt: getIndianNow(),
@@ -688,9 +755,12 @@ export const addLeadActivityController = async (req: Request, res: Response) => 
       leadPatch.latestNote = body.message;
     }
     if (body.followupAt) {
-      leadPatch.nextFollowupAt = new Date(body.followupAt);
+      leadPatch.nextFollowupAt = pgNaiveIst(new Date(body.followupAt));
       leadPatch.progressStatus = "follow_up";
     }
+    const followupScheduledAt = body.followupAt
+      ? pgNaiveIst(new Date(body.followupAt))
+      : null;
     // Notes and call logs on a not_contacted lead → contacted
     if (body.activityType === "note" || body.activityType === "call_log") {
       const currentLead = await getLeadById(leadId);
@@ -707,7 +777,24 @@ export const addLeadActivityController = async (req: Request, res: Response) => 
 
     await publishLeadChange("lead:activity", { leadId, activity } as Record<string, unknown>);
 
-    res.status(201).json({ success: true, data: activity, lead: enrichedLead });
+    if (followupScheduledAt && enrichedLead) {
+      scheduleLeadFollowupReminder(
+        {
+          id: enrichedLead.id,
+          fullName: enrichedLead.fullName,
+          currentCounsellorId: enrichedLead.currentCounsellorId,
+          currentTelecallerId: enrichedLead.currentTelecallerId,
+        },
+        followupScheduledAt,
+        { alreadyPgNaive: true }
+      ).catch((e) => console.error("[notification] followup schedule:", e));
+    }
+
+    res.status(201).json({
+      success: true,
+      data: serializeLeadActivityTimestampsForApi(activity),
+      lead: enrichedLead,
+    });
   } catch (error: any) {
     res.status(400).json({ success: false, message: error.message });
   }
@@ -865,6 +952,14 @@ export const assignLeadController = async (req: Request, res: Response) => {
       notifyTelecallerId: telecallerId ?? updated.currentTelecallerId ?? null,
       notifyCounsellorId: counsellorId ?? null,
     });
+
+    onLeadAssignmentChange(currentLead, updated, {
+      telecallerId: telecallerId ?? null,
+      counsellorId: counsellorId ?? null,
+      actorUserId: authReq.user?.id ?? null,
+      performerName: performerName ?? null,
+    }).catch((e) => console.error("[notification] assign lead:", e));
+
     res.json({ success: true, data: updated });
   } catch (error: any) {
     res.status(400).json({ success: false, message: error.message });
@@ -919,6 +1014,15 @@ export const markLeadJunkController = async (req: Request, res: Response) => {
 
     const enriched = await getLeadById(leadId);
     await publishLeadChange("lead:junked", (enriched ?? updated) as Record<string, unknown>);
+    notifyLeadJunked(
+      {
+        id: (enriched ?? updated).id,
+        fullName: (enriched ?? updated).fullName,
+        currentCounsellorId: (enriched ?? updated).currentCounsellorId,
+        currentTelecallerId: (enriched ?? updated).currentTelecallerId,
+      },
+      authReq.user?.id ?? null
+    ).catch((e) => console.error("[notification] junk:", e));
     res.json({ success: true, data: enriched ?? updated });
   } catch (error: any) {
     res.status(400).json({ success: false, message: error.message });
@@ -1024,6 +1128,16 @@ export const convertLeadToClientController = async (req: Request, res: Response)
 
     await publishLeadChange("lead:converted", lead as Record<string, unknown>);
 
+    notifyLeadConverted(
+      {
+        id: lead.id,
+        fullName: lead.fullName,
+        currentCounsellorId: lead.currentCounsellorId,
+        currentTelecallerId: lead.currentTelecallerId,
+      },
+      authReq.user.id
+    ).catch((e) => console.error("[notification] convert:", e));
+
     res.json({ success: true, data: { lead, client } });
   } catch (error: any) {
     res.status(400).json({ success: false, message: error.message });
@@ -1065,6 +1179,16 @@ export const dropLeadByCounsellorController = async (req: Request, res: Response
     await logLeadDropped(req, updated, previous, authReq.user.id, String(reason).trim());
 
     await publishLeadChange("lead:dropped", updated as Record<string, unknown>);
+
+    notifyLeadDropped(
+      {
+        id: updated.id,
+        fullName: updated.fullName,
+        currentCounsellorId: updated.currentCounsellorId,
+        currentTelecallerId: updated.currentTelecallerId,
+      },
+      authReq.user.id
+    ).catch((e) => console.error("[notification] drop:", e));
 
     res.json({ success: true, data: updated });
   } catch (error: any) {
@@ -1112,7 +1236,7 @@ export const markLeadFollowupController = async (req: Request, res: Response) =>
     }
 
     await updateLeadById(leadId, {
-      nextFollowupAt: followupDate,
+      nextFollowupAt: pgNaiveIst(followupDate),
       progressStatus: "follow_up",
     });
     const enriched = await getLeadById(leadId);
@@ -1126,7 +1250,7 @@ export const markLeadFollowupController = async (req: Request, res: Response) =>
       userId: authReq.user?.id ?? null,
       activityType: "followup",
       message: message?.trim() || null,
-      followupAt: followupDate,
+      followupAt: pgNaiveIst(followupDate),
       status: "pending",
       meta: { performedByName: performerName },
       updatedAt: getIndianNow(),
@@ -1145,12 +1269,24 @@ export const markLeadFollowupController = async (req: Request, res: Response) =>
 
     await publishLeadChange("lead:followup", enriched as Record<string, unknown>);
 
+    scheduleLeadFollowupReminder(
+      {
+        id: enriched.id,
+        fullName: enriched.fullName,
+        currentCounsellorId: enriched.currentCounsellorId,
+        currentTelecallerId: enriched.currentTelecallerId,
+      },
+      pgNaiveIst(followupDate),
+      { alreadyPgNaive: true }
+    ).catch((e) => console.error("[notification] followup schedule:", e));
+
     const activities = await getLeadActivitiesEnriched(leadId);
     const createdActivity =
-      activities.find((a) => a.id === followupActivity.id) ?? {
+      activities.find((a) => a.id === followupActivity.id) ??
+      serializeLeadActivityTimestampsForApi({
         ...followupActivity,
         userName: performerName,
-      };
+      });
 
     res.json({ success: true, data: enriched, activity: createdActivity });
   } catch (error: any) {
@@ -1207,7 +1343,7 @@ export const createLeadActivityController = async (
       userId: authReq.user?.id ?? null,
       activityType,
       message: message?.trim() || null,
-      followupAt: parsedFollowup,
+      followupAt: parsedFollowup ? pgNaiveIst(parsedFollowup) : null,
       status: status || "completed",
       meta: meta || {},
       updatedAt: getIndianNow(),
@@ -1217,11 +1353,27 @@ export const createLeadActivityController = async (
     let updatedLead = null;
 
     if (activityType === "followup" && parsedFollowup) {
+      const followupNaive = pgNaiveIst(parsedFollowup);
       updatedLead = await updateLeadById(leadId, {
-        nextFollowupAt: parsedFollowup,
+        nextFollowupAt: followupNaive,
         progressStatus: "follow_up",
         updatedAt: getIndianNow(),
       });
+      if (updatedLead) {
+        const leadRow = await getLeadById(leadId);
+        if (leadRow) {
+          scheduleLeadFollowupReminder(
+            {
+              id: leadRow.id,
+              fullName: leadRow.fullName,
+              currentCounsellorId: leadRow.currentCounsellorId,
+              currentTelecallerId: leadRow.currentTelecallerId,
+            },
+            followupNaive,
+            { alreadyPgNaive: true }
+          ).catch((e) => console.error("[notification] followup schedule:", e));
+        }
+      }
     } else if (activityType === "note" && message?.trim()) {
       const current = await getLeadById(leadId);
       const notePatch: Record<string, unknown> = {
@@ -1248,7 +1400,7 @@ export const createLeadActivityController = async (
       message: "Activity created successfully",
       data: {
         lead: updatedLead,
-        activity,
+        activity: serializeLeadActivityTimestampsForApi(activity),
       },
     });
   } catch (error: any) {
@@ -1334,6 +1486,7 @@ export const bulkAssignLeadsController = async (req: Request, res: Response) => 
     const assigneeName = nameRows[0]?.fullName ?? null;
 
     const updatedItems: Awaited<ReturnType<typeof updateLeadById>>[] = [];
+    const assigneesToFlush = new Set<number>();
 
     for (const leadId of toUpdate) {
       const currentLead = rowMap.get(leadId);
@@ -1390,7 +1543,27 @@ export const bulkAssignLeadsController = async (req: Request, res: Response) => 
         });
       }
 
+      if (updated) {
+        await onLeadAssignmentChange(currentLead, updated, {
+          telecallerId: telecallerId ?? null,
+          counsellorId: counsellorId ?? null,
+          actorUserId: authReq.user?.id ?? null,
+          performerName,
+          deferDelivery: true,
+        });
+        if (telecallerId != null) assigneesToFlush.add(Number(telecallerId));
+        if (counsellorId != null) assigneesToFlush.add(Number(counsellorId));
+      }
+
       updatedItems.push(updated);
+    }
+
+    for (const userId of assigneesToFlush) {
+      try {
+        await flushLeadAssignmentBatch(userId);
+      } catch (e) {
+        console.error("[notification] bulk assign flush:", e);
+      }
     }
 
     await publishLeadChange("lead:bulk_assigned", {
@@ -1407,6 +1580,210 @@ export const bulkAssignLeadsController = async (req: Request, res: Response) => 
         missing,
       },
     });
+  } catch (error: any) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+export const bulkStrategyAssignLeadsController = async (req: Request, res: Response) => {
+  try {
+    const authReq = req as AuthenticatedRequest;
+    const {
+      leadIds,
+      strategy,
+      assignedTelecallers = [],
+      assignedCounsellors = [],
+      priorityWeights = {},
+      removeFromPreviousAssignee = false,
+      preview = false,
+    } = req.body ?? {};
+
+    if (!Array.isArray(leadIds) || leadIds.length === 0) {
+      return res.status(400).json({ success: false, message: "leadIds is required" });
+    }
+
+    const validStrategy = assertValidStrategy(String(strategy ?? ""));
+    const ids = leadIds.map((id: unknown) => Number(id)).filter((id: number) => !isNaN(id));
+    const tcPool = (assignedTelecallers as unknown[])
+      .map(Number)
+      .filter((id) => Number.isFinite(id));
+    const coPool = (assignedCounsellors as unknown[])
+      .map(Number)
+      .filter((id) => Number.isFinite(id));
+
+    const isAdminLike = ["admin", "developer", "manager", "superadmin", "marketing_head"].includes(
+      authReq.user?.role ?? ""
+    );
+
+    const plan = await computeBulkStrategyAssignments({
+      leadIds: ids,
+      strategy: validStrategy,
+      assignedTelecallers: tcPool,
+      assignedCounsellors: coPool,
+      priorityWeights: priorityWeights ?? {},
+    });
+
+    if (preview) {
+      return res.json({ success: true, data: plan });
+    }
+
+    const rowMap = new Map(
+      (await getLeadsForStrategyAssign(plan.assignments.map((a) => a.leadId))).map((row) => [
+        row.id,
+        row,
+      ])
+    );
+    const performerName = await getUserFullName(authReq.user?.id);
+    const updatedItems: Awaited<ReturnType<typeof updateLeadById>>[] = [];
+    const assigneesToFlush = new Set<number>();
+
+    for (const assignment of plan.assignments) {
+      const currentLead = rowMap.get(assignment.leadId);
+      if (!currentLead) continue;
+
+      if (
+        assignment.role === "counsellor" &&
+        !isAdminLike &&
+        (!currentLead.eligibilityStatus || !currentLead.leadQuality)
+      ) {
+        plan.blocked.push(assignment.leadId);
+        continue;
+      }
+
+      const assignPatch = buildStrategyAssignPatch(currentLead, assignment, authReq.user?.id ?? 0, {
+        isAdminLike,
+        removeFromPreviousAssignee: removeFromPreviousAssignee === true,
+      });
+
+      const updated = await updateLeadById(assignment.leadId, assignPatch);
+
+      await createLeadActivity({
+        leadId: assignment.leadId,
+        userId: authReq.user?.id ?? null,
+        activityType: assignment.role === "counsellor" ? "counselor_assign" : "assignment_change",
+        message:
+          assignment.role === "counsellor"
+            ? `${performerName ?? "Someone"} distributed this lead to counsellor ${assignment.userName}`
+            : `${performerName ?? "Someone"} distributed this lead to telecaller ${assignment.userName}`,
+        meta: {
+          telecallerId: assignment.role === "telecaller" ? assignment.userId : null,
+          counsellorId: assignment.role === "counsellor" ? assignment.userId : null,
+          bulk: true,
+          strategy: validStrategy,
+          telecallerName: assignment.role === "telecaller" ? assignment.userName : null,
+          counsellorName: assignment.role === "counsellor" ? assignment.userName : null,
+          performedByName: performerName,
+        },
+        updatedAt: getIndianNow(),
+      });
+
+      if (authReq.user?.id) {
+        await logLeadAssignment(req, {
+          lead: updated,
+          previous: currentLead,
+          performedBy: authReq.user.id,
+          telecallerId: assignment.role === "telecaller" ? assignment.userId : null,
+          counsellorId: assignment.role === "counsellor" ? assignment.userId : null,
+          telecallerName: assignment.role === "telecaller" ? assignment.userName : null,
+          counsellorName: assignment.role === "counsellor" ? assignment.userName : null,
+          bulk: true,
+        });
+      }
+
+      await onLeadAssignmentChange(currentLead, updated, {
+        telecallerId: assignment.role === "telecaller" ? assignment.userId : null,
+        counsellorId: assignment.role === "counsellor" ? assignment.userId : null,
+        actorUserId: authReq.user?.id ?? null,
+        performerName,
+        deferDelivery: true,
+      });
+      assigneesToFlush.add(assignment.userId);
+
+      updatedItems.push(updated);
+    }
+
+    for (const userId of assigneesToFlush) {
+      try {
+        await flushLeadAssignmentBatch(userId);
+      } catch (e) {
+        console.error("[notification] strategy assign flush:", e);
+      }
+    }
+
+    await publishLeadChange("lead:bulk_assigned", {
+      updatedCount: updatedItems.length,
+      blocked: plan.blocked,
+      missing: plan.missing,
+      strategy: validStrategy,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        ...plan,
+        updated: updatedItems,
+      },
+    });
+  } catch (error: any) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+export const updateLeadActivityMessageController = async (req: Request, res: Response) => {
+  try {
+    const authReq = req as AuthenticatedRequest;
+    const leadId = Number(req.params.id);
+    const activityId = Number(req.params.activityId);
+    if (isNaN(leadId) || isNaN(activityId)) {
+      return res.status(400).json({ success: false, message: "Invalid id" });
+    }
+
+    const { message } = req.body ?? {};
+    if (!String(message ?? "").trim()) {
+      return res.status(400).json({ success: false, message: "Note message is required" });
+    }
+
+    const lead = await getLeadById(leadId);
+    if (!lead) {
+      return res.status(404).json({ success: false, message: "Lead not found" });
+    }
+    if (isLeadLocked(lead, authReq.user?.role)) {
+      return res.status(400).json({
+        success: false,
+        message: isLeadJunkLocked(lead)
+          ? "Junk leads are read-only"
+          : "Converted leads cannot be modified by telecallers",
+      });
+    }
+
+    const activities = await getLeadActivities(leadId);
+    const target = activities.find((a) => a.id === activityId);
+    if (!target || target.activityType !== "note") {
+      return res.status(400).json({ success: false, message: "Note activity not found" });
+    }
+
+    const updated = await updateLeadActivityMessage(activityId, String(message));
+
+    const latestNoteActivity = activities
+      .filter((a) => a.activityType === "note")
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()
+      )[0];
+    if (latestNoteActivity?.id === activityId) {
+      await updateLeadById(leadId, { latestNote: String(message).trim() });
+      const enriched = await getLeadById(leadId);
+      if (enriched) {
+        await publishLeadChange("lead:updated", enriched as Record<string, unknown>);
+      }
+    }
+
+    await publishLeadChange("lead:activity_updated", {
+      leadId,
+      activity: updated,
+    } as Record<string, unknown>);
+
+    res.json({ success: true, data: updated });
   } catch (error: any) {
     res.status(400).json({ success: false, message: error.message });
   }
@@ -1462,7 +1839,7 @@ export const updateLeadActivityStatusController = async (req: Request, res: Resp
         .sort((a: any, b: any) => new Date(a.followupAt ?? 0).getTime() - new Date(b.followupAt ?? 0).getTime())[0];
 
       const leadPatch: Record<string, unknown> = {
-        nextFollowupAt: nextPending?.followupAt ? new Date(nextPending.followupAt) : null,
+        nextFollowupAt: nextPending?.followupAt ? pgNaiveIst(new Date(nextPending.followupAt)) : null,
       };
       if (!stillPending) {
         const current = await getLeadById(leadId);

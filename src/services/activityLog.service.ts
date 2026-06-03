@@ -2,6 +2,7 @@ import { Request } from "express";
 import { db } from "../config/databaseConnection";
 import { activityLog } from "../schemas/activityLog.schema";
 import { redisDelByPrefix } from "../config/redis";
+import { getPgNaiveIndianNow } from "../utils/pgTimestamp";
 
 /**
  * Activity Log Service
@@ -41,6 +42,7 @@ export const createActivityLog = async (input: CreateActivityLogInput): Promise<
       performedBy: input.performedBy,
       ipAddress: input.ipAddress ?? null,
       userAgent: input.userAgent ?? null,
+      createdAt: getPgNaiveIndianNow(),
     });
 
     // Ensure new activity appears immediately for all users (avoid stale 90s cache).

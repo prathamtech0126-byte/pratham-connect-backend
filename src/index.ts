@@ -180,6 +180,7 @@ import { healthController } from "./controllers/health.controller";
 import { requireCsrf } from "./middlewares/csrf.middleware";
 import otherProductsRoutes from "./routes/otherProducts.routes";
 import ruleConfigurationRoutes from "./routes/ruleConfiguration.routes";
+import notificationRoutes from "./notification/routes/notification.routes";
 
 
 
@@ -247,7 +248,7 @@ app.use(
       callback(new Error("CORS policy: origin not allowed"));
     },
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH","OPTIONS"],
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "PATCH","OPTIONS"],
     allowedHeaders: [
       "Content-Type",
       "Authorization",
@@ -324,6 +325,7 @@ app.use("/api/incentives", incentiveRulesRoutes);
 app.use("/api/incentives", incentiveReportRoutes);
 app.use("/api/other-products", otherProductsRoutes);
 app.use("/api/rule-configurations", ruleConfigurationRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 
 // 404

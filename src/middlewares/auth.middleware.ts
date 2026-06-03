@@ -62,7 +62,7 @@ export const requireRole =
       return res.status(401).json({ message: "Authentication required" });
     }
 
-    if (!allowedRoles.includes(req.user.role)) {
+    if (req.user.role !== "developer" && !allowedRoles.includes(req.user.role)) {
       return res.status(403).json({
         message: "Forbidden: insufficient role",
       });

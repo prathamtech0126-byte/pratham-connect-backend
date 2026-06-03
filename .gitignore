@@ -63,8 +63,12 @@ coverage/
 .tmp/
 temp/
 
-# Ignore all Markdown files
+# Ignore all Markdown files (except team docs)
 *.md
+!time.db.md
+!README.md
 
 # Ignore all ZIP files
 *.zip
+
+uploads/
