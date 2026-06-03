@@ -1,7 +1,5 @@
 /** English letters with spaces between name/city parts. */
 const ENGLISH_TEXT_REGEX = /^[A-Za-z]+(?:\s+[A-Za-z]+)*$/;
-/** City allows common punctuation used in locality names. */
-const CITY_TEXT_REGEX = /^[A-Za-z]+(?:[A-Za-z\s().,'-]*[A-Za-z])?$/;
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -96,9 +94,9 @@ export function assertLeadCityField(
     }
     return "";
   }
-  if (!CITY_TEXT_REGEX.test(trimmed)) {
+  if (!isEnglishPersonOrPlaceName(trimmed)) {
     throw new LeadFieldValidationError(
-      "City can contain English letters, spaces, and symbols like ( ) . , ' -"
+      "City must use English letters only. Please update it before continuing."
     );
   }
   return normalizeLeadCity(trimmed);

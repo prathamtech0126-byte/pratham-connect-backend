@@ -36,7 +36,7 @@ import {
 } from "../facebook_controllers/metaConversions.controller";
 
 const router = Router();
-const allowAutomationRoles = requireRole("superadmin", "admin", "developer", "marketing_head");
+const allowAutomationRoles = requireRole("superadmin", "admin", "developer", "manager");
 
 // Public — OAuth & webhooks (no auth middleware)
 router.get("/facebook/callback", facebookCallbackController);

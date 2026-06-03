@@ -71,29 +71,3 @@ export async function createLeadReasonNote(input: {
     updatedAt: now,
   });
 }
-
-/** Initial note from manual create / import — appears in the Notes timeline. */
-export async function createLeadInitialNote(input: {
-  leadId: number;
-  userId?: number | null;
-  performerName?: string | null;
-  message: string;
-  createdAt?: Date;
-}) {
-  const trimmed = input.message.trim();
-  if (!trimmed) return;
-
-  const at = input.createdAt ?? getIndianNow();
-  await db.insert(leadActivities).values({
-    leadId: input.leadId,
-    userId: input.userId ?? null,
-    activityType: "note",
-    message: trimmed,
-    status: "completed",
-    meta: {
-      performedByName: input.performerName?.trim() ?? null,
-      source: "lead_create",
-    },
-    updatedAt: at,
-  });
-}

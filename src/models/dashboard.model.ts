@@ -819,8 +819,7 @@ const getStudentStats = async (
   return { total, withTD, withoutTD, appCount };
 };
 
-/* ==============================
-   PENDING AMOUNT (OUTSTANDING)
+/* =======================   PENDING AMOUNT (OUTSTANDING)
 ============================== */
 const getPendingAmount = async (
   dateRange: DateRange,
