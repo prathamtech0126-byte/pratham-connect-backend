@@ -62,6 +62,14 @@ const isCountOnlyEntityType = (entityType: string): boolean =>
 const attributedCounsellorByClientPaymentSql = sql<number>`COALESCE(${clientPayments.handledBy}, ${clientInformation.counsellorId})`;
 const attributedCounsellorByProductPaymentSql = sql<number>`COALESCE(${clientProductPayments.handledBy}, ${clientInformation.counsellorId})`;
 
+/** Format a Date as YYYY-MM-DD using LOCAL time (not UTC). Avoids timezone shift on IST servers. */
+const toLocalDateStr = (d: Date): string => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
 // Helper function to get entity amounts (same as dashboard model)
 const getEntityAmounts = async (
   entityType: string,
@@ -320,114 +328,74 @@ export const getCounsellorCoreSaleAmount = async (
   return parseFloat(result?.total || "0");
 };
 
-/** Core Product (ALL_FINANCE_EMPLOYEMENT): main payment by paymentDate, another payment by anotherPaymentDate. */
+/** Core Product (ALL_FINANCE_EMPLOYEMENT): main payment + all 3 additional payment slots (matches dashboard getCoreProductMetrics). */
 export const getCounsellorCoreProductMetrics = async (
   counsellorId: number,
   startDateStr: string,
   endDateStr: string
 ): Promise<{ count: number; amount: number }> => {
-  const allFinanceDateCondition = sql`(
+  const baseJoinWhere = (dateCondition: ReturnType<typeof sql>) =>
+    sql`(
+      ${attributedCounsellorByProductPaymentSql} = ${counsellorId}
+      AND ${clientInformation.archived} = false
+      AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
+      AND ${dateCondition}
+    )`;
+
+  const querySlot = async (
+    dateCol: any,
+    amountCol: any
+  ): Promise<{ count: number; amount: number }> => {
+    const dateCondition = sql`(
+      ${dateCol} IS NOT NULL
+      AND ${dateCol} >= ${startDateStr}
+      AND ${dateCol} <= ${endDateStr}
+      AND ${amountCol} IS NOT NULL
+    )`;
+    const [c] = await db
+      .select({ count: count() })
+      .from(clientProductPayments)
+      .innerJoin(allFinance, sql`${clientProductPayments.entityId} = ${allFinance.financeId} AND ${clientProductPayments.entityType} = 'allFinance_id'`)
+      .innerJoin(clientInformation, eq(clientProductPayments.clientId, clientInformation.clientId))
+      .where(baseJoinWhere(dateCondition));
+    const [a] = await db
+      .select({ total: sql<string>`COALESCE(SUM(${amountCol}::numeric), 0)` })
+      .from(allFinance)
+      .innerJoin(clientProductPayments, sql`${clientProductPayments.entityId} = ${allFinance.financeId} AND ${clientProductPayments.entityType} = 'allFinance_id'`)
+      .innerJoin(clientInformation, eq(clientProductPayments.clientId, clientInformation.clientId))
+      .where(baseJoinWhere(dateCondition));
+    return { count: Number(c?.count ?? 0), amount: parseFloat(a?.total || "0") };
+  };
+
+  // Slot 1: main payment (paymentDate is always set, amount is NOT NULL on the column)
+  const mainDateCondition = sql`(
     ${allFinance.paymentDate} IS NOT NULL
     AND ${allFinance.paymentDate} >= ${startDateStr}
     AND ${allFinance.paymentDate} <= ${endDateStr}
   )`;
-  const [countResult] = await db
+  const [countMain] = await db
     .select({ count: count() })
     .from(clientProductPayments)
-    .innerJoin(
-      allFinance,
-      sql`${clientProductPayments.entityId} = ${allFinance.financeId} AND ${clientProductPayments.entityType} = 'allFinance_id'`
-    )
-    .innerJoin(
-      clientInformation,
-      eq(clientProductPayments.clientId, clientInformation.clientId)
-    )
-    .where(
-      sql`(
-        ${attributedCounsellorByProductPaymentSql} = ${counsellorId}
-        AND ${clientInformation.archived} = false
-        AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
-        AND ${allFinanceDateCondition}
-      )`
-    );
-  const [amountResult] = await db
-    .select({
-      total: sql<string>`COALESCE(SUM(${allFinance.amount}::numeric), 0)`,
-    })
+    .innerJoin(allFinance, sql`${clientProductPayments.entityId} = ${allFinance.financeId} AND ${clientProductPayments.entityType} = 'allFinance_id'`)
+    .innerJoin(clientInformation, eq(clientProductPayments.clientId, clientInformation.clientId))
+    .where(baseJoinWhere(mainDateCondition));
+  const [amountMain] = await db
+    .select({ total: sql<string>`COALESCE(SUM(${allFinance.amount}::numeric), 0)` })
     .from(allFinance)
-    .innerJoin(
-      clientProductPayments,
-      sql`${clientProductPayments.entityId} = ${allFinance.financeId} AND ${clientProductPayments.entityType} = 'allFinance_id'`
-    )
-    .innerJoin(
-      clientInformation,
-      eq(clientProductPayments.clientId, clientInformation.clientId)
-    )
-    .where(
-      sql`(
-        ${attributedCounsellorByProductPaymentSql} = ${counsellorId}
-        AND ${clientInformation.archived} = false
-        AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
-        AND ${allFinanceDateCondition}
-      )`
-    );
+    .innerJoin(clientProductPayments, sql`${clientProductPayments.entityId} = ${allFinance.financeId} AND ${clientProductPayments.entityType} = 'allFinance_id'`)
+    .innerJoin(clientInformation, eq(clientProductPayments.clientId, clientInformation.clientId))
+    .where(baseJoinWhere(mainDateCondition));
 
-  // Another payment: count and amount by anotherPaymentDate (partial/second payment)
-  const anotherDateCondition = sql`(
-    ${allFinance.anotherPaymentDate} IS NOT NULL
-    AND ${allFinance.anotherPaymentDate} >= ${startDateStr}
-    AND ${allFinance.anotherPaymentDate} <= ${endDateStr}
-    AND ${allFinance.anotherPaymentAmount} IS NOT NULL
-  )`;
-  const [countAnotherResult] = await db
-    .select({ count: count() })
-    .from(clientProductPayments)
-    .innerJoin(
-      allFinance,
-      sql`${clientProductPayments.entityId} = ${allFinance.financeId} AND ${clientProductPayments.entityType} = 'allFinance_id'`
-    )
-    .innerJoin(
-      clientInformation,
-      eq(clientProductPayments.clientId, clientInformation.clientId)
-    )
-    .where(
-      sql`(
-        ${attributedCounsellorByProductPaymentSql} = ${counsellorId}
-        AND ${clientInformation.archived} = false
-        AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
-        AND ${anotherDateCondition}
-      )`
-    );
-  const [amountAnotherResult] = await db
-    .select({
-      total: sql<string>`COALESCE(SUM(${allFinance.anotherPaymentAmount}::numeric), 0)`,
-    })
-    .from(allFinance)
-    .innerJoin(
-      clientProductPayments,
-      sql`${clientProductPayments.entityId} = ${allFinance.financeId} AND ${clientProductPayments.entityType} = 'allFinance_id'`
-    )
-    .innerJoin(
-      clientInformation,
-      eq(clientProductPayments.clientId, clientInformation.clientId)
-    )
-    .where(
-      sql`(
-        ${attributedCounsellorByProductPaymentSql} = ${counsellorId}
-        AND ${clientInformation.archived} = false
-        AND ${clientProductPayments.productName} = ${CORE_PRODUCT}
-        AND ${anotherDateCondition}
-      )`
-    );
-
-  const mainCount = countResult?.count ?? 0;
-  const mainAmount = parseFloat(amountResult?.total || "0");
-  const anotherCount = countAnotherResult?.count ?? 0;
-  const anotherAmount = parseFloat(amountAnotherResult?.total || "0");
+  // Slots 2, 3, 4: additional installments
+  const [slot2, slot3, slot4] = await Promise.all([
+    querySlot(allFinance.anotherPaymentDate, allFinance.anotherPaymentAmount),
+    querySlot(allFinance.anotherPaymentDate2, allFinance.anotherPaymentAmount2),
+    querySlot(allFinance.anotherPaymentDate3, allFinance.anotherPaymentAmount3),
+  ]);
 
   return {
-    count: mainCount + anotherCount,
-    amount: mainAmount + anotherAmount,
+    count: Number(countMain?.count ?? 0) + slot2.count + slot3.count + slot4.count,
+    amount: parseFloat(amountMain?.total || "0") + slot2.amount + slot3.amount + slot4.amount,
   };
 };
 
@@ -590,8 +558,8 @@ export const getLeaderboard = async (
     startDate.setHours(0, 0, 0, 0);
     endDate.setHours(23, 59, 59, 999);
   }
-  const startDateStr = startDate.toISOString().split("T")[0];
-  const endDateStr = endDate.toISOString().split("T")[0];
+  const startDateStr = toLocalDateStr(startDate);
+  const endDateStr = toLocalDateStr(endDate);
   const startTimestamp = startDate.toISOString();
   const endTimestamp = endDate.toISOString();
 
@@ -808,8 +776,8 @@ export const getLeaderboardSummary = async (month: number, year: number) => {
   // Calculate date range for the month
   const startDate = new Date(year, month - 1, 1);
   const endDate = new Date(year, month, 0, 23, 59, 59, 999);
-  const startDateStr = startDate.toISOString().split("T")[0];
-  const endDateStr = endDate.toISOString().split("T")[0];
+  const startDateStr = toLocalDateStr(startDate);
+  const endDateStr = toLocalDateStr(endDate);
   const startTimestamp = startDate.toISOString();
   const endTimestamp = endDate.toISOString();
 
@@ -1011,8 +979,8 @@ export const setTarget = async (
   // Check if target already exists for this counsellor, month, and year
   const startDate = new Date(year, month - 1, 1);
   const endDate = new Date(year, month, 0, 23, 59, 59, 999);
-  const startDateStr = startDate.toISOString().split("T")[0];
-  const endDateStr = endDate.toISOString().split("T")[0];
+  const startDateStr = toLocalDateStr(startDate);
+  const endDateStr = toLocalDateStr(endDate);
   const startTimestamp = startDate.toISOString();
   const endTimestamp = endDate.toISOString();
 
@@ -1130,8 +1098,8 @@ export const updateTarget = async (targetId: number, target: number) => {
   // Recalculate achieved target (distinct clients with INITIAL/BEFORE_VISA/AFTER_VISA in month)
   const startDate = new Date(year, month - 1, 1);
   const endDate = new Date(year, month, 0, 23, 59, 59, 999);
-  const startDateStr = startDate.toISOString().split("T")[0];
-  const endDateStr = endDate.toISOString().split("T")[0];
+  const startDateStr = toLocalDateStr(startDate);
+  const endDateStr = toLocalDateStr(endDate);
   const startTimestamp = startDate.toISOString();
   const endTimestamp = endDate.toISOString();
 
@@ -1239,8 +1207,8 @@ export const getMonthlyEnrollmentGoal = async (
   // Calculate date range for the month
   const startDate = new Date(targetYear, targetMonth - 1, 1);
   const endDate = new Date(targetYear, targetMonth, 0, 23, 59, 59, 999);
-  const startDateStr = startDate.toISOString().split("T")[0];
-  const endDateStr = endDate.toISOString().split("T")[0];
+  const startDateStr = toLocalDateStr(startDate);
+  const endDateStr = toLocalDateStr(endDate);
   const startTimestamp = startDate.toISOString();
   const endTimestamp = endDate.toISOString();
 

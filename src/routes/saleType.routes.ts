@@ -13,9 +13,9 @@ const router = Router();
 /**
  * Admin only
  */
-router.post("/", requireAuth, requireRole("admin"), preventDuplicateRequests, createSaleTypeController);
+router.post("/", requireAuth, requireRole("developer","admin"), preventDuplicateRequests, createSaleTypeController);
 router.get("/", requireAuth, getSaleTypesController);
-router.put("/:id", requireAuth, requireRole("admin"), preventDuplicateRequests, updateSaleTypeController);
-router.delete("/:id", requireAuth, requireRole("admin"), preventDuplicateRequests, deleteSaleTypeController);
+router.put("/:id", requireAuth, requireRole("developer","admin"), preventDuplicateRequests, updateSaleTypeController);
+router.delete("/:id", requireAuth, requireRole("developer","admin"), preventDuplicateRequests, deleteSaleTypeController);
 
 export default router;

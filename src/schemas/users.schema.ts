@@ -68,6 +68,9 @@ export const users = pgTable(
 
     status: boolean("status").default(true).notNull(),
 
+    /** Comma-separated accessories kept with user after device unassign (tech support). */
+    retainedAccessories: varchar("retained_accessories", { length: 300 }),
+
     createdAt: timestamp("created_at").defaultNow(),
   },
   (table) => ({

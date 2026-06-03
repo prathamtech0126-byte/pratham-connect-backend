@@ -11,7 +11,7 @@ const router = Router();
 router.post(
   "/",
   requireAuth,
-  requireRole("admin", "counsellor", "manager"),
+  requireRole("admin", "counsellor", "manager","developer"),
   preventDuplicateRequests,
   saveClientController
 );
@@ -22,7 +22,7 @@ router.post(
 router.get(
   "/counsellor-clients",
   requireAuth,
-  requireRole("admin", "counsellor", "manager"),
+  requireRole("admin", "counsellor", "manager","developer"),
   getAllClientsController
 );
 
@@ -33,13 +33,13 @@ router.get(
 router.get(
   "/counsellor-clients/filtered",
   requireAuth,
-  requireRole("admin", "counsellor", "manager"),
+  requireRole("admin", "counsellor", "manager","developer"),
   getCounsellorClientsWithFilterController
 );
 router.post(
   "/counsellor-clients/filtered",
   requireAuth,
-  requireRole("admin", "counsellor", "manager"),
+  requireRole("admin", "counsellor", "manager","developer"),
   getCounsellorClientsWithFilterController
 );
 
@@ -50,13 +50,13 @@ router.post(
 router.get(
   "/archived-clients",
   requireAuth,
-  requireRole("admin", "counsellor", "manager"),
+  requireRole("admin", "counsellor", "manager","developer"),
   getArchivedClientsController
 );
 router.post(
   "/archived-clients",
   requireAuth,
-  requireRole("admin", "counsellor", "manager"),
+  requireRole("admin", "counsellor", "manager","developer"),
   getArchivedClientsController
 );
 
@@ -67,7 +67,7 @@ router.post(
 router.put(
   "/:clientId/archive",
   requireAuth,
-  requireRole("admin", "counsellor", "manager"),
+  requireRole("admin", "counsellor", "manager","developer"),
   preventDuplicateRequests,
   archiveClientController
 );
@@ -78,7 +78,7 @@ router.put(
  */
 router.get(
   "/:clientId/complete",
-  requireAuth, requireRole("admin", "counsellor", "manager"),
+  requireAuth, requireRole("admin", "counsellor", "manager","developer"),
   getClientCompleteDetailsController
 );
 
@@ -87,7 +87,7 @@ router.get(
  */
 router.get(
   "/:counsellorId",
-  requireAuth, requireRole("admin", "counsellor", "manager"),
+  requireAuth, requireRole("admin", "counsellor", "manager","developer"),
   getAllClientsByCounsellorController
 );
 
@@ -97,14 +97,14 @@ router.get(
  */
 router.get(
   "/admin/all-clients",
-  requireAuth, requireRole("admin"),
+  requireAuth, requireRole("admin","developer"),
   getAllClientsForAdminController
 );
 
 // Client Transfer to another counsellor
 router.put(
   "/admin/transfer-client",
-  requireAuth, requireRole("admin"),
+  requireAuth, requireRole("admin","developer"),
   transferClientController
 );
 export default router;

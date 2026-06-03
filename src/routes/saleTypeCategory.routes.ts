@@ -16,21 +16,21 @@ router.get("/:id", requireAuth, getSaleTypeCategoryByIdController);
 router.post(
   "/",
   requireAuth,
-  requireRole("admin"),
+  requireRole("developer","admin"),
   preventDuplicateRequests,
   createSaleTypeCategoryController
 );
 router.put(
   "/:id",
   requireAuth,
-  requireRole("admin"),
+  requireRole("developer","admin"),
   preventDuplicateRequests,
   updateSaleTypeCategoryController
 );
 router.delete(
   "/:id",
   requireAuth,
-  requireRole("admin"),
+  requireRole("developer","admin"),
   preventDuplicateRequests,
   deleteSaleTypeCategoryController
 );

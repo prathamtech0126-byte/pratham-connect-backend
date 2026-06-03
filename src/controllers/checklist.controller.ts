@@ -4,6 +4,7 @@ import {
   getAllCategories,
   getCategoryBySlug,
   getAllCountries,
+  insertCountry,
   getChecklists,
   getChecklistBySlug,
   getChecklistSections,
@@ -13,8 +14,14 @@ import {
   insertItem,
   getChecklistById,
   getSectionById,
+  updateChecklistById,
+  updateSectionById,
+  updateItemById,
+  deleteChecklistById,
+  deleteSectionById,
+  deleteItemById,
 } from "../models/checklist.model";
-import { redisGetJson, redisSetJson } from "../config/redis";
+import { redisGetJson, redisSetJson, redisDel } from "../config/redis";
 
 const CACHE_TTL = 600; // 10 minutes
 
@@ -71,6 +78,41 @@ export const countriesController = async (req: Request, res: Response) => {
     res
       .status(500)
       .json({ success: false, error: { code: "INTERNAL_ERROR", message: err.message } });
+  }
+};
+
+export const createCountryController = async (req: Request, res: Response) => {
+  try {
+    const { name, code } = req.body;
+
+    if (!name || !code) {
+      return res.status(400).json({
+        success: false,
+        error: { code: "BAD_REQUEST", message: "name and code are required" },
+      });
+    }
+
+    if (code.trim().length > 10) {
+      return res.status(400).json({
+        success: false,
+        error: { code: "BAD_REQUEST", message: "code must be 10 characters or fewer" },
+      });
+    }
+
+    const country = await insertCountry({ name, code });
+
+    // Invalidate countries cache so new entry shows immediately
+    await redisDel("checklist:countries");
+
+    res.status(201).json({ success: true, data: country });
+  } catch (err: any) {
+    if (err?.code === "23505") {
+      return res.status(409).json({
+        success: false,
+        error: { code: "CONFLICT", message: "A country with that name or code already exists" },
+      });
+    }
+    res.status(500).json({ success: false, error: { code: "INTERNAL_ERROR", message: err.message } });
   }
 };
 
@@ -246,6 +288,107 @@ export const createItemController = async (req: Request, res: Response) => {
     });
 
     res.status(201).json({ success: true, data: item });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: "INTERNAL_ERROR", message: err.message } });
+  }
+};
+
+/* ============================================
+   ADMIN — UPDATE
+============================================ */
+
+export const updateChecklistController = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { title, subType, countryId, visaCategoryId, displayOrder, isActive } = req.body;
+
+    const existing = await getChecklistById(id);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Checklist not found" } });
+    }
+
+    const updated = await updateChecklistById(id, { title, subType, countryId, visaCategoryId, displayOrder, isActive });
+    res.json({ success: true, data: updated });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: "INTERNAL_ERROR", message: err.message } });
+  }
+};
+
+export const updateSectionController = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { title, description, displayOrder, isConditional, conditionText } = req.body;
+
+    const existing = await getSectionById(id);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Section not found" } });
+    }
+
+    const updated = await updateSectionById(id, { title, description, displayOrder, isConditional, conditionText });
+    res.json({ success: true, data: updated });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: "INTERNAL_ERROR", message: err.message } });
+  }
+};
+
+export const updateItemController = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, notes, isMandatory, isConditional, conditionText, quantityNote, displayOrder } = req.body;
+
+    const updated = await updateItemById(id, { name, notes, isMandatory, isConditional, conditionText, quantityNote, displayOrder });
+    if (!updated) {
+      return res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Item not found" } });
+    }
+
+    res.json({ success: true, data: updated });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: "INTERNAL_ERROR", message: err.message } });
+  }
+};
+
+/* ============================================
+   ADMIN — DELETE
+============================================ */
+
+export const deleteChecklistController = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const existing = await getChecklistById(id);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Checklist not found" } });
+    }
+
+    await deleteChecklistById(id);
+    await redisDel("checklist:categories"); // invalidate cached counts so tabs refresh
+    res.json({ success: true, data: null });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: "INTERNAL_ERROR", message: err.message } });
+  }
+};
+
+export const deleteSectionController = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const existing = await getSectionById(id);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Section not found" } });
+    }
+
+    await deleteSectionById(id);
+    res.json({ success: true, data: null });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: "INTERNAL_ERROR", message: err.message } });
+  }
+};
+
+export const deleteItemController = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    await deleteItemById(id);
+    res.json({ success: true, data: null });
   } catch (err: any) {
     res.status(500).json({ success: false, error: { code: "INTERNAL_ERROR", message: err.message } });
   }

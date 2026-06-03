@@ -153,7 +153,7 @@ import compression from "compression";
 import userRoutes from "./routes/user.routes";
 import saleRoute from "./routes/saleType.routes";
 import saleTypeCategoryRoutes from "./routes/saleTypeCategory.routes";
-import leadTypeRoutes from "./routes/leadType.routes";
+import leadTypeRoutes from "./Leads/routes/leadType.routes";
 import clientRoute from "./routes/client.routes";
 import clientPaymentRoutes from "./routes/clientPayment.routes";
 import clientProductPaymentRoutes from "./routes/clientProductPayment.routes";
@@ -168,8 +168,20 @@ import allFinanceRoutes from "./routes/allFinance.routes";
 import teamListRoutes from "./routes/teamList.routes"; // ✅ ADD THIS LINE
 import roleModuleRoutes from "./role/role.routes";
 import checklistRoutes from "./routes/checklist.routes";
+import leadRoutes from "./Leads/routes/lead.routes";
+import telecallerTargets  from "./routes/telecallerTarget.routes";
+import automationRoutes from "./Leads/facebookautomation/facebook_routes/automation.routes";
+import leadRegistrationRoutes from "./Leads/leadregistration/routes/leadRegistration.routes";
+import frontDeskRoutes from "./Leads/frontdesk/routes/frontdesk.routes";
+import techSupportRoutes from "./routes/techSupport.routes";
+import maintenanceRoutes from "./routes/maintenance.routes";
+import incentiveRulesRoutes from "./routes/incentiveRules.routes";
+import incentiveReportRoutes from "./routes/incentiveReport.routes";
 import { healthController } from "./controllers/health.controller";
 import { requireCsrf } from "./middlewares/csrf.middleware";
+import otherProductsRoutes from "./routes/otherProducts.routes";
+import ruleConfigurationRoutes from "./routes/ruleConfiguration.routes";
+
 
 
 const app: Application = express();
@@ -236,8 +248,14 @@ app.use(
       callback(new Error("CORS policy: origin not allowed"));
     },
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token"],
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH","OPTIONS"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-CSRF-Token",
+      "X-Timestamp",
+      "X-Signature",
+    ],
     optionsSuccessStatus: 200,
   })
 );
@@ -247,7 +265,23 @@ app.disable("x-powered-by");
 app.use(helmet());
 app.use(compression());
 
-app.use(express.json({ limit: "1mb" }));
+// Facebook webhook needs raw body for signature verification.
+// Keep this isolated to the webhook path so the rest of the app uses JSON parsing normally.
+app.use("/api/automation/facebook/webhook", express.raw({ type: "application/json" }));
+
+// Secondary-server lead registration inbound (HMAC over raw JSON body).
+app.use(
+  "/api/lead-registration/inbound",
+  express.raw({ type: "application/json", limit: "64kb" })
+);
+
+app.use(
+  express.json({
+    limit: "1mb",
+  })
+);
+
+
 app.use(cookieParser());
 
 // health check
@@ -257,6 +291,8 @@ app.get("/", (_req, res) => {
   res.status(200).send("OK");
 });
 
+// Serve uploaded ticket images statically
+app.use("/uploads", express.static("uploads"));
 
 app.use(requireCsrf);
 
@@ -279,6 +315,18 @@ app.use("/api/all-finance", allFinanceRoutes);
 app.use("/api/team", teamListRoutes); // ✅ ADD THIS LINE
 app.use("/api/role", roleModuleRoutes);
 app.use("/api/v1", checklistRoutes);
+app.use("/api/leads", leadRoutes);
+app.use("/api/lead-registration", leadRegistrationRoutes);
+app.use("/api/front-desk", frontDeskRoutes);
+app.use("/api/telecaller-targets", telecallerTargets);
+app.use("/api/automation", automationRoutes);
+app.use("/api/tech-support", techSupportRoutes);
+app.use("/api/maintenance", maintenanceRoutes);
+app.use("/api/incentives", incentiveRulesRoutes);
+app.use("/api/incentives", incentiveReportRoutes);
+app.use("/api/other-products", otherProductsRoutes);
+app.use("/api/rule-configurations", ruleConfigurationRoutes);
+
 
 // 404
 app.use((_req, res) => {

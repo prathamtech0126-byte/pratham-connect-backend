@@ -11,13 +11,13 @@ const router = Router();
  * - beforeDate: YYYY-MM-DD (required for custom filter)
  * - afterDate: YYYY-MM-DD (required for custom filter)
  *
- * Access: admin, manager, counsellor
+ * Access: admin, manager, counsellor, telecaller
  * Returns different data structure based on user role
  */
 router.get(
   "/stats",
   requireAuth,
-  requireRole("admin", "manager", "counsellor"),
+  requireRole("developer","admin", "manager", "counsellor", "telecaller"),
   getDashboardStatsController
 );
 

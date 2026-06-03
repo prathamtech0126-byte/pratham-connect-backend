@@ -566,7 +566,7 @@ export interface CounsellorReportDateOptions {
   startDateStr?: string;
   endDateStr?: string;
   /** When "yearly", monthly_comparison shows current year vs previous year instead of month vs last month. */
-  filter?: "today" | "weekly" | "monthly" | "yearly" | "custom";
+  filter?: "today" | "weekly" | "monthly" | "yearly" | "custom" | "maximum";
   /** When set, report is filtered by this sale type and performance includes sale_type_count. */
   saleTypeId?: number;
 }

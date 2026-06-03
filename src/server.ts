@@ -8,12 +8,26 @@ if (process.env.NODE_ENV !== "production" && result.error) {
   console.warn("⚠️ No .env file at", envPath, "- using process.env only");
 }
 
+const inboundWebhookSecret =
+  process.env.SECONDARY_INBOUND_SECRET?.trim() ||
+  process.env.SECONDARY_SECRET?.trim();
+if (!inboundWebhookSecret) {
+  console.warn(
+    "⚠️ [leadRegistration] Set SECONDARY_INBOUND_SECRET (or SECONDARY_SECRET) in .env — /api/lead-registration/inbound returns 503 until then"
+  );
+} else {
+  console.log("✅ [leadRegistration] Inbound webhook HMAC secret loaded");
+}
+
 import { createServer } from "http";
 import app from "./index";
 import { checkDbConnection, pool } from "./config/databaseConnection";
 import { initializeSocket } from "./config/socket";
 import { getRedisClient, initRedis } from "./config/redis";
 import { deleteOldMessages } from "./models/message.model";
+import { ensureSystemLeadTypes } from "./Leads/models/leadType.model";
+import { refreshExpiredFacebookTokensAndImportActiveForms } from "./Leads/facebookautomation/facebook_services/facebookAutomationStore.service";
+import { startMaintenanceScheduler } from "./services/maintenance.service";
 import * as cron from "node-cron";
 
 
@@ -51,6 +65,7 @@ const httpServer = createServer(app);
 
 // Initialize WebSocket server
 initializeSocket(httpServer);
+startMaintenanceScheduler();
 
 const shutdown = async (signal: string) => {
   try {
@@ -118,15 +133,22 @@ httpServer.listen(Number(PORT), "0.0.0.0", () => {
     .then(() => {
       console.log("✅ Database connection verified");
 
+      // Seed system lead types ("facebook", "instagram") used by the
+      // Meta automation. Idempotent — safe on every boot.
+      ensureSystemLeadTypes()
+        .then(() => console.log("✅ System lead types ensured (facebook, instagram)"))
+        .catch((e) => console.warn("⚠️ ensureSystemLeadTypes error:", e?.message));
+
       // Initialize Redis (optional). App continues even if Redis is down.
       initRedis()
-        .then((client) =>
-          console.log(client ? "✅ Redis initialized (cache enabled)" : "⚠️ Redis not available (cache disabled)")
-        )
+        .then((client) => {
+          console.log(client ? "✅ Redis initialized (cache enabled)" : "⚠️ Redis not available (cache disabled)");
+        })
         .catch(() => console.log("⚠️ Redis not available (cache disabled)"));
 
       // Initialize message cleanup scheduler
       initializeMessageCleanup();
+      initializeFacebookAutomationScheduler();
     })
     .catch((error) => {
       console.error("❌ Database connection failed");
@@ -170,16 +192,16 @@ const initializeMessageCleanup = () => {
   // Cleanup function
   const runCleanup = async () => {
     try {
-      const result = await deleteOldMessages(retentionPeriodMs, isTesting);
+      const result = await deleteOldMessages(retentionPeriodMs, false);
 
       if (result.deletedCount > 0) {
         // Always log successful deletions (important for monitoring)
-        logger.info(`✅ Deleted ${result.deletedCount} old message(s). IDs: ${result.deletedMessageIds.join(", ")}`);
+        // logger.info(`✅ Deleted ${result.deletedCount} old message(s). IDs: ${result.deletedMessageIds.join(", ")}`);
       }
       // Don't log "No messages to delete" in production (too frequent, not important)
-      else if (!isProduction) {
-        logger.debug(`ℹ️  No old messages to delete`);
-      }
+      // else if (!isProduction) {
+      //   logger.debug(`ℹ️  No old messages to delete`);
+      // }
     } catch (error: any) {
       // Always log errors (critical for debugging production issues)
       logger.error("❌ Error during message cleanup:", error.message);
@@ -210,4 +232,19 @@ const initializeMessageCleanup = () => {
 
     logger.info(`✅ Message cleanup cron job started`);
   }
+};
+
+const initializeFacebookAutomationScheduler = () => {
+  const cronExpression = process.env.FB_TOKEN_REFRESH_CRON || "30 9 * * *";
+  const timezone = process.env.FB_TOKEN_REFRESH_TIMEZONE || "Asia/Kolkata";
+
+  cron.schedule(
+    cronExpression,
+    () => {
+      void refreshExpiredFacebookTokensAndImportActiveForms();
+    },
+    { timezone }
+  );
+
+  logger.info(`✅ Facebook token refresh/import scheduler started (${cronExpression}, ${timezone})`);
 };
