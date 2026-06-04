@@ -26,6 +26,10 @@ import {
   updateLeadActivityMessageController,
   updateLeadController,
   searchLeadReferenceClientsController,
+  searchLeadReferenceTeamController,
+  listLeadReferenceTeamDirectoryController,
+  listLeadReferenceCounsellorsController,
+  listLeadTransferAssigneesController,
 } from "../controllers/lead.controller";
 import { csvUploadMiddleware } from "../../middlewares/csvUpload.middleware";
 
@@ -45,6 +49,62 @@ router.get(
     "marketing_head"
   ),
   searchLeadReferenceClientsController
+);
+router.get(
+  "/reference/team",
+  requireAuth,
+  requireRole(
+    "telecaller",
+    "counsellor",
+    "manager",
+    "admin",
+    "developer",
+    "superadmin",
+    "marketing_head"
+  ),
+  searchLeadReferenceTeamController
+);
+router.get(
+  "/reference/team-directory",
+  requireAuth,
+  requireRole(
+    "telecaller",
+    "counsellor",
+    "manager",
+    "admin",
+    "developer",
+    "superadmin",
+    "marketing_head"
+  ),
+  listLeadReferenceTeamDirectoryController
+);
+router.get(
+  "/reference/counsellors",
+  requireAuth,
+  requireRole(
+    "telecaller",
+    "counsellor",
+    "manager",
+    "admin",
+    "developer",
+    "superadmin",
+    "marketing_head"
+  ),
+  listLeadReferenceCounsellorsController
+);
+router.get(
+  "/transfer-assignees",
+  requireAuth,
+  requireRole(
+    "telecaller",
+    "counsellor",
+    "manager",
+    "admin",
+    "developer",
+    "superadmin",
+    "marketing_head"
+  ),
+  listLeadTransferAssigneesController
 );
 router.get("/reports", requireAuth, getLeadReportController);
 router.get("/leaderboard/telecallers", requireAuth, getTelecallerLeaderboardController);

@@ -94,7 +94,11 @@ export const leads = pgTable(
     dropReason: text("drop_reason"),
 
     nextFollowupAt: timestamp("next_followup_at"),
+    /** When telecaller (or admin) transferred lead to counsellor/manager; updated on re-transfer. */
+    transferredAt: timestamp("transferred_at"),
     convertedAt: timestamp("converted_at"),
+    /** When counsellor/telecaller dropped the lead after handoff. */
+    droppedAt: timestamp("dropped_at"),
 
     isJunk: boolean("is_junk").default(false).notNull(),
 
@@ -135,5 +139,8 @@ export const leads = pgTable(
     ),
 
     createdAtIdx: index("idx_leads_created_at").on(table.createdAt),
+
+    transferredAtIdx: index("idx_leads_transferred_at").on(table.transferredAt),
+    droppedAtIdx: index("idx_leads_dropped_at").on(table.droppedAt),
   })
 );

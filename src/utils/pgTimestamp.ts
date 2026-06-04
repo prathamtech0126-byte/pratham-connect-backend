@@ -169,6 +169,9 @@ const LEAD_TIMESTAMP_KEYS = [
   "updatedAt",
   "facebookCreatedAt",
   "nextFollowupAt",
+  "transferredAt",
+  "convertedAt",
+  "droppedAt",
 ] as const;
 
 /** Serialize naive PG timestamps on a lead row for API JSON. */

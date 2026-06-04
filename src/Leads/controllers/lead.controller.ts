@@ -51,6 +51,10 @@ import {
   assertReferenceInputForSource,
   enrichLeadWithReference,
   insertLeadReferenceRow,
+  searchLeadReferenceTeamMembers,
+  listLeadReferenceTeamDirectory,
+  listLeadReferenceCounsellors,
+  listLeadTransferAssignees,
 } from "../services/leadReference.service";
 import { getAllClients } from "../../models/client.model";
 import { assertLeadTransferReady } from "../../utils/leadTextNormalization";
@@ -243,6 +247,12 @@ export const getLeadsController = async (req: Request, res: Response) => {
       leadType: req.query.leadType as string | undefined,
       createdFrom: req.query.createdFrom as string | undefined,
       createdTo: req.query.createdTo as string | undefined,
+      transferredFrom: req.query.transferredFrom as string | undefined,
+      transferredTo: req.query.transferredTo as string | undefined,
+      convertedFrom: req.query.convertedFrom as string | undefined,
+      convertedTo: req.query.convertedTo as string | undefined,
+      droppedFrom: req.query.droppedFrom as string | undefined,
+      droppedTo: req.query.droppedTo as string | undefined,
       page: req.query.page ? Number(req.query.page) : undefined,
       limit: req.query.limit ? Number(req.query.limit) : undefined,
       sortBy: (req.query.sortBy as any) || "updated_at",
@@ -706,6 +716,50 @@ export const searchLeadReferenceClientsController = async (req: Request, res: Re
       counsellorId: c.counsellorId ?? null,
       counsellorName: c.counsellorName ?? null,
     }));
+    res.json({ success: true, data });
+  } catch (error: any) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+/** Full team directory for internal reference (client-side filter). */
+export const listLeadReferenceTeamDirectoryController = async (_req: Request, res: Response) => {
+  try {
+    const data = await listLeadReferenceTeamDirectory();
+    res.json({ success: true, data });
+  } catch (error: any) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+/** Search team members (telecaller, counsellor, manager, etc.) for internal reference picker. */
+export const searchLeadReferenceTeamController = async (req: Request, res: Response) => {
+  try {
+    const search = String(req.query.search ?? req.query.q ?? "").trim();
+    if (search.length < 3) {
+      return res.json({ success: true, data: [] });
+    }
+    const data = await searchLeadReferenceTeamMembers(search);
+    res.json({ success: true, data });
+  } catch (error: any) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+/** All counsellors for manual client-reference picker. */
+export const listLeadReferenceCounsellorsController = async (_req: Request, res: Response) => {
+  try {
+    const data = await listLeadReferenceCounsellors();
+    res.json({ success: true, data });
+  } catch (error: any) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+/** Counsellors + managers for telecaller lead transfer picker. */
+export const listLeadTransferAssigneesController = async (_req: Request, res: Response) => {
+  try {
+    const data = await listLeadTransferAssignees();
     res.json({ success: true, data });
   } catch (error: any) {
     res.status(400).json({ success: false, message: error.message });
