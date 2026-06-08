@@ -1314,7 +1314,10 @@ export const saveClientProductPayment = async (
 type ClientProductPaymentRow = typeof clientProductPayments.$inferSelect;
 
 /** Same shape as rows in `GET /api/client/:id/complete` → `productPayments` (with `entity`). */
-export type ProductPaymentWithEntity = ClientProductPaymentRow & { entity: unknown };
+export type ProductPaymentWithEntity = ClientProductPaymentRow & {
+  entity: unknown;
+  handledByUser?: { id: number; name: string } | null;
+};
 
 async function attachEntitiesToProductPayments(
   payments: ClientProductPaymentRow[]
@@ -1403,9 +1406,32 @@ async function attachEntitiesToProductPayments(
     }
   }
 
+  const handlerIds = [
+    ...new Set(
+      payments
+        .map((p) => p.handledBy)
+        .filter((id): id is number => typeof id === "number" && id > 0)
+    ),
+  ];
+  const handlerMap = new Map<number, { id: number; name: string }>();
+  if (handlerIds.length > 0) {
+    const handlers = await db
+      .select({ id: users.id, fullName: users.fullName })
+      .from(users)
+      .where(inArray(users.id, handlerIds));
+    handlers.forEach((h) => {
+      handlerMap.set(h.id, { id: h.id, name: h.fullName });
+    });
+  }
+
+  const attachHandler = (row: ProductPaymentWithEntity): ProductPaymentWithEntity => ({
+    ...row,
+    handledByUser: row.handledBy ? handlerMap.get(row.handledBy) ?? null : null,
+  });
+
   return payments.map((p) => {
     if (p.entityType === "master_only") {
-      return { ...p, entity: null };
+      return attachHandler({ ...p, entity: null });
     }
 
     if (p.entityId) {
@@ -1426,10 +1452,10 @@ async function attachEntitiesToProductPayments(
         entity = { ...entity, approver: approver || null };
       }
 
-      return { ...p, entity: entity || null };
+      return attachHandler({ ...p, entity: entity || null });
     }
 
-    return { ...p, entity: null };
+    return attachHandler({ ...p, entity: null });
   });
 }
 

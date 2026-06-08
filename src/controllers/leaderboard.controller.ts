@@ -7,6 +7,8 @@ import {
   deleteTarget,
   getMonthlyEnrollmentGoal,
   getCounsellorListForTargets,
+  getSaleTypeCategoriesForLeaderboard,
+  getMonthTargets,
 } from "../models/leaderboard.model";
 import { db } from "../config/databaseConnection";
 import { users } from "../schemas/users.schema";
@@ -84,7 +86,8 @@ export const getLeaderboardController = async (
       });
     }
 
-    const cacheKey = `leaderboard:${month}:${year}`;
+    const categoryName = (req.query.category as string) || "general";
+    const cacheKey = `leaderboard:${month}:${year}:${categoryName}`;
     const cached = await redisGetJson<any>(cacheKey);
     let fullResult: { leaderboard: any[]; summary: any };
     if (cached) {
@@ -92,7 +95,7 @@ export const getLeaderboardController = async (
       const summary = Array.isArray(cached) ? undefined : cached.summary;
       fullResult = { leaderboard, summary: summary ?? summaryFromData(leaderboard) };
     } else {
-      fullResult = await getLeaderboard(month, year);
+      fullResult = await getLeaderboard(month, year, undefined, undefined, undefined, categoryName);
       await redisSetJson(cacheKey, fullResult, LEADERBOARD_CACHE_TTL_SECONDS);
     }
 
@@ -233,7 +236,8 @@ export const setTargetController = async (req: Request, res: Response) => {
       });
     }
 
-    const { counsellorId, target, month, year } = req.body;
+    const { counsellorId, target, month, year, categoryName, applicationTarget, finalStudentTarget } = req.body;
+    const resolvedCategory: string = categoryName || "general";
 
     // Validate required fields
     if (!counsellorId || target === undefined || !month || !year) {
@@ -343,7 +347,12 @@ export const setTargetController = async (req: Request, res: Response) => {
     }
 
     // Set the target
-    const result = await setTarget(counsellorId, managerId, target, month, year);
+    const result = await setTarget(
+      counsellorId, managerId, target, month, year,
+      resolvedCategory,
+      applicationTarget != null ? Number(applicationTarget) : undefined,
+      finalStudentTarget != null ? Number(finalStudentTarget) : undefined
+    );
 
     try {
       await redisDelByPrefix("leaderboard:");
@@ -373,20 +382,30 @@ export const setTargetController = async (req: Request, res: Response) => {
       console.error("Activity log error in setTargetController:", activityError);
     }
 
-    // Emit WebSocket event: only the affected counsellor's leaderboard row (so frontend can patch that row)
+    // Recompute fresh leaderboard for the affected category and update Redis immediately
+    let freshLeaderboard: { leaderboard: any[]; summary: any } | null = null;
     try {
-      const leaderboardResult = await getLeaderboard(month, year);
-      const counsellorRow = leaderboardResult.leaderboard.find(
-        (row: { counsellorId: number }) => row.counsellorId === counsellorId
+      freshLeaderboard = await getLeaderboard(month, year, undefined, undefined, undefined, resolvedCategory);
+      await redisSetJson(
+        `leaderboard:${month}:${year}:${resolvedCategory}`,
+        freshLeaderboard,
+        LEADERBOARD_CACHE_TTL_SECONDS
       );
+    } catch (err) {
+      console.error("Failed to repopulate leaderboard cache after setTarget:", err);
+    }
 
+    // Emit WebSocket event with fresh leaderboard data so frontend can update immediately
+    try {
       const eventName = "leaderboard:updated";
       const eventData = {
         action: result.action,
         target: result.target,
-        counsellorRow: counsellorRow ?? null,
+        category: resolvedCategory,
         month,
         year,
+        leaderboard: freshLeaderboard?.leaderboard ?? null,
+        summary: freshLeaderboard?.summary ?? null,
       };
 
       emitToAdmin(eventName, eventData);
@@ -398,23 +417,12 @@ export const setTargetController = async (req: Request, res: Response) => {
       // Also emit enrollment goal update for this counselor
       try {
         const enrollmentGoalData = await getMonthlyEnrollmentGoal(counsellorId, month, year);
-        emitToCounsellor(counsellorId, "enrollment-goal:updated", {
-          month: month,
-          year: year,
-          data: enrollmentGoalData,
-        });
-        // Also emit to admin/manager
-        emitToAdmin("enrollment-goal:updated", {
-          month: month,
-          year: year,
-          counsellorId: counsellorId,
-          data: enrollmentGoalData,
-        });
+        emitToCounsellor(counsellorId, "enrollment-goal:updated", { month, year, data: enrollmentGoalData });
+        emitToAdmin("enrollment-goal:updated", { month, year, counsellorId, data: enrollmentGoalData });
       } catch (goalError) {
         console.error("Enrollment goal update emit error:", goalError);
       }
     } catch (wsError) {
-      // Don't fail the request if WebSocket fails
       console.error("WebSocket emit error in setTargetController:", wsError);
     }
 
@@ -715,6 +723,43 @@ export const deleteTargetController = async (req: Request, res: Response) => {
       success: false,
       message: error?.message ?? "Failed to delete target",
     });
+  }
+};
+
+/* ==============================
+   GET EXISTING TARGETS FOR MONTH
+   GET /api/leaderboard/month-targets?month=1&year=2026
+   Returns all counsellorId+categoryName pairs that already have a target set (month from created_at).
+============================== */
+export const getMonthTargetsController = async (req: Request, res: Response) => {
+  try {
+    const currentDate = new Date();
+    const month = req.query.month ? parseInt(req.query.month as string) : currentDate.getMonth() + 1;
+    const year = req.query.year ? parseInt(req.query.year as string) : currentDate.getFullYear();
+    if (isNaN(month) || month < 1 || month > 12) {
+      return res.status(400).json({ success: false, message: "Invalid month" });
+    }
+    const targets = await getMonthTargets(month, year);
+    return res.status(200).json({ success: true, data: targets });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error?.message ?? "Failed to load month targets" });
+  }
+};
+
+/* ==============================
+   GET LEADERBOARD CATEGORIES
+   GET /api/leaderboard/categories
+   Returns [{ id, name }] from sale_type_category table.
+============================== */
+export const getLeaderboardCategoriesController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const categories = await getSaleTypeCategoriesForLeaderboard();
+    return res.status(200).json({ success: true, data: categories });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error?.message ?? "Failed to load categories" });
   }
 };
 

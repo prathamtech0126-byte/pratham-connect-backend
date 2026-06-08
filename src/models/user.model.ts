@@ -666,6 +666,25 @@ export const getCounsellorById = async (counsellorId: number) => {
   return counsellor[0];
 };
 
+/** Resolve display names for a set of user IDs (any role). */
+export const getUserDisplayNamesByIds = async (
+  userIds: number[]
+): Promise<Record<number, string>> => {
+  const uniqueIds = [...new Set(userIds.filter((id) => Number.isFinite(id) && id > 0))];
+  if (uniqueIds.length === 0) return {};
+
+  const rows = await db
+    .select({ id: users.id, fullName: users.fullName })
+    .from(users)
+    .where(inArray(users.id, uniqueIds));
+
+  const out: Record<number, string> = {};
+  for (const row of rows) {
+    out[row.id] = row.fullName;
+  }
+  return out;
+};
+
 /* ================================
    GET COUNSELLORS BY MANAGER ID
 ================================ */

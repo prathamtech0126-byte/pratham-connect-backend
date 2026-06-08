@@ -14,6 +14,7 @@ import {
   getManagersWithCounsellors,
   changePassword,
   markTourPageSeen,
+  getUserDisplayNamesByIds,
 } from "../models/user.model";
 import bcrypt from "bcrypt";
 import { db } from "../config/databaseConnection";
@@ -897,6 +898,25 @@ export const getAllUserDetailsController = async (req: Request, res: Response) =
   }
 
   res.status(403).json({ success: false, message: "Forbidden" });
+};
+
+/** GET /api/users/display-names?ids=1,2,3 — resolve user full names (any authenticated role). */
+export const getUserDisplayNamesController = async (req: Request, res: Response) => {
+  try {
+    const raw = req.query.ids;
+    const ids =
+      typeof raw === "string"
+        ? raw
+            .split(",")
+            .map((s) => Number(s.trim()))
+            .filter((id) => Number.isFinite(id) && id > 0)
+        : [];
+    const names = await getUserDisplayNamesByIds(ids);
+    return res.json({ success: true, data: names });
+  } catch (err) {
+    console.error("[users] getUserDisplayNames error:", err);
+    return res.status(500).json({ success: false, message: "Failed to resolve user names" });
+  }
 };
 
 export const getAllCounsellorsAdminController = async (req: Request, res: Response) => {

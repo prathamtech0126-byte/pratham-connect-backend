@@ -1,4 +1,4 @@
-import { db } from "../config/databaseConnection";
+﻿import { db } from "../config/databaseConnection";
 import pool from "../config/databaseConnection";
 import { clientInformation } from "../schemas/clientInformation.schema";
 import { clientPayments } from "../schemas/clientPayment.schema";
@@ -10,13 +10,15 @@ import { getPaymentsByClientId } from "./clientPayment.model";
 import { getProductPaymentsByClientId } from "./clientProductPayments.model";
 import { leadTypes } from "../Leads/schemas/leadType.schema";
 import { saleTypes } from "../schemas/saleType.schema";
+import { saleTypeCategories } from "../schemas/saleTypeCategory.schema";
+import { getStudentApplicationsByClientId, batchGetStudentAppSaleTypes } from "./studentApplication.model";
 import { parseFrontendDate } from "../utils/date";
 
 /* ==============================
    TYPES
 ============================== */
 interface SaveClientInput {
-  clientId?: number; // 👈 optional → if present, update
+  clientId?: number; // ðŸ‘ˆ optional â†’ if present, update
   fullName: string;
   enrollmentDate: string;
   passportDetails: string;
@@ -101,7 +103,7 @@ export const saveClient = async (
     throw new Error("Invalid leadTypeId");
   }
 
-  // 🔍 validate counsellor
+  // ðŸ” validate counsellor
   const counsellor = await db
     .select({ id: users.id })
     .from(users)
@@ -111,7 +113,7 @@ export const saveClient = async (
     throw new Error("Invalid counsellor");
   }
 
-  // 🔍 validate lead type
+  // ðŸ” validate lead type
   const leadType = await db
     .select({ id: leadTypes.id })
     .from(leadTypes)
@@ -304,6 +306,7 @@ export const getClientFullDetailsById = async (clientId: number) => {
 
   // 3. Get enhanced product payments with entity data
   const productPayments = await getProductPaymentsByClientId(clientId);
+  const studentApplications = await getStudentApplicationsByClientId(clientId);
 
   // 4. Client payments (always fetch)
   // const payments = await db
@@ -327,11 +330,13 @@ export const getClientFullDetailsById = async (clientId: number) => {
       saleType: saleTypes.saleType,
       isCoreProduct: saleTypes.isCoreProduct,
       amount: saleTypes.amount,
+      categoryName: saleTypeCategories.name,
     },
     createdAt: clientPayments.createdAt,
   })
     .from(clientPayments)
     .leftJoin(saleTypes, eq(clientPayments.saleTypeId, saleTypes.saleTypeId))
+    .leftJoin(saleTypeCategories, eq(saleTypes.categoryId, saleTypeCategories.id))
     .where(eq(clientPayments.clientId, clientId))
     .orderBy(desc(clientPayments.paymentDate));
 
@@ -346,6 +351,7 @@ export const getClientFullDetailsById = async (clientId: number) => {
     },
     payments: payments,
     productPayments: productPayments,
+    studentApplications: studentApplications,
   };
 };
 
@@ -464,6 +470,10 @@ export const getClientsByCounsellor = async (counsellorId: number) => {
     })
   );
 
+  // Batch-fetch student app sale types so product-only / student-only clients show real sale type
+  const clientIds = clientsWithDetails.map((c) => c.clientId);
+  const studentAppSaleTypeMap = await batchGetStudentAppSaleTypes(clientIds);
+
   // Group clients by enrollment date (year/month) so clients show under correct month, not current
   const groupedClients: { [year: string]: { [month: string]: { clients: any[], total: number } } } = {};
 
@@ -483,11 +493,12 @@ export const getClientsByCounsellor = async (counsellorId: number) => {
       };
     }
 
-    groupedClients[year][month].clients.push(client);
+    const studentAppSaleType = studentAppSaleTypeMap.get(client.clientId) ?? null;
+    groupedClients[year][month].clients.push({ ...client, studentAppSaleType });
     groupedClients[year][month].total++;
   });
 
-  // Sort years: descending (newest first: 2026 → 2025 → 2024)
+  // Sort years: descending (newest first: 2026 â†’ 2025 â†’ 2024)
   const currentYear = new Date().getFullYear().toString();
   const sortedYears = Object.keys(groupedClients).sort((a, b) => {
     return parseInt(b) - parseInt(a); // descending order (newest first)
@@ -751,6 +762,10 @@ export const getAllClientsForManager = async (managerId: number) => {
         })
       );
 
+      // Batch-fetch student app sale types so student-only clients show real sale type
+      const clientIdsForBatch = clientsWithDetails.map((c) => c.clientId);
+      const studentAppSaleTypeMap = await batchGetStudentAppSaleTypes(clientIdsForBatch);
+
       // Group by enrollment date (year/month) so clients show under correct month
       const groupedClients: { [year: string]: { [month: string]: { clients: any[], total: number } } } = {};
       clientsWithDetails.forEach(client => {
@@ -759,11 +774,12 @@ export const getAllClientsForManager = async (managerId: number) => {
         if (!year || !month) return;
         if (!groupedClients[year]) groupedClients[year] = {};
         if (!groupedClients[year][month]) groupedClients[year][month] = { clients: [], total: 0 };
-        groupedClients[year][month].clients.push(client);
+        const studentAppSaleType = studentAppSaleTypeMap.get(client.clientId) ?? null;
+        groupedClients[year][month].clients.push({ ...client, studentAppSaleType });
         groupedClients[year][month].total++;
       });
 
-      // Sort years: descending (newest first: 2026 → 2025 → 2024)
+      // Sort years: descending (newest first: 2026 â†’ 2025 â†’ 2024)
       const currentYear = new Date().getFullYear().toString();
       const sortedYears = Object.keys(groupedClients).sort((a, b) => {
         return parseInt(b) - parseInt(a); // descending order (newest first)
@@ -977,6 +993,10 @@ export const getAllClientsForAdmin = async () => {
         })
       );
 
+      // Batch-fetch student app sale types so student-only clients show real sale type
+      const clientIdsForBatch = clientsWithDetails.map((c) => c.clientId);
+      const studentAppSaleTypeMap = await batchGetStudentAppSaleTypes(clientIdsForBatch);
+
       // Group by enrollment date (year/month) so clients show under correct month
       const groupedClients: { [year: string]: { [month: string]: { clients: any[], total: number } } } = {};
       clientsWithDetails.forEach(client => {
@@ -985,11 +1005,12 @@ export const getAllClientsForAdmin = async () => {
         if (!year || !month) return;
         if (!groupedClients[year]) groupedClients[year] = {};
         if (!groupedClients[year][month]) groupedClients[year][month] = { clients: [], total: 0 };
-        groupedClients[year][month].clients.push(client);
+        const studentAppSaleType = studentAppSaleTypeMap.get(client.clientId) ?? null;
+        groupedClients[year][month].clients.push({ ...client, studentAppSaleType });
         groupedClients[year][month].total++;
       });
 
-      // Sort years: descending (newest first: 2026 → 2025 → 2024)
+      // Sort years: descending (newest first: 2026 â†’ 2025 â†’ 2024)
       const currentYear = new Date().getFullYear().toString();
       const sortedYears = Object.keys(groupedClients).sort((a, b) => {
         return parseInt(b) - parseInt(a); // descending order (newest first)
@@ -1232,6 +1253,10 @@ export const getAllArchivedClientsForManager = async (managerId: number) => {
         })
       );
 
+
+      // Batch-fetch student app sale types
+      const clientIdsForBatchX = clientsWithDetails.map((c: any) => c.clientId);
+      const studentAppSaleTypeMap = await batchGetStudentAppSaleTypes(clientIdsForBatchX);
       // Group by enrollment year and month (use explicit fields)
       const groupedClients: { [year: string]: { [month: string]: { clients: any[], total: number } } } = {};
 
@@ -1251,7 +1276,8 @@ export const getAllArchivedClientsForManager = async (managerId: number) => {
           };
         }
 
-        groupedClients[year][month].clients.push(client);
+        const studentAppSaleType = studentAppSaleTypeMap.get(client.clientId) ?? null;
+        groupedClients[year][month].clients.push({ ...client, studentAppSaleType });
         groupedClients[year][month].total++;
       });
 
@@ -1406,6 +1432,10 @@ export const getAllArchivedClientsForAdmin = async () => {
         })
       );
 
+
+      // Batch-fetch student app sale types
+      const clientIdsForBatchX = clientsWithDetails.map((c: any) => c.clientId);
+      const studentAppSaleTypeMap = await batchGetStudentAppSaleTypes(clientIdsForBatchX);
       // Group by enrollment year and month (use explicit fields)
       const groupedClients: { [year: string]: { [month: string]: { clients: any[], total: number } } } = {};
 
@@ -1425,7 +1455,8 @@ export const getAllArchivedClientsForAdmin = async () => {
           };
         }
 
-        groupedClients[year][month].clients.push(client);
+        const studentAppSaleType = studentAppSaleTypeMap.get(client.clientId) ?? null;
+        groupedClients[year][month].clients.push({ ...client, studentAppSaleType });
         groupedClients[year][month].total++;
       });
 
@@ -1478,3 +1509,4 @@ export const getAllArchivedClientsForAdmin = async () => {
 
   return result;
 };
+

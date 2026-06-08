@@ -401,12 +401,7 @@ const buildWhereClause = (filters: LeadListFilters) => {
   }
 
   if (filters.excludeUnassigned) {
-    conditions.push(
-      or(
-        inArray(leads.assignmentStatus, ["transferred", "dropped", "converted"] as any[]),
-        eq(leads.progressStatus, "junk" as any)
-      )!
-    );
+    conditions.push(ne(leads.assignmentStatus, "not_assigned"));
   }
 
   return conditions.length > 0 ? and(...conditions) : undefined;

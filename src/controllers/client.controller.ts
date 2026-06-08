@@ -717,6 +717,7 @@ export const getClientCompleteDetailsController = async (req: Request, res: Resp
       leadType: clientData.leadType,
       payments: clientData.payments,
       productPayments: clientData.productPayments,
+      studentApplications: clientData.studentApplications ?? [],
     };
 
     // Cache raw (unfiltered) data; filter applied per-viewer below

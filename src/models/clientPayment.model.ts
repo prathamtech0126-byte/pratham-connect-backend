@@ -2,6 +2,7 @@ import { db } from "../config/databaseConnection";
 import pool from "../config/databaseConnection";
 import { clientPayments } from "../schemas/clientPayment.schema";
 import { saleTypes } from "../schemas/saleType.schema";
+import { saleTypeCategories } from "../schemas/saleTypeCategory.schema";
 import { eq, and, ne, desc } from "drizzle-orm";
 import { parseFrontendDate } from "../utils/date";
 import { activityActionEnum } from "../schemas/activityLog.schema";
@@ -250,9 +251,12 @@ export const getPaymentsByClientId = async (
       createdAt: clientPayments.createdAt,
       // Sale type information
       saleType: saleTypes.saleType,
+      categoryId: saleTypeCategories.id,
+      categoryName: saleTypeCategories.name,
     })
     .from(clientPayments)
     .leftJoin(saleTypes, eq(clientPayments.saleTypeId, saleTypes.saleTypeId))
+    .leftJoin(saleTypeCategories, eq(saleTypes.categoryId, saleTypeCategories.id))
     .where(conditions)
     .orderBy(desc(clientPayments.paymentDate));
 
@@ -264,6 +268,8 @@ export const getPaymentsByClientId = async (
       ? {
           id: payment.saleTypeId,
           saleType: payment.saleType || null,
+          categoryId: payment.categoryId ?? null,
+          categoryName: payment.categoryName ?? null,
         }
       : null,
     totalPayment: payment.totalPayment,

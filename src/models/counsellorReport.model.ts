@@ -24,7 +24,7 @@ import {
 } from "./leaderboard.model";
 import {
   getPendingAmountByCounsellors,
-  getSaleTypeCategoryCounts,
+  getSaleTypeCategoryCountsForReport,
   type DateRange,
 } from "./dashboard.model";
 import {
@@ -725,7 +725,7 @@ export const getCounsellorReport = async (
     getPerProductBreakdown(counsellorId, startStr, endStr),
     getCoreProductDistinctClientCount(counsellorId, startStr, endStr),
     getPendingAmountByCounsellors([counsellorId]),
-    getSaleTypeCategoryCounts(saleTypeCategoryDateRange, saleTypeCategoryRoleFilter),
+    getSaleTypeCategoryCountsForReport(saleTypeCategoryDateRange, saleTypeCategoryRoleFilter),
   ]);
 
   // ── sale_type_count: when filter used = payment count (client_payment rows) for that sale type only; when no filter = total enrollments ─
