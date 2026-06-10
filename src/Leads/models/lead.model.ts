@@ -22,8 +22,8 @@ import {
   serializeLeadTimestampsForApi,
 } from "../../utils/pgTimestamp";
 import { leads } from "../schemas/leads.schema";
-import { transferOutcomeInPeriodFilter } from "../services/leadTransferredAt.service";
-import { transferOutcomeInPeriodSql } from "../services/leadReportPeriodSql.service";
+import { transferredAtInPeriodFilter } from "../services/leadTransferredAt.service";
+import { transferredAtInPeriodSql } from "../services/leadReportPeriodSql.service";
 import { leadActivities } from "../schemas/leadActivities.schema";
 import { leadTypes } from "../schemas/leadType.schema";
 import { users } from "../../schemas/users.schema";
@@ -192,11 +192,10 @@ const buildWhereClause = (filters: LeadListFilters) => {
   }
 
   if (filters.reportBucket === "transferred") {
-    conditions.push(isNotNull(leads.currentTelecallerId));
     const tf = filters.transferredFrom ?? filters.createdFrom;
     const tt = filters.transferredTo ?? filters.createdTo;
     conditions.push(
-      sql`${transferOutcomeInPeriodSql(
+      sql`${transferredAtInPeriodSql(
         tf ? new Date(tf) : undefined,
         tt ? new Date(tt) : undefined
       )}`
@@ -356,7 +355,7 @@ const buildWhereClause = (filters: LeadListFilters) => {
     filters.reportBucket !== "transferred"
   ) {
     conditions.push(
-      sql`${transferOutcomeInPeriodSql(
+      sql`${transferredAtInPeriodSql(
         filters.transferredFrom ? new Date(filters.transferredFrom) : undefined,
         filters.transferredTo ? new Date(filters.transferredTo) : undefined
       )}`
@@ -614,7 +613,7 @@ export const getTelecallerLeadSummaryRows = async (
         ${createdTo ? sql`AND created_at <= ${createdTo}` : sql``}
       )::int AS "notContacted",
 
-      COUNT(*) FILTER (WHERE ${transferOutcomeInPeriodSql(createdFrom, createdTo)})::int AS "transferred",
+      COUNT(*) FILTER (WHERE ${transferredAtInPeriodSql(createdFrom, createdTo)})::int AS "transferred",
 
       COUNT(*) FILTER (
         WHERE NOT is_junk
@@ -796,7 +795,7 @@ export const getTelecallerDashboardStats = async (
     eq(leads.isJunk, false)
   );
   const hasPeriod = Boolean(createdFrom && createdTo);
-  const transferFilter = transferOutcomeInPeriodFilter(hasPeriod, createdFrom, createdTo);
+  const transferFilter = transferredAtInPeriodFilter(hasPeriod, createdFrom, createdTo);
 
   const [counts] = await db
     .select({

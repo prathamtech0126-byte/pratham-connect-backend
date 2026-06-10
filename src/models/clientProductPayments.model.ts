@@ -280,6 +280,7 @@ interface TutionFeesData {
   tutionFeesStatus: "paid" | "pending";
   feeDate?: string;
   remarks?: string;
+  studentApplicationId?: number;
 }
 
 interface InsuranceData {
@@ -544,6 +545,7 @@ const createEntityRecord = async (
           tutionFeesStatus: data.tutionFeesStatus as any,
           feeDate: parseFrontendDate(data.feeDate) ?? null,
           remarks: data.remarks ?? null,
+          studentApplicationId: data.studentApplicationId ?? null,
         })
         .returning();
       return record.id;

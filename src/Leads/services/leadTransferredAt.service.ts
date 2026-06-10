@@ -46,7 +46,21 @@ function outcomeTimestampInPeriod(
   return sql`${notNull} AND ${column} >= ${from} AND ${column} <= ${to}`;
 }
 
-/** SQL fragment for dashboard / target transfer counts (per-outcome timestamps). */
+/** SQL fragment for report "Transferred" counts (transferred_at in period). */
+export function transferredAtInPeriodFilter(
+  hasPeriod: boolean,
+  from?: Date,
+  to?: Date,
+  options?: { endExclusive?: boolean }
+) {
+  const ex = options?.endExclusive;
+  return sql`
+    ${leads.isJunk} = false
+    AND ${outcomeTimestampInPeriod(leads.transferredAt, hasPeriod, from, to, ex)}
+  `;
+}
+
+/** SQL fragment for telecaller transfer target counts (per-outcome timestamps). */
 export function transferOutcomeInPeriodFilter(
   hasPeriod: boolean,
   from?: Date,

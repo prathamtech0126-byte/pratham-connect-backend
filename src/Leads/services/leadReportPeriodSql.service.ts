@@ -6,8 +6,38 @@ export const createdInPeriodSql = (createdFrom?: Date, createdTo?: Date) => sql`
   ${createdTo ? sql`AND created_at <= ${createdTo}` : sql``}
 `;
 
+/** Leads transferred in period by transferred_at only (report "Transferred" KPI). */
+export const transferredAtInPeriodSql = (
+  from?: Date,
+  to?: Date,
+  options?: { endExclusive?: boolean }
+) => {
+  const hasPeriod = Boolean(from && to);
+  if (!hasPeriod) {
+    return sql`
+      NOT is_junk
+      AND transferred_at IS NOT NULL
+    `;
+  }
+
+  if (options?.endExclusive) {
+    return sql`
+      NOT is_junk
+      AND transferred_at IS NOT NULL
+      AND transferred_at >= ${from} AND transferred_at < ${to}
+    `;
+  }
+
+  return sql`
+    NOT is_junk
+    AND transferred_at IS NOT NULL
+    AND transferred_at >= ${from} AND transferred_at <= ${to}
+  `;
+};
+
 /**
- * Transfer KPI in period: transferred_at / converted_at / dropped_at by status.
+ * Transfer outcomes in period: transferred_at / converted_at / dropped_at by status.
+ * Used for telecaller transfer targets (any outcome counts).
  */
 export const transferOutcomeInPeriodSql = (
   from?: Date,

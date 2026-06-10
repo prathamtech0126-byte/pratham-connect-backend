@@ -11,7 +11,11 @@ import { getProductPaymentsByClientId } from "./clientProductPayments.model";
 import { leadTypes } from "../Leads/schemas/leadType.schema";
 import { saleTypes } from "../schemas/saleType.schema";
 import { saleTypeCategories } from "../schemas/saleTypeCategory.schema";
-import { getStudentApplicationsByClientId, batchGetStudentAppSaleTypes } from "./studentApplication.model";
+import {
+  getStudentApplicationsByClientId,
+  batchGetStudentAppSaleTypes,
+  batchGetStudentApplicationDates,
+} from "./studentApplication.model";
 import { parseFrontendDate } from "../utils/date";
 
 /* ==============================
@@ -24,6 +28,18 @@ interface SaveClientInput {
   passportDetails: string;
   leadTypeId: number;
 }
+
+const attachStudentAppListFields = (
+  client: { clientId: number },
+  saleTypeMap: Map<number, { saleTypeId: number; saleType: string | null }>,
+  datesMap: Map<number, string[]>,
+) => ({
+  ...client,
+  studentAppSaleType: saleTypeMap.get(client.clientId) ?? null,
+  studentApplications: (datesMap.get(client.clientId) ?? []).map((applicationDate) => ({
+    applicationDate,
+  })),
+});
 
 /* ==============================
    HELPER: Format date to DD-MM-YYYY
@@ -472,7 +488,10 @@ export const getClientsByCounsellor = async (counsellorId: number) => {
 
   // Batch-fetch student app sale types so product-only / student-only clients show real sale type
   const clientIds = clientsWithDetails.map((c) => c.clientId);
-  const studentAppSaleTypeMap = await batchGetStudentAppSaleTypes(clientIds);
+  const [studentAppSaleTypeMap, studentAppDatesMap] = await Promise.all([
+    batchGetStudentAppSaleTypes(clientIds),
+    batchGetStudentApplicationDates(clientIds),
+  ]);
 
   // Group clients by enrollment date (year/month) so clients show under correct month, not current
   const groupedClients: { [year: string]: { [month: string]: { clients: any[], total: number } } } = {};
@@ -493,8 +512,9 @@ export const getClientsByCounsellor = async (counsellorId: number) => {
       };
     }
 
-    const studentAppSaleType = studentAppSaleTypeMap.get(client.clientId) ?? null;
-    groupedClients[year][month].clients.push({ ...client, studentAppSaleType });
+    groupedClients[year][month].clients.push(
+      attachStudentAppListFields(client, studentAppSaleTypeMap, studentAppDatesMap),
+    );
     groupedClients[year][month].total++;
   });
 
@@ -764,7 +784,10 @@ export const getAllClientsForManager = async (managerId: number) => {
 
       // Batch-fetch student app sale types so student-only clients show real sale type
       const clientIdsForBatch = clientsWithDetails.map((c) => c.clientId);
-      const studentAppSaleTypeMap = await batchGetStudentAppSaleTypes(clientIdsForBatch);
+      const [studentAppSaleTypeMap, studentAppDatesMap] = await Promise.all([
+        batchGetStudentAppSaleTypes(clientIdsForBatch),
+        batchGetStudentApplicationDates(clientIdsForBatch),
+      ]);
 
       // Group by enrollment date (year/month) so clients show under correct month
       const groupedClients: { [year: string]: { [month: string]: { clients: any[], total: number } } } = {};
@@ -774,8 +797,9 @@ export const getAllClientsForManager = async (managerId: number) => {
         if (!year || !month) return;
         if (!groupedClients[year]) groupedClients[year] = {};
         if (!groupedClients[year][month]) groupedClients[year][month] = { clients: [], total: 0 };
-        const studentAppSaleType = studentAppSaleTypeMap.get(client.clientId) ?? null;
-        groupedClients[year][month].clients.push({ ...client, studentAppSaleType });
+        groupedClients[year][month].clients.push(
+          attachStudentAppListFields(client, studentAppSaleTypeMap, studentAppDatesMap),
+        );
         groupedClients[year][month].total++;
       });
 
@@ -995,7 +1019,10 @@ export const getAllClientsForAdmin = async () => {
 
       // Batch-fetch student app sale types so student-only clients show real sale type
       const clientIdsForBatch = clientsWithDetails.map((c) => c.clientId);
-      const studentAppSaleTypeMap = await batchGetStudentAppSaleTypes(clientIdsForBatch);
+      const [studentAppSaleTypeMap, studentAppDatesMap] = await Promise.all([
+        batchGetStudentAppSaleTypes(clientIdsForBatch),
+        batchGetStudentApplicationDates(clientIdsForBatch),
+      ]);
 
       // Group by enrollment date (year/month) so clients show under correct month
       const groupedClients: { [year: string]: { [month: string]: { clients: any[], total: number } } } = {};
@@ -1005,8 +1032,9 @@ export const getAllClientsForAdmin = async () => {
         if (!year || !month) return;
         if (!groupedClients[year]) groupedClients[year] = {};
         if (!groupedClients[year][month]) groupedClients[year][month] = { clients: [], total: 0 };
-        const studentAppSaleType = studentAppSaleTypeMap.get(client.clientId) ?? null;
-        groupedClients[year][month].clients.push({ ...client, studentAppSaleType });
+        groupedClients[year][month].clients.push(
+          attachStudentAppListFields(client, studentAppSaleTypeMap, studentAppDatesMap),
+        );
         groupedClients[year][month].total++;
       });
 
@@ -1256,7 +1284,10 @@ export const getAllArchivedClientsForManager = async (managerId: number) => {
 
       // Batch-fetch student app sale types
       const clientIdsForBatchX = clientsWithDetails.map((c: any) => c.clientId);
-      const studentAppSaleTypeMap = await batchGetStudentAppSaleTypes(clientIdsForBatchX);
+      const [studentAppSaleTypeMap, studentAppDatesMap] = await Promise.all([
+        batchGetStudentAppSaleTypes(clientIdsForBatchX),
+        batchGetStudentApplicationDates(clientIdsForBatchX),
+      ]);
       // Group by enrollment year and month (use explicit fields)
       const groupedClients: { [year: string]: { [month: string]: { clients: any[], total: number } } } = {};
 
@@ -1276,8 +1307,9 @@ export const getAllArchivedClientsForManager = async (managerId: number) => {
           };
         }
 
-        const studentAppSaleType = studentAppSaleTypeMap.get(client.clientId) ?? null;
-        groupedClients[year][month].clients.push({ ...client, studentAppSaleType });
+        groupedClients[year][month].clients.push(
+          attachStudentAppListFields(client, studentAppSaleTypeMap, studentAppDatesMap),
+        );
         groupedClients[year][month].total++;
       });
 
@@ -1435,7 +1467,10 @@ export const getAllArchivedClientsForAdmin = async () => {
 
       // Batch-fetch student app sale types
       const clientIdsForBatchX = clientsWithDetails.map((c: any) => c.clientId);
-      const studentAppSaleTypeMap = await batchGetStudentAppSaleTypes(clientIdsForBatchX);
+      const [studentAppSaleTypeMap, studentAppDatesMap] = await Promise.all([
+        batchGetStudentAppSaleTypes(clientIdsForBatchX),
+        batchGetStudentApplicationDates(clientIdsForBatchX),
+      ]);
       // Group by enrollment year and month (use explicit fields)
       const groupedClients: { [year: string]: { [month: string]: { clients: any[], total: number } } } = {};
 
@@ -1455,8 +1490,9 @@ export const getAllArchivedClientsForAdmin = async () => {
           };
         }
 
-        const studentAppSaleType = studentAppSaleTypeMap.get(client.clientId) ?? null;
-        groupedClients[year][month].clients.push({ ...client, studentAppSaleType });
+        groupedClients[year][month].clients.push(
+          attachStudentAppListFields(client, studentAppSaleTypeMap, studentAppDatesMap),
+        );
         groupedClients[year][month].total++;
       });
 

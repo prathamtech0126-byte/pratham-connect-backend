@@ -21,15 +21,14 @@ import { redisGetJson, redisSetJson, redisDelByPrefix } from "../config/redis";
 const LEADERBOARD_CACHE_TTL_SECONDS = 60;
 
 
-/** Apply scope to full leaderboard: admin/supervisor = all; non-supervisor manager = own team; counsellor = own row. */
+/** Apply scope to full leaderboard: admin/supervisor/counsellor = all; non-supervisor manager = own team. */
 function applyLeaderboardScope(
   leaderboard: Array<{ counsellorId: number; managerId: number | null; [k: string]: unknown }>,
   userId: number,
   userRole: string,
   isSupervisor: boolean
 ): typeof leaderboard {
-  if (userRole === "admin") return leaderboard;
-  if (userRole === "counsellor") return leaderboard.filter((s) => s.counsellorId === userId);
+  if (userRole === "admin" || userRole === "counsellor") return leaderboard;
   if (userRole === "manager") {
     if (isSupervisor) return leaderboard;
     const team = leaderboard.filter((s) => s.managerId === userId);

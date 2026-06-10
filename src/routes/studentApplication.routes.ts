@@ -5,6 +5,7 @@ import {
   updateStudentApplicationStatusController,
   updateStudentApplicationNoteController,
   deleteStudentApplicationController,
+  upsertTuitionDepositController,
 } from "../controllers/studentApplication.controller";
 import { requireAuth } from "../middlewares/auth.middleware";
 import { preventDuplicateRequests } from "../middlewares/requestDeduplication.middleware";
@@ -25,6 +26,13 @@ router.patch(
   "/:applicationId/note",
   requireAuth,
   updateStudentApplicationNoteController,
+);
+
+router.post(
+  "/:applicationId/tuition-deposit",
+  requireAuth,
+  preventDuplicateRequests,
+  upsertTuitionDepositController,
 );
 
 router.delete("/:applicationId", requireAuth, deleteStudentApplicationController);

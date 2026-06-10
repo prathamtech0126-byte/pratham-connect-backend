@@ -4,7 +4,7 @@ import {
   convertedInPeriodSql,
   createdInPeriodSql,
   droppedInPeriodSql,
-  transferOutcomeInPeriodSql,
+  transferredAtInPeriodSql,
 } from "../services/leadReportPeriodSql.service";
 
 export type TelecallerReportStats = {
@@ -106,7 +106,7 @@ export const getTelecallerIndividualReport = async (
         AND progress_status = 'not_contacted'
         ${createdInPeriodSql(createdFrom, createdTo)}
       )::int AS "notContacted",
-      COUNT(*) FILTER (WHERE ${transferOutcomeInPeriodSql(createdFrom, createdTo)})::int AS "transferred",
+      COUNT(*) FILTER (WHERE ${transferredAtInPeriodSql(createdFrom, createdTo)})::int AS "transferred",
       COUNT(*) FILTER (WHERE ${convertedInPeriodSql(createdFrom, createdTo)})::int AS "converted",
       COUNT(*) FILTER (
         WHERE NOT is_junk
@@ -136,7 +136,7 @@ export const getTelecallerIndividualReport = async (
     SELECT
       COALESCE(NULLIF(TRIM(lead_type), ''), 'Unknown') AS "type",
       COUNT(*) FILTER (WHERE true ${createdInPeriodSql(createdFrom, createdTo)})::int AS "assigned",
-      COUNT(*) FILTER (WHERE ${transferOutcomeInPeriodSql(createdFrom, createdTo)})::int AS "transferred",
+      COUNT(*) FILTER (WHERE ${transferredAtInPeriodSql(createdFrom, createdTo)})::int AS "transferred",
       COUNT(*) FILTER (WHERE ${convertedInPeriodSql(createdFrom, createdTo)})::int AS "converted",
       COUNT(*) FILTER (
         WHERE (is_junk OR progress_status = 'junk')
@@ -152,7 +152,7 @@ export const getTelecallerIndividualReport = async (
     SELECT
       COALESCE(NULLIF(TRIM(lead_source), ''), 'Unknown') AS "source",
       COUNT(*) FILTER (WHERE true ${createdInPeriodSql(createdFrom, createdTo)})::int AS "assigned",
-      COUNT(*) FILTER (WHERE ${transferOutcomeInPeriodSql(createdFrom, createdTo)})::int AS "transferred",
+      COUNT(*) FILTER (WHERE ${transferredAtInPeriodSql(createdFrom, createdTo)})::int AS "transferred",
       COUNT(*) FILTER (WHERE ${convertedInPeriodSql(createdFrom, createdTo)})::int AS "converted"
     FROM leads
     WHERE current_telecaller_id = ${telecallerId}
@@ -163,7 +163,7 @@ export const getTelecallerIndividualReport = async (
   const counsellorResult = await db.execute(sql`
     SELECT
       current_counsellor_id::int AS "counsellorId",
-      COUNT(*) FILTER (WHERE ${transferOutcomeInPeriodSql(createdFrom, createdTo)})::int AS "received",
+      COUNT(*) FILTER (WHERE ${transferredAtInPeriodSql(createdFrom, createdTo)})::int AS "received",
       COUNT(*) FILTER (WHERE ${convertedInPeriodSql(createdFrom, createdTo)})::int AS "converted",
       COUNT(*) FILTER (WHERE ${droppedInPeriodSql(createdFrom, createdTo)})::int AS "dropped"
     FROM leads

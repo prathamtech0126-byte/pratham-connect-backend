@@ -2,7 +2,10 @@ import { db } from "../config/databaseConnection";
 import { studentApplications } from "../schemas/studentApplication.schema";
 import { saleTypes } from "../schemas/saleType.schema";
 import { users } from "../schemas/users.schema";
+import { tutionFees } from "../schemas/tutionFees.schema";
+import { clientProductPayments } from "../schemas/clientProductPayments.schema";
 import { eq, desc, and, inArray } from "drizzle-orm";
+import { saveClientProductPayment } from "./clientProductPayments.model";
 
 export type StudentApplicationStatus =
   | "app_submitted"
@@ -33,6 +36,23 @@ export interface UpdateStudentApplicationNoteInput {
   note: string | null;
 }
 
+export interface UpsertTuitionDepositInput {
+  applicationId: number;
+  clientId: number;
+  handledBy: number;
+  tutionFeesStatus: "paid" | "pending";
+  feeDate?: string | null;
+  remarks?: string | null;
+}
+
+export interface TuitionDepositInfo {
+  tuitionDepositTaken: boolean;
+  tuitionDepositStatus: "paid" | "pending" | null;
+  tuitionDepositDate: string | null;
+  tuitionDepositRemarks: string | null;
+  tuitionDepositProductPaymentId: number | null;
+}
+
 const VALID_STATUSES: StudentApplicationStatus[] = [
   "app_submitted",
   "offer_received",
@@ -60,6 +80,7 @@ const mapStudentApplicationRow = (row: {
   updatedAt: Date | null;
   saleType?: string | null;
   counsellorName?: string | null;
+  tuitionDeposit?: TuitionDepositInfo;
 }) => ({
   applicationId: row.applicationId,
   clientId: row.clientId,
@@ -75,7 +96,50 @@ const mapStudentApplicationRow = (row: {
   note: row.note ?? null,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
+  tuitionDepositTaken: row.tuitionDeposit?.tuitionDepositTaken ?? false,
+  tuitionDepositStatus: row.tuitionDeposit?.tuitionDepositStatus ?? null,
+  tuitionDepositDate: row.tuitionDeposit?.tuitionDepositDate ?? null,
+  tuitionDepositRemarks: row.tuitionDeposit?.tuitionDepositRemarks ?? null,
+  tuitionDepositProductPaymentId: row.tuitionDeposit?.tuitionDepositProductPaymentId ?? null,
 });
+
+const getTuitionDepositsByApplicationIds = async (
+  applicationIds: number[],
+): Promise<Map<number, TuitionDepositInfo>> => {
+  const result = new Map<number, TuitionDepositInfo>();
+  if (applicationIds.length === 0) return result;
+
+  const rows = await db
+    .select({
+      studentApplicationId: tutionFees.studentApplicationId,
+      tutionFeesStatus: tutionFees.tutionFeesStatus,
+      feeDate: tutionFees.feeDate,
+      remarks: tutionFees.remarks,
+      productPaymentId: clientProductPayments.productPaymentId,
+    })
+    .from(tutionFees)
+    .innerJoin(
+      clientProductPayments,
+      and(
+        eq(clientProductPayments.entityId, tutionFees.id),
+        eq(clientProductPayments.entityType, "tutionFees_id"),
+      ),
+    )
+    .where(inArray(tutionFees.studentApplicationId, applicationIds));
+
+  for (const row of rows) {
+    if (row.studentApplicationId == null) continue;
+    result.set(row.studentApplicationId, {
+      tuitionDepositTaken: row.tutionFeesStatus === "paid",
+      tuitionDepositStatus: row.tutionFeesStatus,
+      tuitionDepositDate: row.feeDate ?? null,
+      tuitionDepositRemarks: row.remarks ?? null,
+      tuitionDepositProductPaymentId: row.productPaymentId ?? null,
+    });
+  }
+
+  return result;
+};
 
 export const createStudentApplication = async (input: CreateStudentApplicationInput) => {
   const [created] = await db
@@ -126,7 +190,61 @@ export const getStudentApplicationsByClientId = async (clientId: number) => {
     .where(eq(studentApplications.clientId, clientId))
     .orderBy(desc(studentApplications.createdAt));
 
-  return rows.map(mapStudentApplicationRow);
+  const tuitionDeposits = await getTuitionDepositsByApplicationIds(
+    rows.map((row) => row.applicationId),
+  );
+
+  return rows.map((row) =>
+    mapStudentApplicationRow({
+      ...row,
+      tuitionDeposit: tuitionDeposits.get(row.applicationId),
+    }),
+  );
+};
+
+export const getTuitionDepositForApplication = async (applicationId: number) => {
+  const deposits = await getTuitionDepositsByApplicationIds([applicationId]);
+  return deposits.get(applicationId) ?? null;
+};
+
+export const upsertTuitionDepositForApplication = async (input: UpsertTuitionDepositInput) => {
+  const existing = await getTuitionDepositForApplication(input.applicationId);
+
+  if (existing?.tuitionDepositProductPaymentId) {
+    await saveClientProductPayment(
+      {
+        productPaymentId: existing.tuitionDepositProductPaymentId,
+        clientId: input.clientId,
+        productName: "TUTION_FEES",
+        amount: 0,
+        entityData: {
+          tutionFeesStatus: input.tutionFeesStatus,
+          feeDate: input.feeDate ?? undefined,
+          remarks: input.remarks ?? undefined,
+          studentApplicationId: input.applicationId,
+        },
+      },
+      input.handledBy,
+    );
+    return getTuitionDepositForApplication(input.applicationId);
+  }
+
+  await saveClientProductPayment(
+    {
+      clientId: input.clientId,
+      productName: "TUTION_FEES",
+      amount: 0,
+      entityData: {
+        tutionFeesStatus: input.tutionFeesStatus,
+        feeDate: input.feeDate ?? undefined,
+        remarks: input.remarks ?? undefined,
+        studentApplicationId: input.applicationId,
+      },
+    },
+    input.handledBy,
+  );
+
+  return getTuitionDepositForApplication(input.applicationId);
 };
 
 export const updateStudentApplicationStatus = async (
@@ -239,6 +357,30 @@ export const batchGetStudentAppSaleTypes = async (
     if (!result.has(row.clientId)) {
       result.set(row.clientId, { saleTypeId: row.saleTypeId, saleType: row.saleType ?? null });
     }
+  }
+  return result;
+};
+
+/** Batch-fetch application_date values per client (for dashboard student list filter). */
+export const batchGetStudentApplicationDates = async (
+  clientIds: number[],
+): Promise<Map<number, string[]>> => {
+  const result = new Map<number, string[]>();
+  if (clientIds.length === 0) return result;
+
+  const rows = await db
+    .select({
+      clientId: studentApplications.clientId,
+      applicationDate: studentApplications.applicationDate,
+    })
+    .from(studentApplications)
+    .where(inArray(studentApplications.clientId, clientIds));
+
+  for (const row of rows) {
+    if (!row.applicationDate) continue;
+    const dates = result.get(row.clientId) ?? [];
+    dates.push(row.applicationDate);
+    result.set(row.clientId, dates);
   }
   return result;
 };

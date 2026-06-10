@@ -19,6 +19,7 @@ import { simCard } from "../schemas/simCard.schema";
 import { beaconAccount } from "../schemas/beaconAccount.schema";
 import {
   calculateCounsellorRevenue,
+  getCounsellorEnrollmentsForCategory,
 } from "./leaderboard.model";
 import { eq, and, gte, lte, sql, count, inArray, isNotNull } from "drizzle-orm";
 import { saleTypes } from "../schemas/saleType.schema";
@@ -722,11 +723,9 @@ export const getCoreServiceCount = async (
 
 /* ==============================
    STUDENT STATS
-   Total students in period, split by TD / application-only.
-   Includes:
-   - Student applications with enrollment (ci.date) in period
-   - Student clients with All Finance (core product) payment in period
-   withTD = paid TD only; withoutTD = the rest.
+   Total = distinct clients with student_application.application_date in period.
+   withTD = that pool + paid tuition deposit (TUTION_FEES, status paid).
+   Excludes All Finance, core payments, enrollment date, created_at.
 ============================== */
 const getStudentStats = async (
   dateRange: DateRange,
@@ -737,62 +736,25 @@ const getStudentStats = async (
 
   const params: (string | number)[] = [startDateStr, endDateStr];
   let appCounsellorClause = "";
-  let productCounsellorClause = "";
   if (filter?.userRole === "counsellor" && filter.counsellorId) {
     params.push(filter.counsellorId);
     appCounsellorClause = `AND sa.counsellor_id = $${params.length}`;
-    productCounsellorClause = `AND COALESCE(cpp.handled_by, ci.counsellor_id) = $${params.length}`;
   }
 
-  const allFinanceDateInRange = `(
-    (af.payment_date >= $1::date AND af.payment_date <= $2::date)
-    OR (af.another_payment_date >= $1::date AND af.another_payment_date <= $2::date)
-    OR (af.another_payment_date2 >= $1::date AND af.another_payment_date2 <= $2::date)
-    OR (af.another_payment_date3 >= $1::date AND af.another_payment_date3 <= $2::date)
-  )`;
-
-  const isStudentClient = `
-    EXISTS (SELECT 1 FROM student_application sa2 WHERE sa2.client_id = ci.id)
-    OR EXISTS (
-      SELECT 1 FROM client_payment cp
-      INNER JOIN sale_type st ON st.id = cp.sale_type_id
-      INNER JOIN sale_type_category stc ON stc.id = st.category_id
-      WHERE cp.client_id = ci.id
-        AND cp.stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
-        AND LOWER(stc.name) = 'student'
-    )
-  `;
-
   const query = `
-    WITH student_app_clients AS (
+    WITH student_clients AS (
       SELECT DISTINCT sa.client_id
       FROM student_application sa
       INNER JOIN client_information ci ON ci.id = sa.client_id
       WHERE ci.archived = false
-        AND ci.date >= $1::date
-        AND ci.date <= $2::date
+        AND sa.application_date IS NOT NULL
+        AND sa.application_date >= $1::date
+        AND sa.application_date <= $2::date
         ${appCounsellorClause}
-    ),
-    student_all_finance_clients AS (
-      SELECT DISTINCT ci.id AS client_id
-      FROM client_information ci
-      INNER JOIN client_product_payment cpp ON cpp.client_id = ci.id
-      INNER JOIN all_finance af ON af.id = cpp.entity_id AND cpp.entity_type = 'allFinance_id'
-      WHERE ci.archived = false
-        AND cpp.product_name = 'ALL_FINANCE_EMPLOYEMENT'
-        AND ${allFinanceDateInRange}
-        ${productCounsellorClause}
-        AND (${isStudentClient})
-    ),
-    student_clients AS (
-      SELECT client_id FROM student_app_clients
-      UNION
-      SELECT client_id FROM student_all_finance_clients
     ),
     students_with_td AS (
       SELECT DISTINCT sc.client_id
       FROM student_clients sc
-      INNER JOIN client_information ci ON ci.id = sc.client_id
       WHERE EXISTS (
         SELECT 1 FROM client_product_payment cpp
         INNER JOIN tution_fees tf ON tf.id = cpp.entity_id
@@ -1856,24 +1818,39 @@ const getLeaderboardDataForDashboard = async (
     designation: string | null;
   };
 
-  const buildStatsForCounsellor = async (c: CounsellorRow) => {
-    const [enrollmentResult] = await db
-      .select({ count: count() })
-      .from(clientInformation)
-      .where(
-        and(
-          eq(clientInformation.counsellorId, c.id),
-          eq(clientInformation.archived, false),
-          gte(clientInformation.enrollmentDate, startDateStr),
-          lte(clientInformation.enrollmentDate, endDateStr),
-          sql`${clientInformation.clientId} IN (
-              SELECT client_id FROM client_payment
-              WHERE stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
-            )`
-        )
-      );
+  const month = dateRange.start.getMonth() + 1;
+  const year = dateRange.start.getFullYear();
+  const targetRows = await db
+    .select({
+      counsellor_id: leaderBoard.counsellor_id,
+      target: leaderBoard.target,
+      id: leaderBoard.id,
+      category_name: leaderBoard.category_name,
+    })
+    .from(leaderBoard)
+    .where(
+      and(
+        sql`EXTRACT(YEAR FROM ${leaderBoard.createdAt}) = ${year}`,
+        sql`EXTRACT(MONTH FROM ${leaderBoard.createdAt}) = ${month}`
+      )
+    );
 
-    const enrollments = Number(enrollmentResult?.count ?? 0);
+  const targetByCounsellor = new Map(
+    targetRows.map((r) => [
+      r.counsellor_id,
+      { target: r.target, id: r.id, categoryName: (r.category_name ?? "general").toLowerCase() },
+    ])
+  );
+
+  const buildStatsForCounsellor = async (c: CounsellorRow) => {
+    const assigned = targetByCounsellor.get(c.id);
+    const effectiveCategory = assigned?.categoryName ?? "general";
+    const { enrollments } = await getCounsellorEnrollmentsForCategory(
+      c.id,
+      effectiveCategory,
+      startDateStr,
+      endDateStr
+    );
     const revenue = await calculateCounsellorRevenue(
       c.id,
       startDateStr,
@@ -1891,9 +1868,9 @@ const getLeaderboardDataForDashboard = async (
       designation: c.designation,
       enrollments,
       revenue: parseFloat(revenue.toFixed(2)),
-      target: 0,
+      target: assigned?.target ?? 0,
       achievedTarget: enrollments,
-      targetId: null as number | null,
+      targetId: assigned?.id ?? null,
       rank: 0,
     };
   };
@@ -1917,36 +1894,7 @@ const getLeaderboardDataForDashboard = async (
     return b.revenue - a.revenue;
   });
 
-  const ranked = stats.map((s, i) => ({ ...s, rank: i + 1 }));
-
-  const month = dateRange.start.getMonth() + 1;
-  const year = dateRange.start.getFullYear();
-  const targetRows = await db
-    .select({
-      counsellor_id: leaderBoard.counsellor_id,
-      target: leaderBoard.target,
-      id: leaderBoard.id,
-    })
-    .from(leaderBoard)
-    .where(
-      and(
-        sql`EXTRACT(YEAR FROM ${leaderBoard.createdAt}) = ${year}`,
-        sql`EXTRACT(MONTH FROM ${leaderBoard.createdAt}) = ${month}`
-      )
-    );
-
-  const targetByCounsellor = new Map(
-    targetRows.map((r) => [r.counsellor_id, { target: r.target, id: r.id }])
-  );
-
-  return ranked.map((r) => {
-    const t = targetByCounsellor.get(r.counsellorId);
-    return {
-      ...r,
-      target: t?.target ?? 0,
-      targetId: t?.id ?? null,
-    };
-  });
+  return stats.map((s, i) => ({ ...s, rank: i + 1 }));
 };
 
 /* ==============================

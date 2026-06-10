@@ -433,6 +433,36 @@ export const getCounsellorGeneralCount = async (
   return Number(rows[0]?.cnt ?? 0);
 };
 
+/** Enrollment count for a counsellor using the leaderboard category rules. */
+export const getCounsellorEnrollmentsForCategory = async (
+  counsellorId: number,
+  categoryName: string,
+  startDateStr: string,
+  endDateStr: string
+): Promise<{ enrollments: number; studentAppCount: number; finalStudentCount: number }> => {
+  const catLower = categoryName.toLowerCase();
+  let enrollments: number;
+  let studentAppCount = 0;
+  let finalStudentCount = 0;
+
+  if (catLower === "student") {
+    studentAppCount = await getCounsellorStudentAppCount(counsellorId, startDateStr, endDateStr);
+    finalStudentCount = await getCounsellorFinalStudentCount(counsellorId, startDateStr, endDateStr);
+    enrollments = studentAppCount;
+  } else if (catLower === "general") {
+    enrollments = await getCounsellorGeneralCount(counsellorId, startDateStr, endDateStr);
+  } else {
+    enrollments = await getCounsellorCategoryEnrollmentCount(
+      counsellorId,
+      categoryName,
+      startDateStr,
+      endDateStr
+    );
+  }
+
+  return { enrollments, studentAppCount, finalStudentCount };
+};
+
 /** Core Sale amount for one counsellor: client_payment (INITIAL/BEFORE_VISA/AFTER_VISA) where payment falls in the period.
  *  If payment is in current month it counts in current month, even if client was enrolled earlier (no enrollment_date filter). */
 export const getCounsellorCoreSaleAmount = async (
@@ -714,24 +744,38 @@ export const getLeaderboard = async (
     .where(activeCounsellorWhere);
 
   const catLower = categoryName.toLowerCase();
+  const useAssignedMode = catLower === "assigned";
+
+  const targetRows = useAssignedMode
+    ? await db
+        .select()
+        .from(leaderBoard)
+        .where(
+          and(
+            sql`EXTRACT(YEAR FROM ${leaderBoard.createdAt}) = ${year}`,
+            sql`EXTRACT(MONTH FROM ${leaderBoard.createdAt}) = ${month}`
+          )
+        )
+    : [];
+  const targetByCounsellor = new Map(
+    targetRows.map((r) => [Number(r.counsellor_id), r])
+  );
 
   // Calculate enrollments and revenue for each counsellor
   const counsellorStats = await Promise.all(
     allCounsellors.map(async (counsellor) => {
-      // Category-specific achievement count
-      let enrollments: number;
-      let studentAppCount = 0;
-      let finalStudentCount = 0;
+      const assignedTarget = targetByCounsellor.get(counsellor.id);
+      const effectiveCategory = useAssignedMode
+        ? (assignedTarget?.category_name ?? "general").toLowerCase()
+        : catLower;
 
-      if (catLower === "student") {
-        studentAppCount = await getCounsellorStudentAppCount(counsellor.id, startDateStr, endDateStr);
-        finalStudentCount = await getCounsellorFinalStudentCount(counsellor.id, startDateStr, endDateStr);
-        enrollments = studentAppCount;
-      } else if (catLower === "general") {
-        enrollments = await getCounsellorGeneralCount(counsellor.id, startDateStr, endDateStr);
-      } else {
-        enrollments = await getCounsellorCategoryEnrollmentCount(counsellor.id, categoryName, startDateStr, endDateStr);
-      }
+      const { enrollments, studentAppCount, finalStudentCount } =
+        await getCounsellorEnrollmentsForCategory(
+          counsellor.id,
+          effectiveCategory,
+          startDateStr,
+          endDateStr
+        );
 
       // Revenue (always computed same way regardless of category)
       const [coreSaleAmount, coreProductMetrics, otherProductMetrics] = await Promise.all([
@@ -741,19 +785,22 @@ export const getLeaderboard = async (
       ]);
       const revenue = coreSaleAmount + coreProductMetrics.amount + otherProductMetrics.amount;
 
-      // Get target from leaderboard table (for this category)
-      const [targetRecord] = await db
-        .select()
-        .from(leaderBoard)
-        .where(
-          and(
-            eq(leaderBoard.counsellor_id, counsellor.id),
-            eq(leaderBoard.category_name, categoryName),
-            sql`EXTRACT(YEAR FROM ${leaderBoard.createdAt}) = ${year}`,
-            sql`EXTRACT(MONTH FROM ${leaderBoard.createdAt}) = ${month}`
-          )
-        )
-        .limit(1);
+      let targetRecord = useAssignedMode
+        ? assignedTarget
+        : (
+            await db
+              .select()
+              .from(leaderBoard)
+              .where(
+                and(
+                  eq(leaderBoard.counsellor_id, counsellor.id),
+                  eq(leaderBoard.category_name, categoryName),
+                  sql`EXTRACT(YEAR FROM ${leaderBoard.createdAt}) = ${year}`,
+                  sql`EXTRACT(MONTH FROM ${leaderBoard.createdAt}) = ${month}`
+                )
+              )
+              .limit(1)
+          )[0];
 
       return {
         counsellorId: counsellor.id,
@@ -771,7 +818,7 @@ export const getLeaderboard = async (
         targetId: targetRecord?.id || null,
         applicationTarget: targetRecord?.application_target ?? null,
         finalStudentTarget: targetRecord?.final_student_target ?? null,
-        categoryName,
+        categoryName: effectiveCategory,
         coreSale: { count: enrollments, amount: parseFloat(coreSaleAmount.toFixed(2)) },
         coreProduct: { count: coreProductMetrics.count, amount: parseFloat(coreProductMetrics.amount.toFixed(2)) },
         otherProduct: { count: otherProductMetrics.count, amount: parseFloat(otherProductMetrics.amount.toFixed(2)) },
@@ -1104,12 +1151,22 @@ export const setTarget = async (
     .where(
       and(
         eq(leaderBoard.counsellor_id, counsellorId),
-        eq(leaderBoard.category_name, categoryName),
         sql`EXTRACT(YEAR FROM ${leaderBoard.createdAt}) = ${year}`,
         sql`EXTRACT(MONTH FROM ${leaderBoard.createdAt}) = ${month}`
       )
     )
     .limit(1);
+
+  if (
+    existingTarget &&
+    (existingTarget.category_name ?? "general").toLowerCase() !== categoryName.toLowerCase()
+  ) {
+    const cat = (existingTarget.category_name ?? "general").toLowerCase();
+    const existingCategory = cat.charAt(0).toUpperCase() + cat.slice(1);
+    throw new Error(
+      `Target already set for this counsellor in ${existingCategory} category for ${month}/${year}`
+    );
+  }
 
   // Achieved = category-specific count
   let achievedTarget = 0;

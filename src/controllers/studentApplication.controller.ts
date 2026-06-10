@@ -13,8 +13,11 @@ import {
   updateStudentApplicationNote,
   deleteStudentApplication,
   isValidStudentApplicationStatus,
+  upsertTuitionDepositForApplication,
+  getTuitionDepositForApplication,
 } from "../models/studentApplication.model";
 import { redisDel } from "../config/redis";
+import { logActivity } from "../services/activityLog.service";
 
 const canUserTouchClient = async (
   clientId: number,
@@ -127,6 +130,26 @@ export const createStudentApplicationController = async (req: Request, res: Resp
 
     await invalidateClientCache(clientId);
 
+    try {
+      await logActivity(req, {
+        entityType: "student_application",
+        entityId: created.applicationId,
+        clientId,
+        action: "CREATE",
+        newValue: created,
+        description: `Student application added: ${universityName}`,
+        metadata: {
+          universityName,
+          courseName,
+          country,
+          saleTypeId,
+        },
+        performedBy: user.id,
+      });
+    } catch (activityError) {
+      console.error("Activity log error in createStudentApplicationController:", activityError);
+    }
+
     return res.status(201).json({ success: true, data: created });
   } catch (error: any) {
     return res.status(500).json({
@@ -220,6 +243,73 @@ export const updateStudentApplicationNoteController = async (req: Request, res: 
   }
 };
 
+export const upsertTuitionDepositController = async (req: Request, res: Response) => {
+  try {
+    const user = req.user!;
+    const applicationId = Number(req.params.applicationId);
+    const body = req.body ?? {};
+    const statusRaw = String(body.status ?? body.tutionFeesStatus ?? "").toLowerCase();
+
+    if (!applicationId || !["paid", "pending"].includes(statusRaw)) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid applicationId and status (paid or pending) are required.",
+      });
+    }
+
+    const existing = await getStudentApplicationById(applicationId);
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Application not found." });
+    }
+
+    const allowed = await canUserTouchClient(existing.clientId, user.id, user.role);
+    if (!allowed) {
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+
+    const priorDeposit = await getTuitionDepositForApplication(applicationId);
+
+    const tuitionDeposit = await upsertTuitionDepositForApplication({
+      applicationId,
+      clientId: existing.clientId,
+      handledBy: user.id,
+      tutionFeesStatus: statusRaw as "paid" | "pending",
+      feeDate: body.date ?? body.feeDate ?? null,
+      remarks: body.remarks ?? null,
+    });
+
+    await invalidateClientCache(existing.clientId);
+
+    try {
+      const isUpdate = !!priorDeposit?.tuitionDepositProductPaymentId;
+      await logActivity(req, {
+        entityType: "student_application_tuition_deposit",
+        entityId: applicationId,
+        clientId: existing.clientId,
+        action: isUpdate ? "PRODUCT_UPDATED" : "PRODUCT_ADDED",
+        oldValue: priorDeposit,
+        newValue: tuitionDeposit,
+        description: `${isUpdate ? "Tuition deposit updated" : "Tuition deposit added"} for ${existing.universityName} (${statusRaw})`,
+        metadata: {
+          applicationId,
+          universityName: existing.universityName,
+          productName: "TUTION_FEES",
+        },
+        performedBy: user.id,
+      });
+    } catch (activityError) {
+      console.error("Activity log error in upsertTuitionDepositController:", activityError);
+    }
+
+    return res.status(200).json({ success: true, data: tuitionDeposit });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to save tuition deposit.",
+    });
+  }
+};
+
 export const updateStudentApplicationStatusController = async (req: Request, res: Response) => {
   try {
     const user = req.user!;
@@ -245,6 +335,26 @@ export const updateStudentApplicationStatusController = async (req: Request, res
 
     const updated = await updateStudentApplicationStatus({ applicationId, status });
     await invalidateClientCache(existing.clientId);
+
+    try {
+      await logActivity(req, {
+        entityType: "student_application",
+        entityId: applicationId,
+        clientId: existing.clientId,
+        action: "STATUS_CHANGE",
+        oldValue: { status: existing.status },
+        newValue: { status: updated?.status ?? status },
+        description: `Student application status updated: ${existing.universityName}`,
+        metadata: {
+          universityName: existing.universityName,
+          previousStatus: existing.status,
+          newStatus: updated?.status ?? status,
+        },
+        performedBy: user.id,
+      });
+    } catch (activityError) {
+      console.error("Activity log error in updateStudentApplicationStatusController:", activityError);
+    }
 
     return res.status(200).json({ success: true, data: updated });
   } catch (error: any) {
