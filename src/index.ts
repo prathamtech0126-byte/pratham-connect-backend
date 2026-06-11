@@ -181,6 +181,8 @@ import { healthController } from "./controllers/health.controller";
 import { requireCsrf } from "./middlewares/csrf.middleware";
 import otherProductsRoutes from "./routes/otherProducts.routes";
 import ruleConfigurationRoutes from "./routes/ruleConfiguration.routes";
+import modulePaymentRoutes from "./modules/payments/routes/payment.routes";
+import { registerSwagger } from "./docs/swagger/registerSwagger";
 
 
 
@@ -262,7 +264,18 @@ app.use(
 
 // Baseline hardening
 app.disable("x-powered-by");
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+        imgSrc: ["'self'", "data:", "https:"],
+      },
+    },
+  })
+);
 app.use(compression());
 
 // Facebook webhook needs raw body for signature verification.
@@ -293,6 +306,9 @@ app.get("/", (_req, res) => {
 
 // Serve uploaded ticket images statically
 app.use("/uploads", express.static("uploads"));
+
+// OpenAPI docs (exempt from CSRF — read-only UI + spec JSON)
+registerSwagger(app);
 
 app.use(requireCsrf);
 
@@ -326,6 +342,7 @@ app.use("/api/incentives", incentiveRulesRoutes);
 app.use("/api/incentives", incentiveReportRoutes);
 app.use("/api/other-products", otherProductsRoutes);
 app.use("/api/rule-configurations", ruleConfigurationRoutes);
+app.use("/api/module-payments", modulePaymentRoutes);
 
 
 // 404
