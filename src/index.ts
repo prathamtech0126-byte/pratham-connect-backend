@@ -182,6 +182,9 @@ import { requireCsrf } from "./middlewares/csrf.middleware";
 import otherProductsRoutes from "./routes/otherProducts.routes";
 import ruleConfigurationRoutes from "./routes/ruleConfiguration.routes";
 import notificationRoutes from "./notification/routes/notification.routes";
+import swaggerUi from "swagger-ui-express";
+import { swaggerSpec } from "./config/swagger";
+
 
 
 
@@ -294,6 +297,12 @@ app.get("/", (_req, res) => {
 
 // Serve uploaded ticket images statically
 app.use("/uploads", express.static("uploads"));
+
+// Swagger docs (dev only — skip CSRF)
+if (!isProduction) {
+  app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+  app.get("/api-docs.json", (_req, res) => res.json(swaggerSpec));
+}
 
 app.use(requireCsrf);
 

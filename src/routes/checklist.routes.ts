@@ -23,6 +23,263 @@ import { requireAuth, requireRole } from "../middlewares/auth.middleware";
 
 const router = Router();
 
+/**
+ * @openapi
+ * /api/v1/categories:
+ *   get:
+ *     tags: [Checklist]
+ *     summary: Get all checklist categories (public)
+ *     security: []
+ *     responses:
+ *       200:
+ *         description: List of categories
+ * /api/v1/categories/{slug}:
+ *   get:
+ *     tags: [Checklist]
+ *     summary: Get a category by slug (public)
+ *     security: []
+ *     parameters:
+ *       - in: path
+ *         name: slug
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Category
+ * /api/v1/countries:
+ *   get:
+ *     tags: [Checklist]
+ *     summary: Get all countries (public)
+ *     security: []
+ *     responses:
+ *       200:
+ *         description: List of countries
+ * /api/v1/checklists:
+ *   get:
+ *     tags: [Checklist]
+ *     summary: Get all checklists (public)
+ *     security: []
+ *     responses:
+ *       200:
+ *         description: List of checklists
+ * /api/v1/checklists/{slug}/sections:
+ *   get:
+ *     tags: [Checklist]
+ *     summary: Get sections for a checklist (public)
+ *     security: []
+ *     parameters:
+ *       - in: path
+ *         name: slug
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Checklist sections
+ * /api/v1/checklists/{slug}:
+ *   get:
+ *     tags: [Checklist]
+ *     summary: Get a checklist by slug (public)
+ *     security: []
+ *     parameters:
+ *       - in: path
+ *         name: slug
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Checklist
+ * /api/v1/search:
+ *   get:
+ *     tags: [Checklist]
+ *     summary: Search checklists (public)
+ *     security: []
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Search results
+ * /api/v1/admin/countries:
+ *   post:
+ *     tags: [Checklist]
+ *     summary: Create a country
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       201:
+ *         description: Created
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden — admin/superadmin/developer only
+ * /api/v1/admin/checklists:
+ *   post:
+ *     tags: [Checklist]
+ *     summary: Create a checklist
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       201:
+ *         description: Created
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/v1/admin/checklists/{checklistId}/sections:
+ *   post:
+ *     tags: [Checklist]
+ *     summary: Add a section to a checklist
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: checklistId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       201:
+ *         description: Section created
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/v1/admin/sections/{sectionId}/items:
+ *   post:
+ *     tags: [Checklist]
+ *     summary: Add an item to a section
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: sectionId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       201:
+ *         description: Item created
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/v1/admin/checklists/{id}:
+ *   put:
+ *     tags: [Checklist]
+ *     summary: Update a checklist
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Updated
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *   delete:
+ *     tags: [Checklist]
+ *     summary: Delete a checklist
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Deleted
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/v1/admin/sections/{id}:
+ *   put:
+ *     tags: [Checklist]
+ *     summary: Update a section
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Updated
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *   delete:
+ *     tags: [Checklist]
+ *     summary: Delete a section
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Deleted
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/v1/admin/items/{id}:
+ *   put:
+ *     tags: [Checklist]
+ *     summary: Update a checklist item
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Updated
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *   delete:
+ *     tags: [Checklist]
+ *     summary: Delete a checklist item
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Deleted
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ */
 // Public read routes
 router.get("/categories", categoriesController);
 router.get("/categories/:slug", categoryBySlugController);

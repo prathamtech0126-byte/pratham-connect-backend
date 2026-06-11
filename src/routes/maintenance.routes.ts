@@ -7,10 +7,27 @@ import {
 
 const router = Router();
 
-// Public — frontend polls this to check if maintenance is active
+/**
+ * @openapi
+ * /api/maintenance:
+ *   get:
+ *     tags: [Maintenance]
+ *     summary: Get current maintenance mode status (public)
+ *     responses:
+ *       200:
+ *         description: Maintenance status
+ *   post:
+ *     tags: [Maintenance]
+ *     summary: Toggle maintenance mode on/off
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Status updated
+ *       401:
+ *         description: Unauthorized
+ */
 router.get("/", getMaintenanceStatusController);
-
-// Developer-only — toggle maintenance mode on/off
 router.post("/", requireAuth, setMaintenanceStatusController);
 
 export default router;

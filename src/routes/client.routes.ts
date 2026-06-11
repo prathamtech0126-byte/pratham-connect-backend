@@ -6,7 +6,203 @@ import { preventDuplicateRequests } from "../middlewares/requestDeduplication.mi
 const router = Router();
 
 /**
- * Counsellor / Admin can create client
+ * @openapi
+ * /api/clients:
+ *   post:
+ *     tags: [Clients]
+ *     summary: Create a client
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       201:
+ *         description: Client created
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden — admin/counsellor/manager/developer only
+ * /api/clients/counsellor-clients:
+ *   get:
+ *     tags: [Clients]
+ *     summary: Get all active clients (role-scoped)
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of clients
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/clients/counsellor-clients/filtered:
+ *   get:
+ *     tags: [Clients]
+ *     summary: Get clients filtered by date (role-scoped)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: filter
+ *         schema:
+ *           type: string
+ *           enum: [today, weekly, monthly, yearly, custom]
+ *           default: monthly
+ *       - in: query
+ *         name: beforeDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *           example: "2026-05-01"
+ *         description: Required when filter=custom (alias startDate also accepted)
+ *       - in: query
+ *         name: afterDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *           example: "2026-05-31"
+ *         description: Required when filter=custom (alias endDate also accepted)
+ *       - in: query
+ *         name: userId
+ *         schema:
+ *           type: integer
+ *         description: Target user ID — alias "id" also accepted. Defaults to logged-in user.
+ *       - in: query
+ *         name: role
+ *         schema:
+ *           type: string
+ *           enum: [admin, manager, counsellor]
+ *         description: Role of the target user
+ *     responses:
+ *       200:
+ *         description: Filtered clients
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *   post:
+ *     tags: [Clients]
+ *     summary: Get clients filtered by date (POST variant — same params in body)
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Filtered clients
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/clients/archived-clients:
+ *   get:
+ *     tags: [Clients]
+ *     summary: Get archived clients (role-scoped)
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Archived clients
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *   post:
+ *     tags: [Clients]
+ *     summary: Get archived clients (POST variant)
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Archived clients
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/clients/admin/all-clients:
+ *   get:
+ *     tags: [Clients]
+ *     summary: Get all clients (admin view — searchable)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: All clients
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden — admin/developer only
+ * /api/clients/admin/transfer-client:
+ *   put:
+ *     tags: [Clients]
+ *     summary: Transfer a client to another counsellor
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Transferred
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden — admin/developer only
+ * /api/clients/{clientId}/archive:
+ *   put:
+ *     tags: [Clients]
+ *     summary: Archive or unarchive a client
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: clientId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Archive status updated
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/clients/{clientId}/complete:
+ *   get:
+ *     tags: [Clients]
+ *     summary: Get complete client details (payments + product payments + entity data)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: clientId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Complete client data
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/clients/{counsellorId}:
+ *   get:
+ *     tags: [Clients]
+ *     summary: Get clients by counsellor ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: counsellorId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Clients for the counsellor
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
  */
 router.post(
   "/",

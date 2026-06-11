@@ -10,6 +10,76 @@ import { preventDuplicateRequests } from "../middlewares/requestDeduplication.mi
 
 const router = Router();
 
+/**
+ * @openapi
+ * /api/telecaller-targets:
+ *   post:
+ *     tags: [TelecallerTargets]
+ *     summary: Create or update a telecaller monthly target
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Upserted
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden — admin/manager/developer/telecaller only
+ * /api/telecaller-targets/leaderboard/{monthYear}:
+ *   get:
+ *     tags: [TelecallerTargets]
+ *     summary: Get telecaller leaderboard for a month
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: monthYear
+ *         required: true
+ *         schema:
+ *           type: string
+ *           example: 2026-01
+ *     responses:
+ *       200:
+ *         description: Leaderboard
+ *       401:
+ *         description: Unauthorized
+ * /api/telecaller-targets/{telecallerId}/history:
+ *   get:
+ *     tags: [TelecallerTargets]
+ *     summary: Get a telecaller's target history
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: telecallerId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Target history
+ *       401:
+ *         description: Unauthorized
+ * /api/telecaller-targets/{telecallerId}/{monthYear}:
+ *   get:
+ *     tags: [TelecallerTargets]
+ *     summary: Get a telecaller's target for a specific month (public)
+ *     parameters:
+ *       - in: path
+ *         name: telecallerId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *       - in: path
+ *         name: monthYear
+ *         required: true
+ *         schema:
+ *           type: string
+ *           example: 2026-01
+ *     responses:
+ *       200:
+ *         description: Target for the month
+ */
 router.post(
   "/",
   requireAuth,

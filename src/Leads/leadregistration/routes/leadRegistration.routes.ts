@@ -19,7 +19,22 @@ const inboundRateLimit = rateLimit({
   legacyHeaders: false,
 });
 
-// Public — HMAC-verified server-to-server only (no JWT)
+/**
+ * @openapi
+ * /api/lead-registration/inbound:
+ *   post:
+ *     tags: [LeadRegistration]
+ *     summary: Receive an inbound lead from a secondary server (HMAC-verified, no JWT)
+ *     description: Server-to-server endpoint. Requires a valid HMAC signature in the X-Signature header. Rate-limited.
+ *     security: []
+ *     responses:
+ *       200:
+ *         description: Lead received
+ *       401:
+ *         description: Invalid HMAC signature
+ *       429:
+ *         description: Too many requests
+ */
 router.post(
   "/inbound",
   inboundRateLimit,
