@@ -925,9 +925,10 @@ export const getAllCounsellorsAdminController = async (req: Request, res: Respon
     const [self] = await db
       .select({
         id: users.id,
-        fullName: users.fullName,
+        fullName: users.fullName, 
         email: users.email,
         managerId: users.managerId,
+        status:users.status
       })
       .from(users)
       .where(and(eq(users.id, authReq.user.id), eq(users.role, "counsellor")))

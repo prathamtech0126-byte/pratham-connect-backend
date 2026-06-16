@@ -36,6 +36,13 @@
       "when": 1781076377313,
       "tag": "0004_lowly_satana",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1783862051723,
+      "tag": "0005_loose_zeigeist",
+      "breakpoints": true
     }
   ]
 }

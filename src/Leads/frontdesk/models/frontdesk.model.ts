@@ -10,7 +10,8 @@ import { activityLog } from "../../../schemas/activityLog.schema";
 import { publishLeadChange } from "../../services/leadRealtime.service";
 import { notifyLeadAssignedCounsellor } from "../../../notification/integrations/leadNotifications";
 import { createActivityLog } from "../../../services/activityLog.service";
-import { serializeActivityLogTimestampAsIst } from "../../../utils/pgTimestamp";
+import { serializeActivityLogTimestampAsIst } from "../../../utils/istTime";
+import { normalizeDateOfBirthForDb } from "../../../utils/date";
 import {
   eq,
   and,
@@ -442,7 +443,9 @@ export async function updateLeadDetails(leadId: number, input: UpdateLeadDetails
     const profileData: Record<string, unknown> = { updatedAt: new Date() };
     const p = input.profile;
     if (p.gender !== undefined) profileData.gender = p.gender;
-    if (p.dateOfBirth !== undefined) profileData.dateOfBirth = p.dateOfBirth;
+    if (p.dateOfBirth !== undefined) {
+      profileData.dateOfBirth = normalizeDateOfBirthForDb(p.dateOfBirth);
+    }
     if (p.alternatePhone !== undefined) profileData.alternatePhone = p.alternatePhone;
     if (p.hasPassport !== undefined) profileData.hasPassport = p.hasPassport;
     if (p.languageExamGiven !== undefined) profileData.languageExamGiven = p.languageExamGiven;

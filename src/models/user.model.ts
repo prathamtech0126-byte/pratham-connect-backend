@@ -623,6 +623,8 @@ export const getAllCounsellors = async () => {
       fullName: users.fullName,
       email: users.email,
       managerId: users.managerId,
+      status: users.status,
+  
       // clientCount: count(clientInformation.clientId),
     })
     .from(users)

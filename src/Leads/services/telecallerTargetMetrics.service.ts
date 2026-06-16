@@ -1,6 +1,7 @@
 import { and, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { db } from "../../config/databaseConnection";
 import { leads } from "../schemas/leads.schema";
+import { indianPeriodBounds } from "../../utils/istTime";
 import { transferOutcomeInPeriodFilter } from "./leadTransferredAt.service";
 
 export type TelecallerAchievedCounts = {
@@ -35,6 +36,8 @@ export async function getTelecallerAchievedCountsForMonth(
     eq(leads.isJunk, false)
   );
 
+  const { from: naiveStart, to: naiveEnd } = indianPeriodBounds(range.start, range.end);
+
   const transferFilter = transferOutcomeInPeriodFilter(true, range.start, range.end, {
     endExclusive: true,
   });
@@ -42,7 +45,7 @@ export async function getTelecallerAchievedCountsForMonth(
   const [row] = await db
     .select({
       transferred: sql<number>`COUNT(*) FILTER (WHERE ${transferFilter})`,
-      converted: sql<number>`COUNT(*) FILTER (WHERE ${leads.convertedAt} IS NOT NULL AND ${leads.convertedAt} >= ${range.start} AND ${leads.convertedAt} < ${range.end} AND (${leads.progressStatus} = 'converted' OR ${leads.assignmentStatus} = 'converted'))`,
+      converted: sql<number>`COUNT(*) FILTER (WHERE ${leads.convertedAt} IS NOT NULL AND ${leads.convertedAt} >= ${naiveStart} AND ${leads.convertedAt} < ${naiveEnd} AND (${leads.progressStatus} = 'converted' OR ${leads.assignmentStatus} = 'converted'))`,
     })
     .from(leads)
     .where(base);
@@ -68,6 +71,8 @@ export async function getTelecallerAchievedCountsMapForMonth(
     return map;
   }
 
+  const { from: naiveStart, to: naiveEnd } = indianPeriodBounds(range.start, range.end);
+
   const transferFilter = transferOutcomeInPeriodFilter(true, range.start, range.end, {
     endExclusive: true,
   });
@@ -76,7 +81,7 @@ export async function getTelecallerAchievedCountsMapForMonth(
     .select({
       telecallerId: leads.currentTelecallerId,
       transferred: sql<number>`COUNT(*) FILTER (WHERE ${transferFilter})`,
-      converted: sql<number>`COUNT(*) FILTER (WHERE ${leads.convertedAt} IS NOT NULL AND ${leads.convertedAt} >= ${range.start} AND ${leads.convertedAt} < ${range.end} AND (${leads.progressStatus} = 'converted' OR ${leads.assignmentStatus} = 'converted'))`,
+      converted: sql<number>`COUNT(*) FILTER (WHERE ${leads.convertedAt} IS NOT NULL AND ${leads.convertedAt} >= ${naiveStart} AND ${leads.convertedAt} < ${naiveEnd} AND (${leads.progressStatus} = 'converted' OR ${leads.assignmentStatus} = 'converted'))`,
     })
     .from(leads)
     .where(and(inArray(leads.currentTelecallerId, telecallerIds), eq(leads.isJunk, false)))

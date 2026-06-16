@@ -16,6 +16,7 @@ import {
   getCounsellorIndividualReportController,
   getTelecallerDashboardStatsController,
   getTelecallerLeaderboardController,
+  getAdminLeadReportStatsController,
   importLeadsCsvController,
   markLeadFollowupController,
   markLeadJunkController,
@@ -121,6 +122,12 @@ router.get(
   getCounsellorIndividualReportController
 );
 router.get("/telecaller-dashboard-stats", requireAuth, getTelecallerDashboardStatsController);
+router.get(
+  "/admin-report-stats",
+  requireAuth,
+  requireRole("manager", "admin", "developer", "superadmin"),
+  getAdminLeadReportStatsController
+);
 
 router.get(
   "/import/template",

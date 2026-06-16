@@ -318,14 +318,21 @@ export const getCounsellorStudentAppCount = async (
   startDateStr: string,
   endDateStr: string
 ): Promise<number> => {
+  // Count clients whose FIRST application (by this counsellor) falls in the period.
+  // A second application for the same client in a later month should not re-count them.
   const { rows } = await (db as any).$client.query(`
-    SELECT COUNT(DISTINCT sa.client_id)::int AS cnt
-    FROM student_application sa
-    INNER JOIN client_information ci ON ci.id = sa.client_id
-    WHERE sa.counsellor_id = $1
-      AND ci.archived = false
-      AND ci.date >= $2::date
-      AND ci.date <= $3::date
+    SELECT COUNT(*)::int AS cnt
+    FROM (
+      SELECT sa.client_id, MIN(sa.application_date) AS first_app_date
+      FROM student_application sa
+      INNER JOIN client_information ci ON ci.id = sa.client_id
+      WHERE sa.counsellor_id = $1
+        AND ci.archived = false
+        AND sa.application_date IS NOT NULL
+      GROUP BY sa.client_id
+    ) first_apps
+    WHERE first_app_date >= $2::date
+      AND first_app_date <= $3::date
   `, [counsellorId, startDateStr, endDateStr]);
   return Number(rows[0]?.cnt ?? 0);
 };
@@ -341,22 +348,17 @@ export const getCounsellorFinalStudentCount = async (
   endDateStr: string
 ): Promise<number> => {
   const { rows } = await (db as any).$client.query(`
-    SELECT COUNT(DISTINCT sa.client_id)::int AS cnt
-    FROM student_application sa
-    INNER JOIN client_information ci ON ci.id = sa.client_id
-    WHERE sa.counsellor_id = $1
+    SELECT COUNT(DISTINCT cpp.client_id)::int AS cnt
+    FROM client_product_payment cpp
+    INNER JOIN tution_fees tf ON tf.id = cpp.entity_id
+    INNER JOIN client_information ci ON ci.id = cpp.client_id
+    WHERE cpp.entity_type = 'tutionFees_id'
+      AND tf.tution_fees_status = 'paid'
+      AND tf.date IS NOT NULL
+      AND tf.date >= $2::date
+      AND tf.date <= $3::date
       AND ci.archived = false
-      AND ci.date >= $2::date
-      AND ci.date <= $3::date
-      AND EXISTS (
-        SELECT 1
-        FROM client_product_payment cpp
-        INNER JOIN tution_fees tf ON tf.id = cpp.entity_id
-        WHERE cpp.client_id = sa.client_id
-          AND cpp.product_name = 'TUTION_FEES'
-          AND cpp.entity_type = 'tutionFees_id'
-          AND tf.tution_fees_status = 'paid'
-      )
+      AND COALESCE(cpp.handled_by, ci.counsellor_id) = $1
   `, [counsellorId, startDateStr, endDateStr]);
   return Number(rows[0]?.cnt ?? 0);
 };

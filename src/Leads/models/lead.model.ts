@@ -17,13 +17,22 @@ import {
 import { db } from "../../config/databaseConnection";
 import { saveClient } from "../../models/client.model";
 import {
-  getPgNaiveIndianNow,
+  getIndianNow,
+  indianPeriodBounds,
   serializeLeadActivityTimestampsForApi,
   serializeLeadTimestampsForApi,
-} from "../../utils/pgTimestamp";
+  utcToIndianWallClock,
+} from "../../utils/istTime";
+
+export { getIndianNow } from "../../utils/istTime";
 import { leads } from "../schemas/leads.schema";
-import { transferredAtInPeriodFilter } from "../services/leadTransferredAt.service";
-import { transferredAtInPeriodSql } from "../services/leadReportPeriodSql.service";
+import { transferOutcomeInPeriodFilter } from "../services/leadTransferredAt.service";
+import {
+  convertedInPeriodSql,
+  droppedInPeriodSql,
+  transferredAtInPeriodSql,
+  transferOutcomeInPeriodSql,
+} from "../services/leadReportPeriodSql.service";
 import { leadActivities } from "../schemas/leadActivities.schema";
 import { leadTypes } from "../schemas/leadType.schema";
 import { users } from "../../schemas/users.schema";
@@ -36,6 +45,7 @@ import { getFacebookLeadMetaByLeadId, getFacebookLeadSentStatus } from "../faceb
 import { facebookLead } from "../facebookautomation/facebook_schemas/facebookLead.schema";
 import { attachReferencesToLeadRows } from "../services/leadReference.service";
 import { assertEnglishNameField, assertLeadCityField } from "../../utils/leadTextNormalization";
+import { normalizeDateOfBirthForDb } from "../../utils/date";
 
 type LeadInsert = typeof leads.$inferInsert;
 type ActivityInsert = typeof leadActivities.$inferInsert;
@@ -117,9 +127,6 @@ export interface LeadListFilters {
   excludeUnassigned?: boolean;
 }
 
-/** Current IST wall clock for naive PG `timestamp` columns (see `utils/pgTimestamp.ts`). */
-export const getIndianNow = getPgNaiveIndianNow;
-
 /** Slugs that may appear on either leads.lead_source or leads.lead_type (inbound channels). */
 const CHANNEL_LEAD_SLUGS = new Set([
   "udaan",
@@ -195,7 +202,7 @@ const buildWhereClause = (filters: LeadListFilters) => {
     const tf = filters.transferredFrom ?? filters.createdFrom;
     const tt = filters.transferredTo ?? filters.createdTo;
     conditions.push(
-      sql`${transferredAtInPeriodSql(
+      sql`${transferOutcomeInPeriodSql(
         tf ? new Date(tf) : undefined,
         tt ? new Date(tt) : undefined
       )}`
@@ -306,11 +313,11 @@ const buildWhereClause = (filters: LeadListFilters) => {
   }
 
   if (filters.nextFollowupFrom) {
-    conditions.push(gte(leads.nextFollowupAt, new Date(filters.nextFollowupFrom)));
+    conditions.push(gte(leads.nextFollowupAt, utcToIndianWallClock(new Date(filters.nextFollowupFrom))));
   }
 
   if (filters.nextFollowupTo) {
-    conditions.push(lte(leads.nextFollowupAt, new Date(filters.nextFollowupTo)));
+    conditions.push(lte(leads.nextFollowupAt, utcToIndianWallClock(new Date(filters.nextFollowupTo))));
   }
 
   if (filters.leadSource?.trim()) {
@@ -332,21 +339,24 @@ const buildWhereClause = (filters: LeadListFilters) => {
   if (useConvertedPeriod) {
     const cf = filters.convertedFrom ?? filters.createdFrom;
     const ct = filters.convertedTo ?? filters.createdTo;
-    if (cf) conditions.push(gte(leads.convertedAt, new Date(cf)));
-    if (ct) conditions.push(lte(leads.convertedAt, new Date(ct)));
+    if (cf) conditions.push(gte(leads.convertedAt, utcToIndianWallClock(new Date(cf))));
+    if (ct) conditions.push(lte(leads.convertedAt, utcToIndianWallClock(new Date(ct))));
     conditions.push(isNotNull(leads.convertedAt));
   } else if (useDroppedPeriod) {
     const df = filters.droppedFrom ?? filters.createdFrom;
     const dt = filters.droppedTo ?? filters.createdTo;
-    if (df) conditions.push(gte(leads.droppedAt, new Date(df)));
-    if (dt) conditions.push(lte(leads.droppedAt, new Date(dt)));
+    if (df) conditions.push(gte(leads.droppedAt, utcToIndianWallClock(new Date(df))));
+    if (dt) conditions.push(lte(leads.droppedAt, utcToIndianWallClock(new Date(dt))));
     conditions.push(isNotNull(leads.droppedAt));
   } else if (filters.reportBucket !== "transferred") {
+    // filters.createdFrom/To are already naive IST strings (e.g. "2026-06-08 00:00:00").
+    // Passing them through new Date() on a UTC server shifts by +5:30 before utcToIndianWallClock
+    // re-extracts IST parts, so we pass them directly as typed SQL literals.
     if (filters.createdFrom) {
-      conditions.push(gte(leads.createdAt, new Date(filters.createdFrom)));
+      conditions.push(sql`${leads.createdAt} >= ${filters.createdFrom}::timestamp`);
     }
     if (filters.createdTo) {
-      conditions.push(lte(leads.createdAt, new Date(filters.createdTo)));
+      conditions.push(sql`${leads.createdAt} <= ${filters.createdTo}::timestamp`);
     }
   }
 
@@ -367,8 +377,8 @@ const buildWhereClause = (filters: LeadListFilters) => {
     filters.reportBucket !== "transferred" &&
     !useDroppedPeriod
   ) {
-    if (filters.droppedFrom) conditions.push(gte(leads.droppedAt, new Date(filters.droppedFrom)));
-    if (filters.droppedTo) conditions.push(lte(leads.droppedAt, new Date(filters.droppedTo)));
+    if (filters.droppedFrom) conditions.push(gte(leads.droppedAt, utcToIndianWallClock(new Date(filters.droppedFrom))));
+    if (filters.droppedTo) conditions.push(lte(leads.droppedAt, utcToIndianWallClock(new Date(filters.droppedTo))));
     conditions.push(isNotNull(leads.droppedAt));
     conditions.push(eq(leads.assignmentStatus, "dropped"));
   }
@@ -585,6 +595,7 @@ export type TelecallerLeadSummaryRow = {
   notContacted: number;
   transferred: number;
   converted: number;
+  dropped: number;
   followUp: number;
   junk: number;
 };
@@ -597,36 +608,51 @@ export const getTelecallerLeadSummaryRows = async (
     SELECT
       current_telecaller_id::int AS "telecallerId",
 
-      COUNT(*) FILTER (WHERE true ${createdFrom ? sql`AND created_at >= ${createdFrom}` : sql``} ${createdTo ? sql`AND created_at <= ${createdTo}` : sql``})::int AS "total",
+      -- All counts use created_at for the period filter (current status of leads created in period)
+      -- total = ALL leads including junk (raw assignment count)
+      COUNT(*) FILTER (
+        WHERE true
+        ${createdFrom ? sql`AND created_at >= ${createdFrom}` : sql``}
+        ${createdTo ? sql`AND created_at <= ${createdTo}` : sql``}
+      )::int AS "total",
 
       COUNT(*) FILTER (
-        WHERE NOT is_junk
-        AND progress_status IN ('contacted', 'follow_up', 'converted')
+        WHERE NOT is_junk AND progress_status = 'contacted' AND assignment_status = 'assigned'
         ${createdFrom ? sql`AND created_at >= ${createdFrom}` : sql``}
         ${createdTo ? sql`AND created_at <= ${createdTo}` : sql``}
       )::int AS "contacted",
 
       COUNT(*) FILTER (
-        WHERE NOT is_junk
-        AND progress_status = 'not_contacted'
+        WHERE NOT is_junk AND progress_status = 'not_contacted' AND assignment_status = 'assigned'
         ${createdFrom ? sql`AND created_at >= ${createdFrom}` : sql``}
         ${createdTo ? sql`AND created_at <= ${createdTo}` : sql``}
       )::int AS "notContacted",
 
-      COUNT(*) FILTER (WHERE ${transferredAtInPeriodSql(createdFrom, createdTo)})::int AS "transferred",
-
+      -- Transferred = all 3 outcomes (transferred/converted/dropped); dropped requires counsellor assigned too
       COUNT(*) FILTER (
         WHERE NOT is_junk
-        AND converted_at IS NOT NULL
-        AND assignment_status = 'converted'
-        ${createdFrom ? sql`AND converted_at >= ${createdFrom}` : sql``}
-        ${createdTo ? sql`AND converted_at <= ${createdTo}` : sql``}
+        AND (
+          assignment_status IN ('transferred', 'converted')
+          OR (assignment_status = 'dropped' AND current_counsellor_id IS NOT NULL)
+        )
+        ${createdFrom ? sql`AND created_at >= ${createdFrom}` : sql``}
+        ${createdTo ? sql`AND created_at <= ${createdTo}` : sql``}
+      )::int AS "transferred",
+
+      COUNT(*) FILTER (
+        WHERE NOT is_junk AND assignment_status = 'converted'
+        ${createdFrom ? sql`AND created_at >= ${createdFrom}` : sql``}
+        ${createdTo ? sql`AND created_at <= ${createdTo}` : sql``}
       )::int AS "converted",
 
       COUNT(*) FILTER (
-        WHERE NOT is_junk
-        AND progress_status = 'follow_up'
-        AND assignment_status NOT IN ('transferred', 'dropped', 'converted')
+        WHERE NOT is_junk AND assignment_status = 'dropped' AND current_counsellor_id IS NOT NULL
+        ${createdFrom ? sql`AND created_at >= ${createdFrom}` : sql``}
+        ${createdTo ? sql`AND created_at <= ${createdTo}` : sql``}
+      )::int AS "dropped",
+
+      COUNT(*) FILTER (
+        WHERE NOT is_junk AND progress_status = 'follow_up' AND assignment_status = 'assigned'
         ${createdFrom ? sql`AND created_at >= ${createdFrom}` : sql``}
         ${createdTo ? sql`AND created_at <= ${createdTo}` : sql``}
       )::int AS "followUp",
@@ -656,6 +682,7 @@ export const getTelecallerLeadSummaryRows = async (
     notContacted: num(r, "notContacted", "notcontacted"),
     transferred: num(r, "transferred", "transferred"),
     converted: num(r, "converted", "converted"),
+    dropped: num(r, "dropped", "dropped"),
     followUp: num(r, "followUp", "followup"),
     junk: num(r, "junk", "junk"),
   }));
@@ -664,7 +691,7 @@ export const getTelecallerLeadSummaryRows = async (
 export const updateLeadById = async (id: number, patch: Partial<LeadInsert>) => {
   const [updated] = await db
     .update(leads)
-    .set({ ...patch, updatedAt: getPgNaiveIndianNow() })
+    .set({ ...patch, updatedAt: getIndianNow() })
     .where(eq(leads.id, id))
     .returning();
 
@@ -676,7 +703,15 @@ export const updateLeadById = async (id: number, patch: Partial<LeadInsert>) => 
 };
 
 export const createLeadActivity = async (payload: ActivityInsert) => {
-  const [created] = await db.insert(leadActivities).values(payload).returning();
+  const now = getIndianNow();
+  const [created] = await db
+    .insert(leadActivities)
+    .values({
+      ...payload,
+      createdAt: payload.createdAt ?? now,
+      updatedAt: payload.updatedAt ?? now,
+    })
+    .returning();
   return created;
 };
 
@@ -794,8 +829,9 @@ export const getTelecallerDashboardStats = async (
     eq(leads.currentTelecallerId, telecallerId),
     eq(leads.isJunk, false)
   );
-  const hasPeriod = Boolean(createdFrom && createdTo);
-  const transferFilter = transferredAtInPeriodFilter(hasPeriod, createdFrom, createdTo);
+  const { from: naiveFrom, to: naiveTo } = indianPeriodBounds(createdFrom, createdTo);
+  const hasPeriod = Boolean(naiveFrom && naiveTo);
+  const transferFilter = transferOutcomeInPeriodFilter(hasPeriod, createdFrom, createdTo);
 
   const [counts] = await db
     .select({
@@ -810,31 +846,40 @@ export const getTelecallerDashboardStats = async (
         : sql<number>`COUNT(*) FILTER (WHERE ${leads.progressStatus} IN ('contacted', 'follow_up'))`,
       transferred: sql<number>`COUNT(*) FILTER (WHERE ${transferFilter})`,
       converted: hasPeriod
-        ? sql<number>`COUNT(*) FILTER (WHERE ${leads.convertedAt} IS NOT NULL AND ${leads.convertedAt} >= ${createdFrom} AND ${leads.convertedAt} <= ${createdTo} AND ${leads.assignmentStatus} = 'converted')`
+        ? sql<number>`COUNT(*) FILTER (WHERE ${leads.convertedAt} IS NOT NULL AND ${leads.convertedAt} >= ${naiveFrom} AND ${leads.convertedAt} <= ${naiveTo} AND ${leads.assignmentStatus} = 'converted')`
         : sql<number>`COUNT(*) FILTER (WHERE ${leads.assignmentStatus} = 'converted')`,
     })
     .from(leads)
     .where(baseWhere);
 
   const todayYmd = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
-  const followTodayStart = new Date(`${todayYmd}T00:00:00.000+05:30`);
-  const followTodayEnd = new Date(`${todayYmd}T23:59:59.999+05:30`);
+  const followTodayBounds = indianPeriodBounds(
+    new Date(`${todayYmd}T00:00:00.000+05:30`),
+    new Date(`${todayYmd}T23:59:59.999+05:30`),
+  );
 
-  const [followToday] = await db
-    .select({ cnt: count() })
-    .from(leads)
-    .where(
-      and(
-        eq(leads.currentTelecallerId, telecallerId),
-        eq(leads.isJunk, false),
-        isNotNull(leads.nextFollowupAt),
-        gte(leads.nextFollowupAt, followTodayStart),
-        lte(leads.nextFollowupAt, followTodayEnd)
-      )
-    );
+  const [followToday] =
+    followTodayBounds.from && followTodayBounds.to
+      ? await db
+          .select({ cnt: count() })
+          .from(leads)
+          .where(
+            and(
+              eq(leads.currentTelecallerId, telecallerId),
+              eq(leads.isJunk, false),
+              isNotNull(leads.nextFollowupAt),
+              gte(leads.nextFollowupAt, followTodayBounds.from),
+              lte(leads.nextFollowupAt, followTodayBounds.to)
+            )
+          )
+      : [{ cnt: 0 }];
 
   let followInPeriod = 0;
   if (followupFrom && followupTo) {
+    const { from: naiveFollowFrom, to: naiveFollowTo } = indianPeriodBounds(
+      followupFrom,
+      followupTo,
+    );
     const [fp] = await db
       .select({ cnt: count() })
       .from(leads)
@@ -843,8 +888,8 @@ export const getTelecallerDashboardStats = async (
           eq(leads.currentTelecallerId, telecallerId),
           eq(leads.isJunk, false),
           isNotNull(leads.nextFollowupAt),
-          gte(leads.nextFollowupAt, followupFrom),
-          lte(leads.nextFollowupAt, followupTo)
+          naiveFollowFrom ? gte(leads.nextFollowupAt, naiveFollowFrom) : undefined,
+          naiveFollowTo ? lte(leads.nextFollowupAt, naiveFollowTo) : undefined,
         )
       );
     followInPeriod = Number(fp?.cnt ?? 0);
@@ -870,7 +915,7 @@ export const getTelecallerDashboardStats = async (
         : count(),
       transferred: sql<number>`COUNT(*) FILTER (WHERE ${transferFilter})`,
       converted: hasPeriod
-        ? sql<number>`COUNT(*) FILTER (WHERE ${leads.convertedAt} IS NOT NULL AND ${leads.convertedAt} >= ${createdFrom} AND ${leads.convertedAt} <= ${createdTo} AND ${leads.assignmentStatus} = 'converted')`
+        ? sql<number>`COUNT(*) FILTER (WHERE ${leads.convertedAt} IS NOT NULL AND ${leads.convertedAt} >= ${naiveFrom} AND ${leads.convertedAt} <= ${naiveTo} AND ${leads.assignmentStatus} = 'converted')`
         : sql<number>`COUNT(*) FILTER (WHERE ${leads.assignmentStatus} = 'converted')`,
     })
     .from(leads)
@@ -962,7 +1007,7 @@ export const updateLeadActivityMessage = async (activityId: number, message: str
     .update(leadActivities)
     .set({
       message: trimmed,
-      updatedAt: getPgNaiveIndianNow(),
+      updatedAt: getIndianNow(),
     })
     .where(eq(leadActivities.id, activityId))
     .returning();
@@ -978,7 +1023,7 @@ export const updateActivityStatus = async (
 ) => {
   const patch: { status: typeof status; updatedAt: Date; message?: string } = {
     status,
-    updatedAt: getPgNaiveIndianNow(),
+    updatedAt: getIndianNow(),
   };
   if (message != null && String(message).trim()) {
     patch.message = String(message).trim();
@@ -1093,7 +1138,7 @@ export const convertLeadToClient = async (leadId: number, counsellorId: number) 
   const normalizedName = assertEnglishNameField(lead.fullName, "Full name", { required: true });
   assertLeadCityField(lead.city, { required: true });
 
-  const now = getPgNaiveIndianNow();
+  const now = getIndianNow();
   const y = now.getUTCFullYear();
   const m = String(now.getUTCMonth() + 1).padStart(2, "0");
   const d = String(now.getUTCDate()).padStart(2, "0");
@@ -1156,7 +1201,7 @@ export const dropLeadByCounsellor = async (
     throw new Error("Converted leads cannot be dropped");
   }
 
-  const now = getPgNaiveIndianNow();
+  const now = getIndianNow();
   const [updated] = await db
     .update(leads)
     .set({
@@ -1203,7 +1248,7 @@ export const revertJunkLead = async (
       : eq(leadActivities.leadId, leadId)
   );
 
-  const now = getPgNaiveIndianNow();
+  const now = getIndianNow();
   await db
     .update(leads)
     .set({
@@ -1289,7 +1334,9 @@ export async function updateLeadStructuredDetails(leadId: number, input: LeadStr
     const profileData: Record<string, unknown> = { updatedAt: new Date() };
     const p = input.profile;
     if (p.gender !== undefined) profileData.gender = p.gender;
-    if (p.dateOfBirth !== undefined) profileData.dateOfBirth = p.dateOfBirth;
+    if (p.dateOfBirth !== undefined) {
+      profileData.dateOfBirth = normalizeDateOfBirthForDb(p.dateOfBirth);
+    }
     if (p.alternatePhone !== undefined) profileData.alternatePhone = p.alternatePhone;
     if (p.hasPassport !== undefined) profileData.hasPassport = p.hasPassport;
     if (p.passportNumber !== undefined) profileData.passportNumber = p.passportNumber;

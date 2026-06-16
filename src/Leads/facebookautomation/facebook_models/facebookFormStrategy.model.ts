@@ -1,6 +1,6 @@
 import { and, count, desc, eq, gte, inArray, max, or, sql } from "drizzle-orm";
 import { db } from "../../../config/databaseConnection";
-import { getPgNaiveIndianNow } from "../../../utils/pgTimestamp";
+import { getIndianNow } from "../../../utils/istTime";
 import { facebookFormStrategy } from "../facebook_schemas/facebookFormStrategy.schema";
 import { leads } from "../../schemas/leads.schema";
 import { facebookLead } from "../facebook_schemas/facebookLead.schema";
@@ -626,7 +626,7 @@ const pickWeightedRandom = (pool: number[], weights: Record<string, number>): nu
 
 const pickLeastLoaded = async (pool: number[]): Promise<number | null> => {
   if (pool.length === 0) return null;
-  const istNow = getPgNaiveIndianNow();
+  const istNow = getIndianNow();
   const todayStart = new Date(
     Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 0, 0, 0)
   );

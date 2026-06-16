@@ -16,7 +16,7 @@ import {
   upsertTuitionDepositForApplication,
   getTuitionDepositForApplication,
 } from "../models/studentApplication.model";
-import { redisDel } from "../config/redis";
+import { redisDel, redisDelByPrefix } from "../config/redis";
 import { logActivity } from "../services/activityLog.service";
 
 const canUserTouchClient = async (
@@ -67,6 +67,15 @@ const canUserTouchClient = async (
 const invalidateClientCache = async (clientId: number) => {
   try {
     await redisDel(`clients:complete:${clientId}`);
+  } catch {}
+};
+
+const invalidateDashboardCache = async () => {
+  try {
+    await Promise.all([
+      redisDelByPrefix("dashboard:"),
+      redisDelByPrefix("reports:"),
+    ]);
   } catch {}
 };
 
@@ -129,6 +138,7 @@ export const createStudentApplicationController = async (req: Request, res: Resp
     });
 
     await invalidateClientCache(clientId);
+    await invalidateDashboardCache();
 
     try {
       await logActivity(req, {
@@ -204,6 +214,7 @@ export const deleteStudentApplicationController = async (req: Request, res: Resp
 
     await deleteStudentApplication(applicationId);
     await invalidateClientCache(existing.clientId);
+    await invalidateDashboardCache();
 
     return res.status(200).json({ success: true, message: "Application deleted successfully." });
   } catch (error: any) {
@@ -279,6 +290,7 @@ export const upsertTuitionDepositController = async (req: Request, res: Response
     });
 
     await invalidateClientCache(existing.clientId);
+    await invalidateDashboardCache();
 
     try {
       const isUpdate = !!priorDeposit?.tuitionDepositProductPaymentId;

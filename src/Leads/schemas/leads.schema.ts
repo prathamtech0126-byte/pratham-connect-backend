@@ -10,6 +10,7 @@ import {
   timestamp,
   varchar,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { users } from "../../schemas/users.schema";
 import { leadReferences } from "./leadReferences.schema";
 
@@ -48,8 +49,8 @@ export const leads = pgTable(
     id: bigserial("id", { mode: "number" }).primaryKey(),
     externalLeadId: varchar("external_lead_id", { length: 100 }).unique(),
 
-    createdAt: timestamp("created_at").defaultNow().notNull(),
-    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    createdAt: timestamp("created_at").default(sql`(now() at time zone 'Asia/Kolkata')`).notNull(),
+    updatedAt: timestamp("updated_at").default(sql`(now() at time zone 'Asia/Kolkata')`).notNull(),
 
     fullName: varchar("full_name", { length: 150 }).notNull(),
     phone: varchar("phone", { length: 30 }).notNull(),

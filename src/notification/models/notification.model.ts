@@ -1,6 +1,7 @@
 import { db } from "../../config/databaseConnection";
 import { notifications } from "../schemas/notifications.schema";
 import { leads } from "../../Leads/schemas/leads.schema";
+import { leadActivities } from "../../Leads/schemas/leadActivities.schema";
 import { users } from "../../schemas/users.schema";
 import {
   and,
@@ -16,7 +17,7 @@ import {
   sql,
 } from "drizzle-orm";
 import type { NotificationRow } from "../types/notification.types";
-import { pgNaiveIst } from "../../utils/pgTimestamp";
+import { utcToIndianWallClock } from "../../utils/istTime";
 
 /** Minutes after scheduled follow-up before the first “missed” alert (default 5). */
 export const FOLLOWUP_MISSED_MINUTES = parseInt(
@@ -44,13 +45,13 @@ export function followupOverdueDedupeKey(
 /** Naive IST wall clock: follow-ups scheduled at or before this time are past the “missed” window. */
 export function getFollowupMissedEarlyCutoff(): Date {
   const minutes = Math.max(0, FOLLOWUP_MISSED_MINUTES);
-  return pgNaiveIst(new Date(Date.now() - minutes * 60 * 1000));
+  return utcToIndianWallClock(new Date(Date.now() - minutes * 60 * 1000));
 }
 
 /** Naive IST wall clock: follow-ups at or before this time qualify for the 3h repeat alert. */
 export function getFollowupOverdueRepeatCutoff(): Date {
   const hours = Math.max(0, FOLLOWUP_OVERDUE_REPEAT_HOURS);
-  return pgNaiveIst(new Date(Date.now() - hours * 60 * 60 * 1000));
+  return utcToIndianWallClock(new Date(Date.now() - hours * 60 * 60 * 1000));
 }
 
 /** @deprecated Use getFollowupOverdueRepeatCutoff */
@@ -135,6 +136,7 @@ export const getDueUndeliveredNotifications = async (
     .where(
       and(
         isNull(notifications.deliveredAt),
+        isNull(notifications.dismissedAt),
         lte(notifications.deliverAt, new Date())
       )
     )
@@ -349,28 +351,61 @@ export const cancelNotificationsByDedupePrefix = async (
 };
 
 export const cancelLeadFollowupReminders = async (leadId: number): Promise<void> => {
+  const dedupePrefix = "lead_followup:" + leadId + ":";
+
+  // Dismiss scheduled-but-not-yet-delivered reminder notifications.
   await db
     .update(notifications)
     .set({ dismissedAt: new Date(), updatedAt: new Date() })
     .where(
       and(
         eq(notifications.type, "lead_followup_reminder"),
-        sql`${notifications.dedupeKey} LIKE ${"lead_followup:" + leadId + ":%"}`,
+        sql`${notifications.dedupeKey} LIKE ${dedupePrefix + "%"}`,
         isNull(notifications.deliveredAt)
+      )
+    );
+
+  // Mark already-delivered reminder notifications as read.
+  await db
+    .update(notifications)
+    .set({ readAt: new Date(), updatedAt: new Date() })
+    .where(
+      and(
+        eq(notifications.type, "lead_followup_reminder"),
+        sql`${notifications.dedupeKey} LIKE ${dedupePrefix + "%"}`,
+        isNotNull(notifications.deliveredAt),
+        isNull(notifications.readAt)
       )
     );
 };
 
 /** Cancel pending missed/overdue alerts when follow-up is rescheduled or completed. */
 export const cancelLeadFollowupOverdue = async (leadId: number): Promise<void> => {
+  const dedupePrefix = "lead_overdue:" + leadId + ":";
+
+  // Dismiss scheduled-but-not-yet-delivered overdue alerts.
   await db
     .update(notifications)
     .set({ dismissedAt: new Date(), updatedAt: new Date() })
     .where(
       and(
         eq(notifications.type, "lead_followup_overdue"),
-        sql`${notifications.dedupeKey} LIKE ${"lead_overdue:" + leadId + ":%"}`,
+        sql`${notifications.dedupeKey} LIKE ${dedupePrefix + "%"}`,
         isNull(notifications.deliveredAt)
+      )
+    );
+
+  // Mark already-delivered overdue alerts as read so they no longer show as unread
+  // in the inbox after the follow-up is completed or a new one is scheduled.
+  await db
+    .update(notifications)
+    .set({ readAt: new Date(), updatedAt: new Date() })
+    .where(
+      and(
+        eq(notifications.type, "lead_followup_overdue"),
+        sql`${notifications.dedupeKey} LIKE ${dedupePrefix + "%"}`,
+        isNotNull(notifications.deliveredAt),
+        isNull(notifications.readAt)
       )
     );
 };
@@ -421,23 +456,41 @@ export const deleteOldReadNotifications = async (
   retentionDays: number
 ): Promise<number> => deleteNotificationsOlderThan(retentionDays);
 
-/** Leads still in follow-up whose scheduled time is at or before `cutoff`. */
+/**
+ * Leads that have at least one PENDING follow-up activity whose scheduled
+ * time is at or before `cutoff`. Uses the actual activity record rather than
+ * the denormalised `leads.next_followup_at` so completed follow-ups can never
+ * trigger a spurious overdue alert.
+ *
+ * Returns the earliest pending overdue `followupAt` per lead so the notification
+ * body always shows the correct (current) follow-up time.
+ */
 export const findMissedFollowUpLeads = async (cutoff: Date, limit = 100) => {
   const rows = await db
     .select({
       id: leads.id,
       fullName: leads.fullName,
-      nextFollowupAt: leads.nextFollowupAt,
+      nextFollowupAt: sql<Date>`MIN(${leadActivities.followupAt})`,
       currentCounsellorId: leads.currentCounsellorId,
       currentTelecallerId: leads.currentTelecallerId,
     })
     .from(leads)
-    .where(
+    .innerJoin(
+      leadActivities,
       and(
-        eq(leads.progressStatus, "follow_up"),
-        isNotNull(leads.nextFollowupAt),
-        lte(leads.nextFollowupAt, cutoff)
+        eq(leadActivities.leadId, leads.id),
+        eq(leadActivities.activityType, "followup"),
+        eq(leadActivities.status, "pending"),
+        isNotNull(leadActivities.followupAt),
+        lte(leadActivities.followupAt, cutoff)
       )
+    )
+    .where(eq(leads.progressStatus, "follow_up"))
+    .groupBy(
+      leads.id,
+      leads.fullName,
+      leads.currentCounsellorId,
+      leads.currentTelecallerId
     )
     .limit(limit);
 

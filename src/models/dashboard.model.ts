@@ -147,11 +147,12 @@ export interface AdminManagerDashboardStats {
     count: number;
     amount: string;
   }>;
-  /** Student enrollment stats: total enrolled, with/without tuition deposit (TD). */
+  /** Student stats (TD-date anchored): total = TD in period + application on file; withTD = TD only; appCount = apps submitted in period. */
   studentStats: {
     total: number;
     withTD: number;
     withoutTD: number;
+    appCount: number;
   };
   leaderboard: Array<{
     counsellorId: number;
@@ -212,11 +213,12 @@ export interface CounsellorDashboardStats {
     count: number;
     amount: string;
   }>;
-  /** Student enrollment stats: total enrolled, with/without tuition deposit (TD). */
+  /** Student stats (TD-date anchored): total = TD in period + application on file; withTD = TD only; appCount = apps submitted in period. */
   studentStats: {
     total: number;
     withTD: number;
     withoutTD: number;
+    appCount: number;
   };
   // newEnrollment: {
   //   count: number;
@@ -403,13 +405,12 @@ export const getSaleTypeCategoryCounts = async (
 export const getSaleTypeCategoryCountsForReport = async (
   dateRange: DateRange,
   roleFilter?: RoleBasedFilter
-): Promise<Array<{ categoryId: number | null; categoryName: string; count: number; amount: string }>> => {
+): Promise<Array<{ categoryId: number | null; categoryName: string; count: number; amount: string; appCount?: number }>> => {
   // Step 1: get non-student category counts (Visitor + Spouse) via the existing function
   const nonStudentCounts = await getSaleTypeCategoryCounts(dateRange, roleFilter);
 
-  // Step 2: count students with paid TD enrolled in period
+  // Step 2: count students with paid TD + applications in period
   const studentStats = await getStudentStats(dateRange, roleFilter);
-  if (studentStats.withTD === 0) return nonStudentCounts;
 
   // Step 3: look up the Student category row
   const [studentCat] = await db
@@ -465,6 +466,7 @@ export const getSaleTypeCategoryCountsForReport = async (
       categoryName: studentCat.name,
       count: studentStats.withTD,
       amount: studentAmount.toFixed(2),
+      appCount: studentStats.appCount,
     },
   ];
 };
@@ -722,57 +724,99 @@ export const getCoreServiceCount = async (
 
 
 /* ==============================
-   STUDENT STATS
-   Total = distinct clients with student_application.application_date in period.
-   withTD = that pool + paid tuition deposit (TUTION_FEES, status paid).
+   STUDENT STATS (TD-date anchored, like core sale)
+   withTD = distinct clients with paid TD where tf.date is in period.
+   total = clients with paid TD in period who have a student application on file
+           (application_date may be months earlier — period is TD date only).
+   appCount = distinct clients with student_application.application_date in period.
+   withoutTD = appCount minus clients who also have TD paid in period.
    Excludes All Finance, core payments, enrollment date, created_at.
 ============================== */
 const getStudentStats = async (
   dateRange: DateRange,
   filter?: RoleBasedFilter
-): Promise<{ total: number; withTD: number; withoutTD: number }> => {
+): Promise<{ total: number; withTD: number; withoutTD: number; appCount: number }> => {
   const startDateStr = toLocalDateString(dateRange.start);
   const endDateStr = toLocalDateString(dateRange.end);
 
   const params: (string | number)[] = [startDateStr, endDateStr];
-  let appCounsellorClause = "";
+  let counsellorClause = "";
+  let tdCounsellorClause = "";
   if (filter?.userRole === "counsellor" && filter.counsellorId) {
     params.push(filter.counsellorId);
-    appCounsellorClause = `AND sa.counsellor_id = $${params.length}`;
+    const paramIdx = params.length;
+    counsellorClause = `AND sa.counsellor_id = $${paramIdx}`;
+    tdCounsellorClause = `AND COALESCE(cpp.handled_by, ci.counsellor_id) = $${paramIdx}`;
   }
 
   const query = `
-    WITH student_clients AS (
+    WITH td_count_cte AS (
+      SELECT COUNT(*) AS cnt
+      FROM tution_fees tf
+      INNER JOIN client_product_payment cpp ON cpp.entity_id = tf.id AND cpp.entity_type = 'tutionFees_id'
+      INNER JOIN client_information ci ON ci.id = cpp.client_id
+      WHERE tf.tution_fees_status = 'paid'
+        AND tf.date IS NOT NULL
+        AND tf.date >= $1::date
+        AND tf.date <= $2::date
+        AND ci.archived = false
+        ${tdCounsellorClause}
+    ),
+    -- student_core: client has a student_application AND has a paid TD in client_product_payment in the period
+    student_core AS (
       SELECT DISTINCT sa.client_id
       FROM student_application sa
       INNER JOIN client_information ci ON ci.id = sa.client_id
       WHERE ci.archived = false
-        AND sa.application_date IS NOT NULL
-        AND sa.application_date >= $1::date
-        AND sa.application_date <= $2::date
-        ${appCounsellorClause}
+        ${counsellorClause}
+        AND EXISTS (
+          SELECT 1
+          FROM client_product_payment cpp
+          INNER JOIN tution_fees tf ON tf.id = cpp.entity_id
+          WHERE cpp.client_id = sa.client_id
+            AND cpp.entity_type = 'tutionFees_id'
+            AND tf.tution_fees_status = 'paid'
+            AND tf.date IS NOT NULL
+            AND tf.date >= $1::date
+            AND tf.date <= $2::date
+        )
     ),
-    students_with_td AS (
-      SELECT DISTINCT sc.client_id
-      FROM student_clients sc
-      WHERE EXISTS (
-        SELECT 1 FROM client_product_payment cpp
-        INNER JOIN tution_fees tf ON tf.id = cpp.entity_id
-        WHERE cpp.client_id = sc.client_id
-          AND cpp.product_name = 'TUTION_FEES'
-          AND cpp.entity_type = 'tutionFees_id'
-          AND tf.tution_fees_status = 'paid'
-      )
+    app_students AS (
+      SELECT client_id
+      FROM (
+        SELECT sa.client_id, MIN(sa.application_date) AS first_app_date
+        FROM student_application sa
+        INNER JOIN client_information ci ON ci.id = sa.client_id
+        WHERE ci.archived = false
+          AND sa.application_date IS NOT NULL
+          ${counsellorClause}
+        GROUP BY sa.client_id
+      ) first_apps
+      WHERE first_app_date >= $1::date
+        AND first_app_date <= $2::date
     )
     SELECT
-      (SELECT COUNT(*) FROM student_clients)::int AS total,
-      (SELECT COUNT(*) FROM students_with_td)::int AS with_td
+      (SELECT cnt FROM td_count_cte)::int AS td_count,
+      (SELECT COUNT(*) FROM student_core)::int AS total_count,
+      (SELECT COUNT(*) FROM app_students)::int AS app_count,
+      (SELECT COUNT(*)
+       FROM app_students a
+       WHERE NOT EXISTS (
+         SELECT 1 FROM student_core sc WHERE sc.client_id = a.client_id
+       ))::int AS app_without_td_count
   `;
 
-  const { rows } = await pool.query<{ total: number; with_td: number }>(query, params);
-  const total = Number(rows[0]?.total ?? 0);
-  const withTD = Number(rows[0]?.with_td ?? 0);
-  return { total, withTD, withoutTD: total - withTD };
+  const { rows } = await pool.query<{
+    td_count: number;
+    total_count: number;
+    app_count: number;
+    app_without_td_count: number;
+  }>(query, params);
+  const withTD = Number(rows[0]?.td_count ?? 0);
+  const total = Number(rows[0]?.total_count ?? 0);
+  const appCount = Number(rows[0]?.app_count ?? 0);
+  const withoutTD = Number(rows[0]?.app_without_td_count ?? 0);
+  return { total, withTD, withoutTD, appCount };
 };
 
 /* ==============================
