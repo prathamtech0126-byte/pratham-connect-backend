@@ -43,6 +43,13 @@
       "when": 1783862051723,
       "tag": "0005_loose_zeigeist",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1781681264860,
+      "tag": "0006_exotic_sharon_ventura",
+      "breakpoints": true
     }
   ]
 }

@@ -15,6 +15,7 @@ import {
   hasCounsellorPostTransferActivity,
   isLeadLocked,
   isLeadJunkLocked,
+  isLeadConvertedLocked,
   revertJunkLead,
   updateActivityStatus,
   updateLeadActivityMessage,
@@ -617,7 +618,9 @@ export const updateLeadController = async (req: Request, res: Response) => {
         success: false,
         message: isLeadJunkLocked(previous)
           ? "Junk leads are read-only and cannot be modified"
-          : "Converted leads cannot be modified by telecallers",
+          : isLeadConvertedLocked(previous)
+            ? "Converted leads are read-only and cannot be modified"
+            : "This lead cannot be modified",
       });
     }
 

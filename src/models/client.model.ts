@@ -17,6 +17,7 @@ import {
   batchGetStudentApplicationDates,
 } from "./studentApplication.model";
 import { parseFrontendDate } from "../utils/date";
+import { syncLeadPassportFromClient } from "../Leads/models/leadPassportSync.model";
 
 /* ==============================
    TYPES
@@ -155,12 +156,26 @@ export const saveClient = async (
   ========================== */
   const trimmedFullName = fullName.trim();
 
+  // If this lead was already converted, update the existing client instead of inserting again.
+  let effectiveClientId =
+    clientId && Number.isFinite(clientId) && clientId > 0 ? clientId : undefined;
+  if (!effectiveClientId && normalizedConvertedLeadId) {
+    const [existingByLead] = await db
+      .select({ clientId: clientInformation.clientId })
+      .from(clientInformation)
+      .where(eq(clientInformation.convertedLeadId, normalizedConvertedLeadId))
+      .limit(1);
+    if (existingByLead?.clientId) {
+      effectiveClientId = existingByLead.clientId;
+    }
+  }
+
   // If clientId is provided, validate it exists first
-  if (clientId && Number.isFinite(clientId) && clientId > 0) {
+  if (effectiveClientId) {
     const existingClient = await db
       .select({ id: clientInformation.clientId, passportDetails: clientInformation.passportDetails })
       .from(clientInformation)
-      .where(eq(clientInformation.clientId, clientId));
+      .where(eq(clientInformation.clientId, effectiveClientId));
 
     if (!existingClient.length) {
       throw new Error("Client not found");
@@ -174,7 +189,7 @@ export const saveClient = async (
         .where(eq(clientInformation.passportDetails, trimmedPassportDetails))
         .limit(1);
 
-      if (duplicateCheck) {
+      if (duplicateCheck && duplicateCheck.id !== effectiveClientId) {
         throw new Error(`Passport details "${trimmedPassportDetails}" already exists. Please use a different passport details.`);
       }
     }
@@ -193,24 +208,29 @@ export const saveClient = async (
 
   // Use UPSERT with IS DISTINCT FROM to only update when data actually changes
   // If clientId is provided, use it; otherwise let PostgreSQL generate it
-  const upsertQuery = clientId && Number.isFinite(clientId) && clientId > 0
+  const upsertQuery = effectiveClientId
     ? `
       INSERT INTO client_information (
-        id, counsellor_id, fullname, date, passport_details, lead_type_id
-      ) VALUES ($1, $2, $3, $4, $5, $6)
+        id, counsellor_id, fullname, date, passport_details, lead_type_id, converted_lead_id
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
       ON CONFLICT (id) DO UPDATE SET
         counsellor_id = EXCLUDED.counsellor_id,
         fullname = EXCLUDED.fullname,
         date = EXCLUDED.date,
         passport_details = EXCLUDED.passport_details,
-        lead_type_id = EXCLUDED.lead_type_id
+        lead_type_id = EXCLUDED.lead_type_id,
+        converted_lead_id = COALESCE(client_information.converted_lead_id, EXCLUDED.converted_lead_id)
       WHERE (
         client_information.fullname IS DISTINCT FROM EXCLUDED.fullname
         OR client_information.date IS DISTINCT FROM EXCLUDED.date
         OR client_information.passport_details IS DISTINCT FROM EXCLUDED.passport_details
         OR client_information.lead_type_id IS DISTINCT FROM EXCLUDED.lead_type_id
+        OR (
+          client_information.converted_lead_id IS NULL
+          AND EXCLUDED.converted_lead_id IS NOT NULL
+        )
       )
-      RETURNING id, counsellor_id, fullname, date, passport_details, lead_type_id;
+      RETURNING id, counsellor_id, fullname, date, passport_details, lead_type_id, converted_lead_id;
     `
     : `
       INSERT INTO client_information (
@@ -219,23 +239,70 @@ export const saveClient = async (
       RETURNING id, counsellor_id, fullname, date, passport_details, lead_type_id, converted_lead_id;
     `;
 
-  const values = clientId && Number.isFinite(clientId) && clientId > 0
-    ? [clientId, counsellorId, trimmedFullName, normalizedEnrollmentDate, trimmedPassportDetails, normalizedLeadTypeId]
+  const values = effectiveClientId
+    ? [effectiveClientId, counsellorId, trimmedFullName, normalizedEnrollmentDate, trimmedPassportDetails, normalizedLeadTypeId, normalizedConvertedLeadId]
     : [counsellorId, trimmedFullName, normalizedEnrollmentDate, trimmedPassportDetails, normalizedLeadTypeId, normalizedConvertedLeadId];
 
   const result = await pool.query(upsertQuery, values);
-  const rowCount = result.rowCount || 0;
-  const row = result.rows[0];
+  let rowCount = result.rowCount || 0;
+  let row = result.rows[0];
+
+  if (!row && effectiveClientId) {
+    const [existing] = await db
+      .select({
+        clientId: clientInformation.clientId,
+        counsellorId: clientInformation.counsellorId,
+        fullName: clientInformation.fullName,
+        enrollmentDate: clientInformation.enrollmentDate,
+        passportDetails: clientInformation.passportDetails,
+        leadTypeId: clientInformation.leadTypeId,
+        convertedLeadId: clientInformation.convertedLeadId,
+      })
+      .from(clientInformation)
+      .where(eq(clientInformation.clientId, effectiveClientId))
+      .limit(1);
+
+    if (existing) {
+      row = {
+        id: existing.clientId,
+        counsellor_id: existing.counsellorId,
+        fullname: existing.fullName,
+        date: existing.enrollmentDate,
+        passport_details: existing.passportDetails,
+        lead_type_id: existing.leadTypeId,
+        converted_lead_id: existing.convertedLeadId,
+      };
+      rowCount = 0;
+    }
+  }
 
   if (!row) {
     throw new Error("Failed to save client");
   }
 
   // Determine action based on rowCount and whether it's a new record
-  // rowCount === 0: No changes (data was identical) - treat as no-op
-  // rowCount === 1: Real insert or real update happened
-  const isNewRecord = !clientId || !Number.isFinite(clientId) || clientId <= 0;
+  const isNewRecord = !effectiveClientId;
   const action = isNewRecord ? "CREATED" : (rowCount > 0 ? "UPDATED" : "NO_CHANGE");
+
+  let leadIdForPassportSync: number | null =
+    row.converted_lead_id != null
+      ? Number(row.converted_lead_id)
+      : normalizedConvertedLeadId;
+  if (!leadIdForPassportSync && row.id) {
+    const [existing] = await db
+      .select({ convertedLeadId: clientInformation.convertedLeadId })
+      .from(clientInformation)
+      .where(eq(clientInformation.clientId, Number(row.id)))
+      .limit(1);
+    leadIdForPassportSync = existing?.convertedLeadId ?? null;
+  }
+  if (leadIdForPassportSync && trimmedPassportDetails) {
+    try {
+      await syncLeadPassportFromClient(leadIdForPassportSync, trimmedPassportDetails);
+    } catch (syncError) {
+      console.error("Failed to sync passport to lead profile:", syncError);
+    }
+  }
 
   return {
     action,

@@ -65,10 +65,10 @@ export const isLeadConvertedLocked = (lead: LeadLockRow): boolean =>
 export const isLeadDroppedLocked = (lead: LeadLockRow): boolean =>
   lead.assignmentStatus === "dropped";
 
-/** Junk: all roles. Converted: telecallers. Dropped: counsellors. */
+/** Junk: all roles. Converted: all roles (view-only). Dropped: counsellors. */
 export const isLeadLocked = (lead: LeadLockRow, role?: string | null): boolean => {
   if (isLeadJunkLocked(lead)) return true;
-  if (role === "telecaller" && isLeadConvertedLocked(lead)) return true;
+  if (isLeadConvertedLocked(lead)) return true;
   if (role === "counsellor" && isLeadDroppedLocked(lead)) return true;
   return false;
 };
