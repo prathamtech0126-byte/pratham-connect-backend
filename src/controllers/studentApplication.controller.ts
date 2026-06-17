@@ -315,9 +315,11 @@ export const upsertTuitionDepositController = async (req: Request, res: Response
 
     return res.status(200).json({ success: true, data: tuitionDeposit });
   } catch (error: any) {
-    return res.status(500).json({
+    const message = error.message || "Failed to save tuition deposit.";
+    const isDuplicateTuitionDeposit = message.toLowerCase().includes("tuition deposit");
+    return res.status(isDuplicateTuitionDeposit ? 409 : 500).json({
       success: false,
-      message: error.message || "Failed to save tuition deposit.",
+      message,
     });
   }
 };

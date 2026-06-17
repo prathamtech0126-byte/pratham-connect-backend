@@ -5,7 +5,10 @@ import { users } from "../schemas/users.schema";
 import { tutionFees } from "../schemas/tutionFees.schema";
 import { clientProductPayments } from "../schemas/clientProductPayments.schema";
 import { eq, desc, and, inArray } from "drizzle-orm";
-import { saveClientProductPayment } from "./clientProductPayments.model";
+import {
+  assertCanAddClientTuitionDeposit,
+  saveClientProductPayment,
+} from "./clientProductPayments.model";
 
 export type StudentApplicationStatus =
   | "app_submitted"
@@ -228,6 +231,8 @@ export const upsertTuitionDepositForApplication = async (input: UpsertTuitionDep
     );
     return getTuitionDepositForApplication(input.applicationId);
   }
+
+  await assertCanAddClientTuitionDeposit(input.clientId);
 
   await saveClientProductPayment(
     {

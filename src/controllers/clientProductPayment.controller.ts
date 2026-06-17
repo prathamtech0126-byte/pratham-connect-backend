@@ -452,11 +452,13 @@ export const saveClientProductPaymentController = async (
     });
   } catch (error: any) {
     const code = error?.code ?? error?.cause?.code;
+    const rawMessage = error?.message ?? "Failed to save product payment";
+    const isDuplicateTuitionDeposit = rawMessage.toLowerCase().includes("tuition deposit");
     const message =
       code === "23505"
         ? "This invoice number is already in use. Please use a different invoice number."
-        : error?.message ?? "Failed to save product payment";
-    res.status(400).json({
+        : rawMessage;
+    res.status(isDuplicateTuitionDeposit ? 409 : 400).json({
       success: false,
       message,
     });
