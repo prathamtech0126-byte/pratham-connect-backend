@@ -27,6 +27,8 @@ interface SaveClientInput {
   enrollmentDate: string;
   passportDetails: string;
   leadTypeId: number;
+  /** Set when client is created from lead conversion. */
+  convertedLeadId?: number | null;
 }
 
 const attachStudentAppListFields = (
@@ -94,7 +96,7 @@ export const saveClient = async (
 ) => {
   // Normalize clientId - convert string to number if needed
   const clientId = data.clientId ? Number(data.clientId) : undefined;
-  const { fullName, enrollmentDate, passportDetails, leadTypeId } = data;
+  const { fullName, enrollmentDate, passportDetails, leadTypeId, convertedLeadId } = data;
 
   if (!fullName || !enrollmentDate || !passportDetails || !leadTypeId) {
     throw new Error("All fields are required");
@@ -117,6 +119,15 @@ export const saveClient = async (
 
   if (!Number.isFinite(normalizedLeadTypeId) || normalizedLeadTypeId <= 0) {
     throw new Error("Invalid leadTypeId");
+  }
+
+  const normalizedConvertedLeadId =
+    convertedLeadId != null ? Number(convertedLeadId) : null;
+  if (
+    normalizedConvertedLeadId != null &&
+    (!Number.isFinite(normalizedConvertedLeadId) || normalizedConvertedLeadId <= 0)
+  ) {
+    throw new Error("Invalid convertedLeadId");
   }
 
   // ðŸ” validate counsellor
@@ -203,14 +214,14 @@ export const saveClient = async (
     `
     : `
       INSERT INTO client_information (
-        counsellor_id, fullname, date, passport_details, lead_type_id
-      ) VALUES ($1, $2, $3, $4, $5)
-      RETURNING id, counsellor_id, fullname, date, passport_details, lead_type_id;
+        counsellor_id, fullname, date, passport_details, lead_type_id, converted_lead_id
+      ) VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING id, counsellor_id, fullname, date, passport_details, lead_type_id, converted_lead_id;
     `;
 
   const values = clientId && Number.isFinite(clientId) && clientId > 0
     ? [clientId, counsellorId, trimmedFullName, normalizedEnrollmentDate, trimmedPassportDetails, normalizedLeadTypeId]
-    : [counsellorId, trimmedFullName, normalizedEnrollmentDate, trimmedPassportDetails, normalizedLeadTypeId];
+    : [counsellorId, trimmedFullName, normalizedEnrollmentDate, trimmedPassportDetails, normalizedLeadTypeId, normalizedConvertedLeadId];
 
   const result = await pool.query(upsertQuery, values);
   const rowCount = result.rowCount || 0;
@@ -235,6 +246,7 @@ export const saveClient = async (
       enrollmentDate: row.date,
       passportDetails: row.passport_details,
       leadTypeId: row.lead_type_id,
+      convertedLeadId: row.converted_lead_id ?? null,
     },
     rowCount, // Include rowCount so controller can check if real change occurred
   };

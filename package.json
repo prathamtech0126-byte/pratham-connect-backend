@@ -27,6 +27,7 @@
     "migrate:0021": "ts-node src/scripts/applyMigration0021.ts",
     "migrate:0022": "ts-node src/scripts/applyMigration0022.ts",
     "migrate:0023": "ts-node src/scripts/applyMigration0023.ts",
+    "migrate:0024": "ts-node src/scripts/applyMigration0024.ts",
     "migrate:incentive-tables": "ts-node src/scripts/migrateIncentiveTables.ts",
     "migrate:nullable-rule-sale-type": "ts-node src/scripts/migrateNullableRuleSaleTypeId.ts",
     "export:rule-data": "ts-node src/scripts/exportRuleData.ts",

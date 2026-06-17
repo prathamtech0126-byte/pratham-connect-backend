@@ -1161,6 +1161,7 @@ export const convertLeadToClient = async (leadId: number, counsellorId: number) 
       enrollmentDate,
       passportDetails,
       leadTypeId,
+      convertedLeadId: leadId,
     },
     counsellorId
   );
