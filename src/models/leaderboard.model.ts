@@ -338,9 +338,8 @@ export const getCounsellorStudentAppCount = async (
 };
 
 /**
- * Unique clients who have a student application (counsellor is the app counsellor)
- * AND a paid TUTION_FEES product payment — "Final Student".
- * Enrolled in the period.
+ * Unique clients with a paid tuition deposit (TUTION_FEES) where the TD date falls in the period.
+ * Used for general-target student counting and final-student achievement.
  */
 export const getCounsellorFinalStudentCount = async (
   counsellorId: number,
@@ -394,8 +393,8 @@ export const getCounsellorCategoryEnrollmentCount = async (
 };
 
 /**
- * General enrollment count: non-student core-sale clients + unique student app clients.
- * This replaces the old "all clients with core payments" for the general leaderboard.
+ * General enrollment count: non-student core-sale clients (visitor/spouse by enrollment date)
+ * + students counted when paid tuition deposit falls in the period (not application date).
  */
 export const getCounsellorGeneralCount = async (
   counsellorId: number,
@@ -403,36 +402,27 @@ export const getCounsellorGeneralCount = async (
   endDateStr: string
 ): Promise<number> => {
   const { rows } = await (db as any).$client.query(`
-    SELECT (
-      -- Non-student core sale clients (visitor + spouse + other non-student categories)
-      (
-        SELECT COUNT(DISTINCT ci.id)
-        FROM client_information ci
-        WHERE ci.archived = false
-          AND ci.date >= $1::date AND ci.date <= $2::date
-          AND EXISTS (
-            SELECT 1 FROM client_payment cp
-            INNER JOIN sale_type st ON st.id = cp.sale_type_id
-            INNER JOIN sale_type_category stc ON stc.id = st.category_id
-            WHERE cp.client_id = ci.id
-              AND cp.stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
-              AND LOWER(stc.name) != 'student'
-              AND COALESCE(cp.handled_by, ci.counsellor_id) = $3
-          )
+    SELECT COUNT(DISTINCT ci.id)::int AS cnt
+    FROM client_information ci
+    WHERE ci.archived = false
+      AND ci.date >= $1::date AND ci.date <= $2::date
+      AND EXISTS (
+        SELECT 1 FROM client_payment cp
+        INNER JOIN sale_type st ON st.id = cp.sale_type_id
+        INNER JOIN sale_type_category stc ON stc.id = st.category_id
+        WHERE cp.client_id = ci.id
+          AND cp.stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
+          AND LOWER(stc.name) != 'student'
+          AND COALESCE(cp.handled_by, ci.counsellor_id) = $3
       )
-      +
-      -- Unique student application clients (counsellor is application counsellor)
-      (
-        SELECT COUNT(DISTINCT sa.client_id)
-        FROM student_application sa
-        INNER JOIN client_information ci ON ci.id = sa.client_id
-        WHERE sa.counsellor_id = $3
-          AND ci.archived = false
-          AND ci.date >= $1::date AND ci.date <= $2::date
-      )
-    )::int AS cnt
   `, [startDateStr, endDateStr, counsellorId]);
-  return Number(rows[0]?.cnt ?? 0);
+  const nonStudentCount = Number(rows[0]?.cnt ?? 0);
+  const studentTdCount = await getCounsellorFinalStudentCount(
+    counsellorId,
+    startDateStr,
+    endDateStr
+  );
+  return nonStudentCount + studentTdCount;
 };
 
 /** Enrollment count for a counsellor using the leaderboard category rules. */
