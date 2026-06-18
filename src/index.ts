@@ -345,11 +345,8 @@ app.use("/api/incentives", incentiveRulesRoutes);
 app.use("/api/incentives", incentiveReportRoutes);
 app.use("/api/other-products", otherProductsRoutes);
 app.use("/api/rule-configurations", ruleConfigurationRoutes);
-<<<<<<< HEAD
 app.use("/api/notifications", notificationRoutes);
-=======
 app.use("/api/module-payments", modulePaymentRoutes);
->>>>>>> e662aba (restructure the schema)
 
 
 // 404

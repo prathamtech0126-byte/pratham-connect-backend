@@ -23,6 +23,7 @@
     "migrate:module-all-finance-payments": "ts-node src/scripts/migrateModuleAllFinancePayments.ts",
     "migrate:module-master-only-payments": "ts-node src/scripts/migrateModuleMasterOnlyPayments.ts",
     "seed:module-countries": "ts-node src/scripts/seedModuleCountries.ts",
+    "seed:journey-demo": "ts-node src/scripts/seedJourneyDemo.ts",
     "db:generate:modules": "drizzle-kit generate --config=drizzle.modules.config.ts",
     "db:studio:modules": "drizzle-kit studio --config=drizzle.modules.config.ts",
     "migrate:finance-payments": "ts-node src/scripts/migrate-finance-payments.ts",
