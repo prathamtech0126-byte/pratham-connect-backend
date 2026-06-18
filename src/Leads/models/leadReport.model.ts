@@ -113,7 +113,7 @@ export async function getAdminLeadReportStats(
         hp
           ? sql`
               SELECT current_telecaller_id AS tele_id,
-                COUNT(*) FILTER (WHERE NOT is_junk AND progress_status != 'junk' AND created_at >= ${createdFrom} AND created_at <= ${createdTo}) AS assigned,
+                COUNT(*) FILTER (WHERE created_at >= ${createdFrom} AND created_at <= ${createdTo}) AS assigned,
                 COUNT(*) FILTER (WHERE NOT is_junk AND progress_status != 'junk' AND next_followup_at IS NOT NULL AND created_at >= ${createdFrom} AND created_at <= ${createdTo}) AS total_follow_up,
                 COUNT(*) FILTER (WHERE NOT is_junk AND progress_status = 'follow_up' AND created_at >= ${createdFrom} AND created_at <= ${createdTo}) AS pending_follow_up,
                 COUNT(*) FILTER (WHERE (is_junk OR progress_status = 'junk') AND created_at >= ${createdFrom} AND created_at <= ${createdTo}) AS junk
@@ -123,7 +123,7 @@ export async function getAdminLeadReportStats(
             `
           : sql`
               SELECT current_telecaller_id AS tele_id,
-                COUNT(*) FILTER (WHERE NOT is_junk AND progress_status != 'junk') AS assigned,
+                COUNT(*) AS assigned,
                 COUNT(*) FILTER (WHERE NOT is_junk AND progress_status != 'junk' AND next_followup_at IS NOT NULL) AS total_follow_up,
                 COUNT(*) FILTER (WHERE NOT is_junk AND progress_status = 'follow_up') AS pending_follow_up,
                 COUNT(*) FILTER (WHERE is_junk OR progress_status = 'junk') AS junk

@@ -760,6 +760,40 @@ export const getLeadActivitiesEnriched = async (leadId: number) => {
   );
 };
 
+/** Concatenated note timeline per lead for list export (oldest first). */
+export const getBulkLeadNotesForExport = async (
+  leadIds: number[]
+): Promise<Record<number, string>> => {
+  if (leadIds.length === 0) return {};
+
+  const rows = await db
+    .select({
+      leadId: leadActivities.leadId,
+      message: leadActivities.message,
+      createdAt: leadActivities.createdAt,
+      userName: users.fullName,
+    })
+    .from(leadActivities)
+    .leftJoin(users, eq(leadActivities.userId, users.id))
+    .where(
+      and(inArray(leadActivities.leadId, leadIds), eq(leadActivities.activityType, "note"))
+    )
+    .orderBy(asc(leadActivities.leadId), asc(leadActivities.createdAt));
+
+  const out: Record<number, string> = {};
+  for (const row of rows) {
+    const msg = row.message?.trim();
+    if (!msg) continue;
+    const ts = row.createdAt
+      ? new Date(row.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
+      : "";
+    const who = row.userName?.trim() || "Unknown";
+    const line = ts ? `[${ts}] ${who}: ${msg}` : `${who}: ${msg}`;
+    out[row.leadId] = out[row.leadId] ? `${out[row.leadId]}\n${line}` : line;
+  }
+  return out;
+};
+
 /** Pending follow-up activity not yet completed. */
 export const hasPendingFollowUpForLead = async (leadId: number): Promise<boolean> => {
   const rows = await db

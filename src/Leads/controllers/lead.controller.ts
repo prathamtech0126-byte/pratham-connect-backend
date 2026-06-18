@@ -5,6 +5,7 @@ import {
   getIndianNow,
   getLeadActivities,
   getLeadActivitiesEnriched,
+  getBulkLeadNotesForExport,
   getLeadById,
   getLeadStructuredDetails,
   getLeadReportSummary,
@@ -359,6 +360,45 @@ export const getLeadsController = async (req: Request, res: Response) => {
   }
 };
 
+export const getBulkLeadNotesController = async (req: Request, res: Response) => {
+  try {
+    const authReq = req as AuthenticatedRequest;
+    const rawIds = req.body?.leadIds;
+    if (!Array.isArray(rawIds) || rawIds.length === 0) {
+      return res.status(400).json({ success: false, message: "leadIds is required" });
+    }
+
+    const leadIds = [
+      ...new Set(
+        rawIds
+          .map((id: unknown) => Number(id))
+          .filter((id: number) => Number.isFinite(id) && id > 0)
+      ),
+    ];
+    if (leadIds.length === 0) {
+      return res.status(400).json({ success: false, message: "No valid lead ids" });
+    }
+    if (leadIds.length > 5000) {
+      return res.status(400).json({ success: false, message: "Too many leads (max 5000)" });
+    }
+
+    const rows = await getLeadsByIds(leadIds);
+    const role = authReq.user?.role ?? "";
+    let allowed = rows;
+    if (role === "telecaller") {
+      allowed = rows.filter((l) => l.currentTelecallerId === authReq.user?.id);
+    } else if (role === "counsellor") {
+      allowed = rows.filter((l) => l.currentCounsellorId === authReq.user?.id);
+    }
+
+    const allowedIds = allowed.map((l) => l.id);
+    const notes = await getBulkLeadNotesForExport(allowedIds);
+    res.json({ success: true, data: notes });
+  } catch (error: any) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
 export const getTelecallerIndividualReportController = async (req: Request, res: Response) => {
   try {
     const authReq = req as AuthenticatedRequest;
@@ -502,14 +542,14 @@ export const getLeadByIdController = async (req: Request, res: Response) => {
               /convert|converted|client/i.test(String(a.message ?? "")))
         );
       } else {
+        // Current assignee sees full handoff history (prior telecaller notes, follow-ups, calls).
         activities = allActivities.filter(
           (a) =>
             a.activityType === "assignment_change" ||
             a.activityType === "counselor_assign" ||
             a.activityType === "lead_created" ||
             a.activityType === "lead_update" ||
-            (a.userId === authReq.user?.id &&
-              ["note", "followup", "call_log"].includes(a.activityType))
+            ["note", "followup", "call_log"].includes(a.activityType)
         );
       }
     }
@@ -1850,6 +1890,16 @@ export const updateLeadActivityMessageController = async (req: Request, res: Res
     const target = activities.find((a) => a.id === activityId);
     if (!target || target.activityType !== "note") {
       return res.status(400).json({ success: false, message: "Note activity not found" });
+    }
+    if (
+      authReq.user?.role === "telecaller" &&
+      target.userId != null &&
+      target.userId !== authReq.user.id
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only edit your own notes",
+      });
     }
 
     const updated = await updateLeadActivityMessage(activityId, String(message));

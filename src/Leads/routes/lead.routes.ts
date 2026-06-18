@@ -11,6 +11,7 @@ import {
   getLeadByIdController,
   getLeadReportController,
   getLeadsController,
+  getBulkLeadNotesController,
   getTelecallerLeadSummaryController,
   getTelecallerIndividualReportController,
   getCounsellorIndividualReportController,
@@ -37,6 +38,20 @@ import { csvUploadMiddleware } from "../../middlewares/csvUpload.middleware";
 const router = Router();
 
 router.get("/", requireAuth, getLeadsController);
+router.post(
+  "/bulk-notes",
+  requireAuth,
+  requireRole(
+    "telecaller",
+    "counsellor",
+    "manager",
+    "admin",
+    "developer",
+    "superadmin",
+    "marketing_head"
+  ),
+  getBulkLeadNotesController
+);
 router.get(
   "/reference/clients",
   requireAuth,
