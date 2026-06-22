@@ -44,6 +44,10 @@ import { leadFamilyMembers } from "../leadregistration/schemas/leadFamilyMembers
 import { getFacebookLeadMetaByLeadId, getFacebookLeadSentStatus } from "../facebookautomation/facebook_models/facebookLead.model";
 import { facebookLead } from "../facebookautomation/facebook_schemas/facebookLead.schema";
 import { attachReferencesToLeadRows } from "../services/leadReference.service";
+import {
+  attachPendingConvertedFlags,
+  buildCounsellorLeadConversionUpdate,
+} from "../services/leadStudentConversion.service";
 import { assertEnglishNameField, assertLeadCityField } from "../../utils/leadTextNormalization";
 import { normalizeDateOfBirthForDb } from "../../utils/date";
 
@@ -260,7 +264,7 @@ const buildWhereClause = (filters: LeadListFilters) => {
   } else if (filters.counsellorListFilter === "follow_up") {
     conditions.push(eq(leads.progressStatus, "follow_up"));
   } else if (filters.counsellorListFilter === "converted") {
-    conditions.push(eq(leads.assignmentStatus, "converted"));
+    conditions.push(eq(leads.progressStatus, "converted"));
   } else if (filters.counsellorListFilter === "dropped") {
     conditions.push(eq(leads.assignmentStatus, "dropped"));
   } else if (filters.progressStatus === "contacted") {
@@ -268,6 +272,7 @@ const buildWhereClause = (filters: LeadListFilters) => {
     conditions.push(
       or(
         eq(leads.progressStatus, "contacted"),
+        eq(leads.progressStatus, "converted"),
         eq(leads.assignmentStatus, "converted")
       )!
     );
@@ -284,6 +289,7 @@ const buildWhereClause = (filters: LeadListFilters) => {
   ) {
     conditions.push(ne(leads.assignmentStatus, "converted"));
     conditions.push(ne(leads.assignmentStatus, "dropped"));
+    conditions.push(ne(leads.progressStatus, "converted"));
   }
 
   if (filters.eligibilityStatus) {
@@ -457,25 +463,28 @@ export const getLeadById = async (id: number) => {
   }
 
   const facebookMeta = await getFacebookLeadMetaByLeadId(id);
-  return serializeLeadTimestampsForApi({
-    ...lead,
-    telecallerName,
-    counsellorName,
-    ...(facebookMeta
-      ? {
-          facebookCreatedAt: facebookMeta.facebookCreatedAt,
-          campaignId: facebookMeta.campaignId,
-          campaignName: facebookMeta.campaignName,
-          adsetId: facebookMeta.adsetId,
-          adsetName: facebookMeta.adsetName,
-          adId: facebookMeta.adId,
-          adName: facebookMeta.adName,
-          formId: facebookMeta.formId,
-          formName: facebookMeta.formName,
-          customAnswers: facebookMeta.customAnswers,
-        }
-      : {}),
-  });
+  const [withPendingFlag] = await attachPendingConvertedFlags([
+    {
+      ...lead,
+      telecallerName,
+      counsellorName,
+      ...(facebookMeta
+        ? {
+            facebookCreatedAt: facebookMeta.facebookCreatedAt,
+            campaignId: facebookMeta.campaignId,
+            campaignName: facebookMeta.campaignName,
+            adsetId: facebookMeta.adsetId,
+            adsetName: facebookMeta.adsetName,
+            adId: facebookMeta.adId,
+            adName: facebookMeta.adName,
+            formId: facebookMeta.formId,
+            formName: facebookMeta.formName,
+            customAnswers: facebookMeta.customAnswers,
+          }
+        : {}),
+    },
+  ]);
+  return serializeLeadTimestampsForApi(withPendingFlag);
 };
 
 const enrichLeadsWithAssigneeNames = async <T extends {
@@ -559,7 +568,8 @@ export const listLeads = async (filters: LeadListFilters) => {
   const total = Number(totalResult[0]?.total || 0);
   const enriched = await enrichLeadsWithAssigneeNames(rows);
   const withPending = await attachPendingFollowUpFlags(enriched);
-  const withReferences = await attachReferencesToLeadRows(withPending);
+  const withPendingConverted = await attachPendingConvertedFlags(withPending);
+  const withReferences = await attachReferencesToLeadRows(withPendingConverted);
 
   // Attach sentToMeta when the query is scoped to Meta leads so the UI can display the status.
   let sentToMetaMap: Map<number, boolean> | null = null;
@@ -640,7 +650,7 @@ export const getTelecallerLeadSummaryRows = async (
       )::int AS "transferred",
 
       COUNT(*) FILTER (
-        WHERE NOT is_junk AND assignment_status = 'converted'
+        WHERE NOT is_junk AND assignment_status = 'converted' AND converted_at IS NOT NULL
         ${createdFrom ? sql`AND created_at >= ${createdFrom}` : sql``}
         ${createdTo ? sql`AND created_at <= ${createdTo}` : sql``}
       )::int AS "converted",
@@ -737,6 +747,7 @@ export const getLeadActivitiesEnriched = async (leadId: number) => {
       createdAt: leadActivities.createdAt,
       updatedAt: leadActivities.updatedAt,
       userName: users.fullName,
+      userRole: users.role,
     })
     .from(leadActivities)
     .leftJoin(users, eq(leadActivities.userId, users.id))
@@ -756,6 +767,7 @@ export const getLeadActivitiesEnriched = async (leadId: number) => {
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       userName: row.userName ?? null,
+      userRole: row.userRole ?? null,
     })
   );
 };
@@ -881,7 +893,7 @@ export const getTelecallerDashboardStats = async (
       transferred: sql<number>`COUNT(*) FILTER (WHERE ${transferFilter})`,
       converted: hasPeriod
         ? sql<number>`COUNT(*) FILTER (WHERE ${leads.convertedAt} IS NOT NULL AND ${leads.convertedAt} >= ${naiveFrom} AND ${leads.convertedAt} <= ${naiveTo} AND ${leads.assignmentStatus} = 'converted')`
-        : sql<number>`COUNT(*) FILTER (WHERE ${leads.assignmentStatus} = 'converted')`,
+        : sql<number>`COUNT(*) FILTER (WHERE ${leads.assignmentStatus} = 'converted' AND ${leads.convertedAt} IS NOT NULL)`,
     })
     .from(leads)
     .where(baseWhere);
@@ -950,7 +962,7 @@ export const getTelecallerDashboardStats = async (
       transferred: sql<number>`COUNT(*) FILTER (WHERE ${transferFilter})`,
       converted: hasPeriod
         ? sql<number>`COUNT(*) FILTER (WHERE ${leads.convertedAt} IS NOT NULL AND ${leads.convertedAt} >= ${naiveFrom} AND ${leads.convertedAt} <= ${naiveTo} AND ${leads.assignmentStatus} = 'converted')`
-        : sql<number>`COUNT(*) FILTER (WHERE ${leads.assignmentStatus} = 'converted')`,
+        : sql<number>`COUNT(*) FILTER (WHERE ${leads.assignmentStatus} = 'converted' AND ${leads.convertedAt} IS NOT NULL)`,
     })
     .from(leads)
     .where(baseWhere)
@@ -1154,7 +1166,7 @@ export const convertLeadToClient = async (leadId: number, counsellorId: number) 
   if (lead.currentCounsellorId !== counsellorId) {
     throw new Error("You can only convert leads assigned to you");
   }
-  if (lead.progressStatus === "converted" || lead.assignmentStatus === "converted") {
+  if (lead.progressStatus === "converted") {
     throw new Error("Lead is already converted");
   }
   if (!lead.eligibilityStatus) {
@@ -1200,20 +1212,26 @@ export const convertLeadToClient = async (leadId: number, counsellorId: number) 
     counsellorId
   );
 
+  const conversionFields = await buildCounsellorLeadConversionUpdate(
+    lead.leadType,
+    null,
+    now
+  );
+
   const [updated] = await db
     .update(leads)
     .set({
       fullName: normalizedName,
-      progressStatus: "converted",
-      assignmentStatus: "converted",
-      convertedAt: now,
+      ...conversionFields,
       updatedAt: now,
     })
     .where(eq(leads.id, leadId))
     .returning();
 
+  const [withPendingFlag] = await attachPendingConvertedFlags([updated]);
+
   return {
-    lead: serializeLeadTimestampsForApi(updated),
+    lead: serializeLeadTimestampsForApi(withPendingFlag),
     client,
   };
 };

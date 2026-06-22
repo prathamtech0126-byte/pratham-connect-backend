@@ -21,6 +21,7 @@ import { allFinance } from "../schemas/allFinance.schema";
 import { users } from "../schemas/users.schema";
 import { eq, inArray, and, ne, sql, desc, asc } from "drizzle-orm";
 import { parseFrontendDate } from "../utils/date";
+import { maybeFinalizeLeadConversionAfterTuitionDeposit } from "../Leads/services/leadStudentConversion.service";
 
 export const TUITION_DEPOSIT_EXISTS_MSG =
   "This student already has a tuition deposit on file. Only one tuition deposit is allowed per student (via product or application).";
@@ -330,6 +331,20 @@ interface TutionFeesData {
   remarks?: string;
   studentApplicationId?: number;
 }
+
+const tryFinalizeLeadAfterTuitionDeposit = async (
+  clientId: number,
+  productName: ProductType,
+  entityData?: unknown
+) => {
+  if (productName !== "TUTION_FEES") return;
+  const data = entityData as TutionFeesData | undefined;
+  if (!data || data.tutionFeesStatus !== "paid") return;
+  await maybeFinalizeLeadConversionAfterTuitionDeposit(
+    clientId,
+    data.feeDate ? (parseFrontendDate(data.feeDate) ?? data.feeDate) : undefined
+  );
+};
 
 interface InsuranceData {
   amount: number | string;
@@ -1293,6 +1308,8 @@ export const saveClientProductPayment = async (
       .where(eq(clientProductPayments.productPaymentId, productPaymentId))
       .returning();
 
+    await tryFinalizeLeadAfterTuitionDeposit(clientId, productName, entityData);
+
     return { action: "UPDATED", record: updated };
   }
 
@@ -1361,6 +1378,8 @@ export const saveClientProductPayment = async (
       handledBy,
     })
     .returning();
+
+  await tryFinalizeLeadAfterTuitionDeposit(clientId, productName, entityData);
 
   return { action: "CREATED", record };
 };

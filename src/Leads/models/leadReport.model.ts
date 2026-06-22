@@ -306,7 +306,12 @@ export async function getAdminLeadReportStats(
       };
     })
     .filter(Boolean)
-    .sort((a, b) => b!.transferred - a!.transferred || b!.assigned - a!.assigned) as LeadReportStats["telecallerStats"];
+    .sort(
+      (a, b) =>
+        b!.transferred - a!.transferred ||
+        b!.converted - a!.converted ||
+        b!.assigned - a!.assigned
+    ) as LeadReportStats["telecallerStats"];
 
   // ── Merge counsellor rows ──
   const counsNameMap = new Map(counsNames.map((u) => [u.id, u.name]));

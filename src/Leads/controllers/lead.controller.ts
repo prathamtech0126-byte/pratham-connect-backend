@@ -70,6 +70,14 @@ import {
 import { getAllClients } from "../../models/client.model";
 import { assertLeadTransferReady } from "../../utils/leadTextNormalization";
 import { getCachedTelecallerDashboardStats } from "../services/telecallerStatsCache.service";
+import {
+  assertTelecallerCanCompleteFollowUp,
+  assertTelecallerCanModifyLead,
+  canTelecallerCompleteFollowUp,
+  hasPendingTelecallerFollowUpForLead,
+  isTelecallerTransferredViewOnly,
+} from "../services/leadTelecallerPermissions.service";
+import { buildCounsellorLeadConversionUpdate } from "../services/leadStudentConversion.service";
 import { redisGetJson, redisSetJson } from "../../config/redis";
 import {
   getLeadListCacheGen,
@@ -551,12 +559,28 @@ export const getLeadByIdController = async (req: Request, res: Response) => {
             a.activityType === "lead_update" ||
             ["note", "followup", "call_log"].includes(a.activityType)
         );
+        activities = await Promise.all(
+          activities.map(async (a) => ({
+            ...a,
+            canComplete:
+              a.activityType === "followup" && a.status === "pending"
+                ? await canTelecallerCompleteFollowUp(lead, a, authReq.user?.role)
+                : false,
+          }))
+        );
       }
     }
 
-    const structured = await getLeadStructuredDetails(id);
+    const telecallerTransferredViewOnly = isTelecallerTransferredViewOnly(
+      lead,
+      authReq.user?.role
+    );
 
-    const pendingFollowUp = await hasPendingFollowUpForLead(id);
+    const pendingFollowUp = telecallerTransferredViewOnly
+      ? false
+      : isTelecallerViewer
+        ? await hasPendingTelecallerFollowUpForLead(id)
+        : await hasPendingFollowUpForLead(id);
     const counsellorActivity = await hasCounsellorPostTransferActivity(id);
     const isAdminLike = ["admin", "developer", "manager", "superadmin", "marketing_head"].includes(
       authReq.user?.role ?? ""
@@ -565,6 +589,8 @@ export const getLeadByIdController = async (req: Request, res: Response) => {
       lead.progressStatus === "converted" || lead.assignmentStatus === "converted";
     const role = authReq.user?.role;
     const leadWithReference = await enrichLeadWithReference(lead);
+
+    const structured = await getLeadStructuredDetails(id);
 
     res.json({
       success: true,
@@ -575,8 +601,9 @@ export const getLeadByIdController = async (req: Request, res: Response) => {
         meta: {
           pendingFollowUp,
           counsellorHasActivity: counsellorActivity,
+          telecallerTransferredViewOnly,
           canRevertJunk: isAdminLike && isLeadJunkLocked(lead),
-          canModify: !isLeadLocked(lead, role),
+          canModify: !isLeadLocked(lead, role) && !telecallerTransferredViewOnly,
           canTransfer:
             !isLeadLocked(lead, role) &&
             !pendingFollowUp &&
@@ -664,6 +691,12 @@ export const updateLeadController = async (req: Request, res: Response) => {
       });
     }
 
+    try {
+      assertTelecallerCanModifyLead(previous, authReq.user?.role);
+    } catch (e: any) {
+      return res.status(403).json({ success: false, message: e.message });
+    }
+
     const isCounsellor = role === "counsellor";
     const marksConverted =
       patch.assignmentStatus === "converted" || patch.progressStatus === "converted";
@@ -716,8 +749,13 @@ export const updateLeadController = async (req: Request, res: Response) => {
     }
     Object.assign(patch, normalizedText);
 
-    // When explicitly marking as converted via generic update, stamp convertedAt
-    if (patch.assignmentStatus === "converted" && !previous.convertedAt) {
+    if (isCounsellor && marksConverted) {
+      const conversionFields = await buildCounsellorLeadConversionUpdate(
+        (patch.leadType ?? previous.leadType) as string | null,
+        previous.convertedAt
+      );
+      Object.assign(patch, conversionFields);
+    } else if (patch.assignmentStatus === "converted" && !previous.convertedAt) {
       patch.convertedAt = getIndianNow();
     }
 
@@ -890,6 +928,12 @@ export const addLeadActivityController = async (req: Request, res: Response) => 
           ? "Junk leads are read-only"
           : "Converted leads cannot be modified by telecallers",
       });
+    }
+
+    try {
+      assertTelecallerCanModifyLead(existingLead, authReq.user?.role);
+    } catch (e: any) {
+      return res.status(403).json({ success: false, message: e.message });
     }
 
     const activity = await createLeadActivity({
@@ -1363,6 +1407,12 @@ export const markLeadFollowupController = async (req: Request, res: Response) =>
           ? "Junk leads are read-only"
           : "Converted leads cannot be modified by telecallers",
       });
+    }
+
+    try {
+      assertTelecallerCanModifyLead(previous, authReq.user?.role);
+    } catch (e: any) {
+      return res.status(403).json({ success: false, message: e.message });
     }
 
     await updateLeadById(leadId, {
@@ -1886,6 +1936,12 @@ export const updateLeadActivityMessageController = async (req: Request, res: Res
       });
     }
 
+    try {
+      assertTelecallerCanModifyLead(lead, authReq.user?.role);
+    } catch (e: any) {
+      return res.status(403).json({ success: false, message: e.message });
+    }
+
     const activities = await getLeadActivities(leadId);
     const target = activities.find((a) => a.id === activityId);
     if (!target || target.activityType !== "note") {
@@ -1931,6 +1987,7 @@ export const updateLeadActivityMessageController = async (req: Request, res: Res
 
 export const updateLeadActivityStatusController = async (req: Request, res: Response) => {
   try {
+    const authReq = req as AuthenticatedRequest;
     const leadId = Number(req.params.id);
     const activityId = Number(req.params.activityId);
     if (isNaN(leadId) || isNaN(activityId)) {
@@ -1942,12 +1999,25 @@ export const updateLeadActivityStatusController = async (req: Request, res: Resp
       return res.status(400).json({ success: false, message: "Invalid status" });
     }
 
+    const lead = await getLeadById(leadId);
+    if (!lead) {
+      return res.status(404).json({ success: false, message: "Lead not found" });
+    }
+
     // Fetch activities before update so we know the type of the target activity
-    const allActivities = await getLeadActivities(leadId);
+    const allActivities = await getLeadActivitiesEnriched(leadId);
     const targetActivity = allActivities.find((a: any) => a.id === activityId);
 
     if (!targetActivity) {
       return res.status(404).json({ success: false, message: "Activity not found" });
+    }
+
+    if (status === "completed" && targetActivity.activityType === "followup") {
+      try {
+        await assertTelecallerCanCompleteFollowUp(lead, targetActivity, authReq.user?.role);
+      } catch (e: any) {
+        return res.status(403).json({ success: false, message: e.message });
+      }
     }
 
     if (
