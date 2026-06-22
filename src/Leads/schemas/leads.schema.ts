@@ -94,7 +94,9 @@ export const leads = pgTable(
     dropReason: text("drop_reason"),
 
     nextFollowupAt: timestamp("next_followup_at"),
+    transferredAt: timestamp("transferred_at"),
     convertedAt: timestamp("converted_at"),
+    droppedAt: timestamp("dropped_at"),
 
     isJunk: boolean("is_junk").default(false).notNull(),
 
