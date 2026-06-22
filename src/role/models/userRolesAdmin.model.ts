@@ -1,7 +1,7 @@
 import { db } from "../../config/databaseConnection";
 import { users } from "../../schemas/users.schema";
-import { roles } from "../../schemas/role.schema";
-import { userRoles } from "../../schemas/userRole.schema";
+import { roles } from "../../rbac/schemas/role.schema";
+import { userRoles } from "../../rbac/schemas/userRole.schema";
 import { eq } from "drizzle-orm";
 import { isRole, type Role } from "../../types/role";
 import { replaceUserPrimaryRoleLink } from "../../utils/rbacSync";

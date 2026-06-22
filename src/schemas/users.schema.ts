@@ -32,7 +32,6 @@ import {
   json,
   AnyPgColumn,
 } from "drizzle-orm/pg-core";
-import { roles } from "./role.schema";
 import { teams } from "./team.schema";
 
 export const users = pgTable(
@@ -50,7 +49,7 @@ export const users = pgTable(
 
     role: varchar("role", { length: 50 }).notNull(),
 
-    roleId: bigint("role_id", { mode: "number" }).references(() => roles.id),
+    roleId: bigint("role_id", { mode: "number" }),
 
     teamId: bigint("team_id", { mode: "number" }).references(
       (): AnyPgColumn => teams.teamId

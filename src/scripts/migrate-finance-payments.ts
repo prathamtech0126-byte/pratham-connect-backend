@@ -2,7 +2,7 @@ import "dotenv/config";
 import { eq, and, sql } from "drizzle-orm";
 import { db } from "../config/databaseConnection";
 import { allFinance } from "../schemas/allFinance.schema";
-import { financePayments } from "../schemas/finance_payments.schema";
+import { financePayments } from "../rbac/schemas/finance_payments.schema";
 import { clientProductPayments } from "../schemas/clientProductPayments.schema";
 import { clientInformation } from "../schemas/clientInformation.schema";
 

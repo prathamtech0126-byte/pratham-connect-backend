@@ -1,7 +1,7 @@
 import { db } from "../../config/databaseConnection";
-import { roles } from "../../schemas/role.schema";
-import { permissions } from "../../schemas/permission.schema";
-import { rolePermissions } from "../../schemas/rolePermission.schema";
+import { roles } from "../../rbac/schemas/role.schema";
+import { permissions } from "../../rbac/schemas/permission.schema";
+import { rolePermissions } from "../../rbac/schemas/rolePermission.schema";
 import { eq, inArray, and } from "drizzle-orm";
 
 export async function listPermissionsForRole(roleId: number) {

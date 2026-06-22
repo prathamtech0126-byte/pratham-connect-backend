@@ -1,6 +1,6 @@
 import { bigint, bigserial, date, decimal, pgTable, text, timestamp } from "drizzle-orm/pg-core";
-import { allFinance, financeApprovalStatusEnum } from "./allFinance.schema";
-import { users } from "./users.schema";
+import { allFinance, financeApprovalStatusEnum } from "../../schemas/allFinance.schema";
+import { users } from "../../schemas/users.schema";
 
 export const financePayments = pgTable(
     "finance_payments",

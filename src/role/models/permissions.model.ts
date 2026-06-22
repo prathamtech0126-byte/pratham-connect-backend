@@ -1,6 +1,6 @@
 import { db } from "../../config/databaseConnection";
-import { permissions } from "../../schemas/permission.schema";
-import { rolePermissions } from "../../schemas/rolePermission.schema";
+import { permissions } from "../../rbac/schemas/permission.schema";
+import { rolePermissions } from "../../rbac/schemas/rolePermission.schema";
 import { eq, sql } from "drizzle-orm";
 
 const PERM_NAME_PATTERN = /^[a-z][a-z0-9_:._-]{1,99}$/i;

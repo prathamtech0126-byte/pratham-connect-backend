@@ -1,6 +1,6 @@
 import { db } from "../../config/databaseConnection";
-import { roles } from "../../schemas/role.schema";
-import { userRoles } from "../../schemas/userRole.schema";
+import { roles } from "../../rbac/schemas/role.schema";
+import { userRoles } from "../../rbac/schemas/userRole.schema";
 import { eq, sql } from "drizzle-orm";
 
 const NAME_PATTERN = /^[a-z][a-z0-9_]{0,49}$/;

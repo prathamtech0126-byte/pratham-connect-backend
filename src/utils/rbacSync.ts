@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "../config/databaseConnection";
-import { roles } from "../schemas/role.schema";
-import { userRoles } from "../schemas/userRole.schema";
+import { roles } from "../rbac/schemas/role.schema";
+import { userRoles } from "../rbac/schemas/userRole.schema";
 import { users } from "../schemas/users.schema";
 import { ROLES, type Role, isRole } from "../types/role";
 
