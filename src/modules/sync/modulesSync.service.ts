@@ -21,6 +21,7 @@ import {
   checkVisaCaseEligibility,
   listCandidateSaleTypeIdsForVisaSync,
 } from "../visaCase/services/visaCaseEligibility.service";
+import { invalidateModulesCachesOnWrite } from "../cache/invalidate";
 
 export type SyncEligibleVisaCasesResult = {
   candidateSaleTypes: number;
@@ -428,6 +429,11 @@ export async function syncClientFromMain(
     console.log(
       `[modulesSync] syncClientFromMain(${legacyClientId}): person=${personId}, modulesClient=${clientUuid}, isNew=${isNew}`
     );
+
+    await invalidateModulesCachesOnWrite({
+      clientId: clientUuid,
+      reason: isNew ? "modules-sync:client-created" : "modules-sync:client-updated",
+    });
 
     return { clientUuid, isNew };
   } catch (error) {

@@ -130,6 +130,21 @@ export const visaCasePaths = buildPaths([
     },
   },
   {
+    method: "post",
+    path: "/api/modules/visa-cases/sync-eligible",
+    tag: TAG_NAMES.MODULE_VISA_CASES,
+    summary: "Sync eligible visa cases for a client",
+    description:
+      "Creates or updates visa cases for a legacy CRM client when eligibility criteria are met. " +
+      "Resolves counsellorId from the request body or from client_information when omitted.",
+    roles: ["admin", "manager", "superadmin", "developer"],
+    requestBody: jsonBody("SuccessResponse", "Client sync payload"),
+    requestExample: {
+      legacyClientId: 960,
+      counsellorId: 42,
+    },
+  },
+  {
     method: "get",
     path: "/api/modules/visa-cases",
     tag: TAG_NAMES.MODULE_VISA_CASES,

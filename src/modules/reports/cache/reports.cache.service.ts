@@ -15,6 +15,10 @@ import {
 } from "../services/bindingReport.service";
 import { getCxReport, type CxReportInput } from "../services/cxReport.service";
 import {
+  getEnrollmentTrend,
+  type EnrollmentTrendInput,
+} from "../services/enrollmentTrend.service";
+import {
   getOpsDashboard,
   type OpsDashboardInput,
 } from "../services/opsDashboard.service";
@@ -42,6 +46,16 @@ export const getCachedBackendDashboard = (
     reportKey("backend-dashboard", viewer, input),
     MODULE_CACHE_TTL.REPORTS,
     () => getBackendDashboard(viewer, input)
+  );
+
+export const getCachedEnrollmentTrend = (
+  viewer: Viewer,
+  input: EnrollmentTrendInput
+) =>
+  getOrSetCache(
+    reportKey("enrollment-trend", viewer, input),
+    MODULE_CACHE_TTL.REPORTS,
+    () => getEnrollmentTrend(viewer, input)
   );
 
 export const getCachedOpsDashboard = (viewer: Viewer, input: OpsDashboardInput) =>

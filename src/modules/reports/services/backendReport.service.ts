@@ -3,7 +3,8 @@ import {
   REASON_OF_TRAVEL_LABELS,
   SPONSOR_RELATIONSHIP_LABELS,
 } from "../../visaCase/constants/visaCase.constants";
-import { fetchDashboardAggregates } from "../../visaCase/models/visaCaseDashboard.model";
+import { fetchDashboardAggregates, fetchScopedVisaCaseFinancialLookups, type DashboardDateFilter } from "../../visaCase/models/visaCaseDashboard.model";
+import { aggregateDashboardFinancials } from "../../visaCase/services/visaCaseFinancial.service";
 import {
   BACKEND_REPORT_DESTINATION_ALIASES,
   BACKEND_REPORT_DESTINATIONS,
@@ -205,20 +206,18 @@ export const getBackendReport = async (
     input.toDate
   );
 
-  const trendGranularity =
-    input.filter === "today"
-      ? "hour"
-      : input.filter === "weekly"
-        ? "day"
-        : "month";
-
-  const raw = await fetchDashboardAggregates({
+  const dashboardFilters: DashboardDateFilter = {
     fromDate: period.fromDate,
     toDate: period.toDate,
     branchCode: input.branchCode,
-    trendGranularity,
-    trendMonths: input.filter === "monthly" || input.filter === "custom" ? 12 : undefined,
-  });
+    includeEnrollmentTrend: false,
+  };
+
+  const [raw, financialLookups] = await Promise.all([
+    fetchDashboardAggregates(dashboardFilters),
+    fetchScopedVisaCaseFinancialLookups(dashboardFilters),
+  ]);
+  const financial = await aggregateDashboardFinancials(financialLookups);
 
   const totalCases = parseCount(raw.totals?.total_clients);
   const approved = parseCount(raw.totals?.approved);
@@ -227,10 +226,10 @@ export const getBackendReport = async (
   const pending = parseCount(raw.totals?.pending);
   const decided = approved + refused;
 
-  const totalCharges = parseMoney(raw.financial?.total_charges);
-  const initialCharges = parseMoney(raw.financial?.initial_charges);
-  const balanceDue = parseMoney(raw.financial?.balance_due);
-  const clientsWithBalance = parseCount(raw.financial?.clients_with_balance);
+  const totalCharges = financial.totalCharges;
+  const initialCharges = financial.initialCharges;
+  const balanceDue = financial.balanceDue;
+  const clientsWithBalance = financial.clientsWithBalance;
   const totalChargesNum = Number.parseFloat(totalCharges) || 0;
   const balanceDueNum = Number.parseFloat(balanceDue) || 0;
   const collectedCharges = Math.max(totalChargesNum - balanceDueNum, 0);
@@ -267,12 +266,6 @@ export const getBackendReport = async (
       },
       branchCode: input.branchCode ?? null,
       availableFilters: [...BACKEND_REPORT_FILTERS],
-      enrollmentTrendGranularity:
-        input.filter === "today"
-          ? "hour"
-          : input.filter === "weekly"
-            ? "day"
-            : "month",
     },
     kpiCards: {
       totalCases: {
@@ -309,20 +302,16 @@ export const getBackendReport = async (
       currency: "INR",
       totalCharges,
       initialChargesReceived: initialCharges,
-      financeCharges: parseMoney(raw.financial?.finance_charges),
+      financeCharges: financial.financeCharges,
       totalBalanceDue: balanceDue,
       collectionPercent: collectionRate,
       avgChargePerClient:
         totalCases > 0
           ? (Number.parseFloat(totalCharges) / totalCases).toFixed(2)
           : null,
-      clientsFullyPaid: parseCount(raw.financial?.clients_fully_paid),
+      clientsFullyPaid: financial.clientsFullyPaid,
       clientsWithBalanceDue: clientsWithBalance,
     },
-    enrollmentTrend: raw.enrollmentTrend.map((row) => ({
-      month: row.month_label,
-      enrollments: parseCount(row.enrollments),
-    })),
     quickHighlights: {
       topDestination,
       topTravelReason: topTravelReasonRaw

@@ -3,6 +3,7 @@ import {
   publishModulesRealtimeOnWrite,
   type ModulesRealtimeWriteMeta,
 } from "../realtime/publish";
+import { bumpModulesCacheGeneration } from "./generation";
 import { MODULE_CACHE_KEYS } from "./keys";
 
 const safeRun = async (task: () => Promise<void>): Promise<void> => {
@@ -53,6 +54,9 @@ export async function invalidateModulesCachesOnWrite(
   options: ModulesCacheInvalidation = {}
 ): Promise<void> {
   await safeRun(async () => {
+    // Bump generation first — next read misses immediately (no SCAN race).
+    await bumpModulesCacheGeneration();
+
     const tasks: Promise<void>[] = [
       invalidateVisaCaseCaches(),
       invalidateReportsCaches(),

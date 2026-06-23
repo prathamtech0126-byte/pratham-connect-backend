@@ -3,44 +3,77 @@ import { getPoolSecond } from "../../../config/databaseConnectionSecond";
 export type DashboardDateFilter = {
   fromDate?: string;
   toDate?: string;
+  /** Enrollment trend window — when set, overrides fromDate/toDate for the chart only. */
+  trendFromDate?: string;
+  trendToDate?: string;
   userId?: number;
   branchCode?: string;
   trendMonths?: number;
   trendGranularity?: "month" | "day" | "hour";
+  trendAllTime?: boolean;
+  /** When false, skip enrollment trend query (backend report uses dedicated API). */
+  includeEnrollmentTrend?: boolean;
+};
+
+export type EnrollmentTrendQueryFilter = {
+  branchCode?: string;
+  userId?: number;
+  range: "6_month" | "12_month" | "maximum";
+  monthBuckets?: number;
 };
 
 const buildEnrollmentTrendQuery = (
-  filters: DashboardDateFilter
+  filters: DashboardDateFilter | EnrollmentTrendQueryFilter
 ): { sql: string; params: unknown[] } => {
   const params: unknown[] = [];
   let idx = 1;
 
-  const granularity = filters.trendGranularity ?? "month";
-  const usePeriod =
-    granularity !== "month" && filters.fromDate && filters.toDate;
+  const granularity =
+    "trendGranularity" in filters ? (filters.trendGranularity ?? "month") : "month";
+  const trendFrom =
+    "trendFromDate" in filters ? filters.trendFromDate ?? filters.fromDate : undefined;
+  const trendTo =
+    "trendToDate" in filters ? filters.trendToDate ?? filters.toDate : undefined;
+  const useTrendPeriod = Boolean(trendFrom && trendTo);
+  const trendAllTime =
+    "range" in filters
+      ? filters.range === "maximum"
+      : "trendAllTime" in filters && filters.trendAllTime === true;
 
   let dateClause: string;
-  if (usePeriod) {
+  if (trendAllTime) {
+    dateClause = "TRUE";
+  } else if (useTrendPeriod) {
     dateClause = `c.enrollment_date >= $${idx++}::date AND c.enrollment_date <= $${idx++}::date`;
-    params.push(filters.fromDate, filters.toDate);
+    params.push(trendFrom, trendTo);
   } else {
-    dateClause = `c.enrollment_date >= (CURRENT_DATE - make_interval(months => $${idx++}))`;
-    params.push(filters.trendMonths ?? 12);
+    const monthsBack =
+      "monthBuckets" in filters && filters.monthBuckets != null
+        ? filters.monthBuckets
+        : "trendMonths" in filters
+          ? (filters.trendMonths ?? 12)
+          : 12;
+    dateClause = `c.enrollment_date >= (date_trunc('month', CURRENT_DATE)::date - (($${idx}::int - 1) || ' months')::interval)`;
+    params.push(monthsBack);
   }
 
+  let bucketKeyExpr: string;
   let labelExpr: string;
   let groupExpr: string;
   let orderExpr: string;
 
   if (granularity === "hour") {
+    bucketKeyExpr = `to_char(date_trunc('hour', c.enrollment_date), 'YYYY-MM-DD HH24')`;
     labelExpr = `to_char(date_trunc('hour', c.enrollment_date), 'HH12 AM')`;
     groupExpr = `date_trunc('hour', c.enrollment_date)`;
     orderExpr = groupExpr;
   } else if (granularity === "day") {
-    labelExpr = `to_char(c.enrollment_date, 'Dy')`;
+    bucketKeyExpr = `to_char(c.enrollment_date, 'YYYY-MM-DD')`;
+    labelExpr = `to_char(c.enrollment_date, 'DD Mon')`;
     groupExpr = `c.enrollment_date`;
     orderExpr = `c.enrollment_date`;
   } else {
+    bucketKeyExpr = `to_char(date_trunc('month', c.enrollment_date), 'YYYY-MM')`;
     labelExpr = `to_char(date_trunc('month', c.enrollment_date), 'Mon YYYY')`;
     groupExpr = `date_trunc('month', c.enrollment_date)`;
     orderExpr = groupExpr;
@@ -52,16 +85,18 @@ const buildEnrollmentTrendQuery = (
     params.push(filters.userId);
   }
 
-  const branchClause = filters.branchCode
-    ? `AND c.branch_code = $${idx++}`
-    : "";
-  if (filters.branchCode) {
+  const branchClause =
+    filters.branchCode != null && filters.branchCode !== ""
+      ? `AND c.branch_code = $${idx++}`
+      : "";
+  if (filters.branchCode != null && filters.branchCode !== "") {
     params.push(filters.branchCode);
   }
 
   return {
     sql: `
       SELECT
+        ${bucketKeyExpr} AS bucket_key,
         ${labelExpr} AS month_label,
         COUNT(*)::text AS enrollments
       FROM visa_cases vc
@@ -117,10 +152,54 @@ const baseFromWithResolvedCountry = `
 
 const resolvedCountryNameSql = `COALESCE(dest_co.name, sale_co.name, 'Unknown')`;
 
+export type ScopedVisaCaseFinancialLookup = {
+  clientId: string;
+  legacyClientId: number | null;
+  legacySaleTypeId: number | null;
+};
+
+export const fetchScopedVisaCaseFinancialLookups = async (
+  filters: DashboardDateFilter
+): Promise<ScopedVisaCaseFinancialLookup[]> => {
+  const { clause, params } = dateFilterSql(filters, 1);
+
+  const { rows } = await getPoolSecond().query<{
+    client_id: string;
+    legacy_client_id: string | null;
+    legacy_sale_type_id: string | null;
+  }>(
+    `
+    SELECT
+      c.id::text AS client_id,
+      c.legacy_client_id::text AS legacy_client_id,
+      st.legacy_sale_type_id::text AS legacy_sale_type_id
+    FROM visa_cases vc
+    INNER JOIN clients c ON c.id = vc.client_id
+    INNER JOIN sales s ON s.id = vc.sale_id
+    INNER JOIN sale_type st ON st.id = s.sale_type_id
+    ${clause ? `\n    ${clause}` : ""}
+    `,
+    params
+  );
+
+  return rows.map((row) => ({
+    clientId: row.client_id,
+    legacyClientId:
+      row.legacy_client_id != null
+        ? Number.parseInt(row.legacy_client_id, 10)
+        : null,
+    legacySaleTypeId:
+      row.legacy_sale_type_id != null
+        ? Number.parseInt(row.legacy_sale_type_id, 10)
+        : null,
+  }));
+};
+
 export const fetchDashboardAggregates = async (
   filters: DashboardDateFilter
 ) => {
   const { clause, params } = dateFilterSql(filters, 1);
+  const includeEnrollmentTrend = filters.includeEnrollmentTrend !== false;
 
   const baseFrom = `
     FROM visa_cases vc
@@ -137,7 +216,6 @@ export const fetchDashboardAggregates = async (
     sponsorResult,
     travelResult,
     stageResult,
-    financialResult,
     accompanyingResult,
     enrollmentTrendResult,
     decisionByDestinationResult,
@@ -209,44 +287,6 @@ export const fetchDashboardAggregates = async (
       params
     ),
     getPoolSecond().query<{
-      total_charges: string;
-      initial_charges: string;
-      finance_charges: string;
-      balance_due: string;
-      clients_fully_paid: string;
-      clients_with_balance: string;
-    }>(
-      `
-      SELECT
-        COALESCE(SUM(c.total_amount), 0)::text AS total_charges,
-        COALESCE(SUM(initial_agg.initial_charges), 0)::text AS initial_charges,
-        COALESCE(SUM(finance_agg.finance_charges), 0)::text AS finance_charges,
-        COALESCE(SUM(c.pending_amount), 0)::text AS balance_due,
-        COUNT(*) FILTER (WHERE c.pending_amount::numeric <= 0)::text AS clients_fully_paid,
-        COUNT(*) FILTER (WHERE c.pending_amount::numeric > 0)::text AS clients_with_balance
-      ${baseFrom}
-      LEFT JOIN (
-        SELECT a.client_id, COALESCE(SUM(a.amount::numeric), 0) AS initial_charges
-        FROM amounts a
-        WHERE a.consultancy_stage = 'INITIAL'
-        GROUP BY a.client_id
-      ) initial_agg ON initial_agg.client_id = c.id
-      LEFT JOIN (
-        SELECT pb.client_id, COALESCE(SUM(pb.total_amount::numeric), 0) AS finance_charges
-        FROM payment_balances pb
-        LEFT JOIN products p ON p.id = pb.product_id
-        WHERE pb.scope = 'PRODUCT'
-          AND (
-            UPPER(COALESCE(p.product_name, '')) LIKE '%LOAN%'
-            OR UPPER(COALESCE(p.product_name, '')) LIKE '%FINANCE%'
-          )
-        GROUP BY pb.client_id
-      ) finance_agg ON finance_agg.client_id = c.id
-      ${clause ? `\n      ${clause}` : ""}
-      `,
-      params
-    ),
-    getPoolSecond().query<{
       total_accompanying: string;
       cases_with_accompanying: string;
       avg_members: string;
@@ -261,8 +301,18 @@ export const fetchDashboardAggregates = async (
       params
     ),
     (async () => {
+      if (!includeEnrollmentTrend) {
+        return {
+          rows: [] as Array<{
+            bucket_key: string;
+            month_label: string;
+            enrollments: string;
+          }>,
+        };
+      }
       const trendQuery = buildEnrollmentTrendQuery(filters);
       const result = await getPoolSecond().query<{
+        bucket_key: string;
         month_label: string;
         enrollments: string;
       }>(trendQuery.sql, trendQuery.params);
@@ -328,10 +378,46 @@ export const fetchDashboardAggregates = async (
     bySponsor: sponsorResult.rows,
     byTravelReason: travelResult.rows,
     byStage: stageResult.rows,
-    financial: financialResult.rows[0],
     accompanying: accompanyingResult.rows[0],
     enrollmentTrend: enrollmentTrendResult.rows,
     decisionByDestination: decisionByDestinationResult.rows,
     processingTimes: processingTimesResult.rows[0],
   };
+};
+
+export const fetchEnrollmentTrendRows = async (
+  filter: EnrollmentTrendQueryFilter
+) => {
+  const trendQuery = buildEnrollmentTrendQuery(filter);
+  const result = await getPoolSecond().query<{
+    bucket_key: string;
+    month_label: string;
+    enrollments: string;
+  }>(trendQuery.sql, trendQuery.params);
+  return result.rows;
+};
+
+export const fetchEnrollmentTrendEarliestMonth = async (
+  branchCode?: string
+): Promise<string | null> => {
+  const params: unknown[] = [];
+  let branchClause = "";
+
+  if (branchCode?.trim()) {
+    branchClause = "AND c.branch_code = $1";
+    params.push(branchCode.trim());
+  }
+
+  const result = await getPoolSecond().query<{ bucket_key: string | null }>(
+    `
+    SELECT to_char(date_trunc('month', MIN(c.enrollment_date)), 'YYYY-MM') AS bucket_key
+    FROM visa_cases vc
+    INNER JOIN clients c ON c.id = vc.client_id
+    WHERE c.enrollment_date IS NOT NULL
+    ${branchClause}
+    `,
+    params
+  );
+
+  return result.rows[0]?.bucket_key ?? null;
 };

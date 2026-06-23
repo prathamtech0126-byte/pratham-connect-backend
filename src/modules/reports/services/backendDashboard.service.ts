@@ -20,6 +20,8 @@ import {
   resolveReportDateRange,
   type ReportDateRange,
 } from "../utils/reportDateRange";
+import { fetchScopedVisaCaseFinancialLookups } from "../../visaCase/models/visaCaseDashboard.model";
+import { aggregateDashboardFinancials } from "../../visaCase/services/visaCaseFinancial.service";
 
 type ViewerContext = {
   userId: number;
@@ -35,11 +37,6 @@ export type BackendDashboardInput = {
 
 const parseCount = (value: string | undefined): number =>
   Number.parseInt(value ?? "0", 10) || 0;
-
-const parseMoney = (value: string | undefined): string => {
-  const num = Number.parseFloat(value ?? "0");
-  return Number.isFinite(num) ? num.toFixed(2) : "0.00";
-};
 
 const formatRate = (numerator: number, denominator: number): string | null => {
   if (denominator <= 0) return null;
@@ -119,7 +116,15 @@ export const getBackendDashboard = async (
     branchCode: input.branchCode,
   };
 
-  const raw = await fetchBackendDashboardAggregates(query);
+  const [raw, financialLookups] = await Promise.all([
+    fetchBackendDashboardAggregates(query),
+    fetchScopedVisaCaseFinancialLookups({
+      fromDate: period.fromDate,
+      toDate: period.toDate,
+      branchCode: input.branchCode,
+    }),
+  ]);
+  const financial = await aggregateDashboardFinancials(financialLookups);
 
   const totalClients = parseCount(raw.totals?.total_clients);
   const clientsByCategory = buildClientsByCategory(raw.byCategory);
@@ -129,7 +134,7 @@ export const getBackendDashboard = async (
   const pending = parseCount(raw.totals?.pending);
   const filesSubmitted = parseCount(raw.totals?.files_submitted);
   const decided = decidedCount(approved, refused);
-  const outstandingBalance = parseMoney(raw.totals?.balance_due);
+  const outstandingBalance = financial.balanceDue;
 
   const leaderboardUserIds = raw.teamLeaderboard
     .map((row) => Number.parseInt(row.assigned_user_id, 10))

@@ -72,6 +72,21 @@ export const clientsPaths = buildPaths([
     parameters: [param.path("clientId", "Client ID", "integer")],
   },
   {
+    method: "patch",
+    path: "/api/clients/{clientId}/basic-details",
+    tag: TAG_NAMES.CLIENTS,
+    summary: "Update client basic details (name, enrollment, passport, lead type)",
+    roles: ["admin", "manager", "developer", "cx", "binding", "application"],
+    parameters: [param.path("clientId", "Client ID", "integer")],
+    requestBody: jsonBody("SuccessResponse", "Basic details payload"),
+    requestExample: {
+      fullName: "Jane Doe",
+      enrollmentDate: "15-01-2025",
+      passportDetails: "P1234567",
+      leadTypeId: 1,
+    },
+  },
+  {
     method: "get",
     path: "/api/clients/{counsellorId}",
     tag: TAG_NAMES.CLIENTS,
@@ -148,38 +163,57 @@ export const clientProductPaymentsPaths = buildPaths([
   },
 ]);
 
-export const modulePaymentsPaths = buildPaths([
+const modulePaymentEndpointDefs = [
   {
-    method: "get",
-    path: "/api/module-payments/client/{clientId}",
-    tag: TAG_NAMES.MODULE_PAYMENTS,
+    method: "get" as const,
     summary: "Full client payment profile (modules DB)",
-    parameters: [param.path("clientId", "Client ID", "integer")],
+    subpath: "/client/{clientId}",
+    parameters: [param.path("clientId", "Modules client UUID or legacy CRM client id")],
   },
   {
-    method: "get",
-    path: "/api/module-payments/client/{clientId}/summary",
-    tag: TAG_NAMES.MODULE_PAYMENTS,
+    method: "get" as const,
     summary: "Lightweight client payment summary",
-    parameters: [param.path("clientId", "Client ID", "integer")],
+    subpath: "/client/{clientId}/summary",
+    parameters: [param.path("clientId", "Modules client UUID or legacy CRM client id")],
   },
   {
-    method: "get",
-    path: "/api/module-payments/client/{clientId}/entities",
-    tag: TAG_NAMES.MODULE_PAYMENTS,
+    method: "get" as const,
     summary: "Client product entity tables",
-    parameters: [param.path("clientId", "Client ID", "integer")],
+    subpath: "/client/{clientId}/entities",
+    parameters: [param.path("clientId", "Modules client UUID or legacy CRM client id")],
   },
   {
-    method: "get",
-    path: "/api/module-payments/revenue/current-month",
-    tag: TAG_NAMES.MODULE_PAYMENTS,
+    method: "get" as const,
     summary: "Current month revenue",
+    subpath: "/revenue/current-month",
+    parameters: [] as ReturnType<typeof param.path>[],
   },
   {
-    method: "get",
-    path: "/api/module-payments/revenue/last-month",
-    tag: TAG_NAMES.MODULE_PAYMENTS,
+    method: "get" as const,
     summary: "Last month revenue",
+    subpath: "/revenue/last-month",
+    parameters: [] as ReturnType<typeof param.path>[],
   },
-]);
+];
+
+/** Legacy mount: /api/module-payments */
+export const modulePaymentsPaths = buildPaths(
+  modulePaymentEndpointDefs.map((endpoint) => ({
+    method: endpoint.method,
+    path: `/api/module-payments${endpoint.subpath}`,
+    tag: TAG_NAMES.MODULE_PAYMENTS,
+    summary: endpoint.summary,
+    parameters: endpoint.parameters,
+  }))
+);
+
+/** Modules aggregator mount: /api/modules/payments */
+export const modulePaymentsModulesPaths = buildPaths(
+  modulePaymentEndpointDefs.map((endpoint) => ({
+    method: endpoint.method,
+    path: `/api/modules/payments${endpoint.subpath}`,
+    tag: TAG_NAMES.MODULE_PAYMENTS,
+    summary: endpoint.summary,
+    parameters: endpoint.parameters,
+  }))
+);

@@ -29,6 +29,12 @@ export function registerSwagger(app: Application): void {
   app.use(
     "/api-docs",
     swaggerUi.serve,
-    swaggerUi.setup(spec, swaggerUiOptions)
+    swaggerUi.setup(undefined, {
+      ...swaggerUiOptions,
+      swaggerOptions: {
+        ...swaggerUiOptions.swaggerOptions,
+        url: "/api-docs.json",
+      },
+    })
   );
 }

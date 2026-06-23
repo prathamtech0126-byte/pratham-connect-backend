@@ -88,3 +88,20 @@ export function normalizeDateOfBirthForDb(
   }
   return parsed;
 }
+
+/** Normalize a DB `date` column or API string to YYYY-MM-DD for comparisons. */
+export function normalizeDbDate(
+  value: string | Date | null | undefined
+): string | null {
+  if (value == null) return null;
+  if (value instanceof Date) {
+    return parseFrontendDate(value);
+  }
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+  const datePart = trimmed.split("T")[0] ?? trimmed;
+  if (YYYY_MM_DD_REGEX.test(datePart)) {
+    return datePart;
+  }
+  return parseFrontendDate(trimmed);
+}

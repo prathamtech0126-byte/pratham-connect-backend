@@ -16,7 +16,7 @@ import {
   batchGetStudentAppSaleTypes,
   batchGetStudentApplicationDates,
 } from "./studentApplication.model";
-import { parseFrontendDate } from "../utils/date";
+import { parseFrontendDate, normalizeDbDate } from "../utils/date";
 import { syncLeadPassportFromClient } from "../Leads/models/leadPassportSync.model";
 
 /* ==============================
@@ -319,6 +319,182 @@ export const saveClient = async (
   };
 };
 
+export type UpdateClientBasicDetailsInput = {
+  fullName?: string;
+  enrollmentDate?: string;
+  passportDetails?: string;
+  leadTypeId?: number;
+};
+
+/* ==============================
+   UPDATE CLIENT BASIC DETAILS (backend ops)
+============================== */
+export const updateClientBasicDetails = async (
+  clientId: number,
+  data: UpdateClientBasicDetailsInput
+) => {
+  const hasAnyField =
+    data.fullName !== undefined ||
+    data.enrollmentDate !== undefined ||
+    data.passportDetails !== undefined ||
+    data.leadTypeId !== undefined;
+
+  if (!hasAnyField) {
+    throw new Error("At least one field is required to update");
+  }
+
+  const [existingClient] = await db
+    .select({
+      clientId: clientInformation.clientId,
+      counsellorId: clientInformation.counsellorId,
+      fullName: clientInformation.fullName,
+      enrollmentDate: clientInformation.enrollmentDate,
+      passportDetails: clientInformation.passportDetails,
+      leadTypeId: clientInformation.leadTypeId,
+      convertedLeadId: clientInformation.convertedLeadId,
+    })
+    .from(clientInformation)
+    .where(eq(clientInformation.clientId, clientId))
+    .limit(1);
+
+  if (!existingClient) {
+    throw new Error("Client not found");
+  }
+
+  const oldValue = {
+    clientId: existingClient.clientId,
+    fullName: existingClient.fullName,
+    enrollmentDate: existingClient.enrollmentDate,
+    passportDetails: existingClient.passportDetails,
+    leadTypeId: existingClient.leadTypeId,
+    counsellorId: existingClient.counsellorId,
+  };
+
+  let fullName = existingClient.fullName;
+  let enrollmentDate =
+    normalizeDbDate(existingClient.enrollmentDate) ??
+    (() => {
+      throw new Error("Client enrollment date is missing");
+    })();
+  let passportDetails = existingClient.passportDetails;
+  let leadTypeId = existingClient.leadTypeId;
+
+  if (data.fullName !== undefined) {
+    const trimmed = data.fullName.trim();
+    if (!trimmed) {
+      throw new Error("fullName cannot be empty");
+    }
+    fullName = trimmed;
+  }
+
+  if (data.enrollmentDate !== undefined) {
+    const normalized = parseFrontendDate(data.enrollmentDate);
+    if (!normalized) {
+      throw new Error("Invalid enrollmentDate format (use DD-MM-YYYY or YYYY-MM-DD)");
+    }
+    enrollmentDate = normalized;
+  }
+
+  if (data.passportDetails !== undefined) {
+    const trimmed = data.passportDetails.trim();
+    if (!trimmed) {
+      throw new Error("passportDetails cannot be empty");
+    }
+    if (trimmed !== existingClient.passportDetails) {
+      const [duplicateCheck] = await db
+        .select({ clientId: clientInformation.clientId })
+        .from(clientInformation)
+        .where(eq(clientInformation.passportDetails, trimmed))
+        .limit(1);
+
+      if (duplicateCheck && duplicateCheck.clientId !== clientId) {
+        throw new Error(
+          `Passport details "${trimmed}" already exists. Please use a different passport details.`
+        );
+      }
+    }
+    passportDetails = trimmed;
+  }
+
+  if (data.leadTypeId !== undefined) {
+    const normalizedLeadTypeId = Number(data.leadTypeId);
+    if (!Number.isFinite(normalizedLeadTypeId) || normalizedLeadTypeId <= 0) {
+      throw new Error("Invalid leadTypeId");
+    }
+
+    const leadType = await db
+      .select({ id: leadTypes.id })
+      .from(leadTypes)
+      .where(eq(leadTypes.id, normalizedLeadTypeId));
+
+    if (!leadType.length) {
+      throw new Error("Invalid lead type");
+    }
+
+    leadTypeId = normalizedLeadTypeId;
+  }
+
+  const existingEnrollmentDate = normalizeDbDate(existingClient.enrollmentDate);
+  const isUnchanged =
+    fullName === existingClient.fullName &&
+    enrollmentDate === existingEnrollmentDate &&
+    passportDetails === existingClient.passportDetails &&
+    leadTypeId === existingClient.leadTypeId;
+
+  if (isUnchanged) {
+    return {
+      action: "NO_CHANGE" as const,
+      client: existingClient,
+      oldValue,
+      rowCount: 0,
+    };
+  }
+
+  const [updatedClient] = await db
+    .update(clientInformation)
+    .set({
+      fullName,
+      enrollmentDate,
+      passportDetails,
+      leadTypeId,
+    })
+    .where(eq(clientInformation.clientId, clientId))
+    .returning({
+      clientId: clientInformation.clientId,
+      counsellorId: clientInformation.counsellorId,
+      fullName: clientInformation.fullName,
+      enrollmentDate: clientInformation.enrollmentDate,
+      passportDetails: clientInformation.passportDetails,
+      leadTypeId: clientInformation.leadTypeId,
+      convertedLeadId: clientInformation.convertedLeadId,
+    });
+
+  if (!updatedClient) {
+    throw new Error("Failed to update client");
+  }
+
+  if (
+    passportDetails !== existingClient.passportDetails &&
+    updatedClient.convertedLeadId
+  ) {
+    try {
+      await syncLeadPassportFromClient(
+        updatedClient.convertedLeadId,
+        passportDetails
+      );
+    } catch (syncError) {
+      console.error("Failed to sync passport to lead profile:", syncError);
+    }
+  }
+
+  return {
+    action: "UPDATED" as const,
+    client: updatedClient,
+    oldValue,
+    rowCount: 1,
+  };
+};
+
 /* ==============================
    UPDATE CLIENT ARCHIVE STATUS
 ============================== */
@@ -389,15 +565,44 @@ export const getClientFullDetailsById = async (clientId: number) => {
 
   if (!leadType) return null;
 
-  let transferedToCounsellorName: string | null = null;
-  if (client.transferedToCounsellorId) {
-    const [transferedCounsellor] = await db
-      .select({ fullName: users.fullName })
-      .from(users)
-      .where(eq(users.id, client.transferedToCounsellorId))
-      .limit(1);
-    transferedToCounsellorName = transferedCounsellor?.fullName ?? null;
-  }
+  const counsellorUserIds = [
+    ...new Set(
+      [client.counsellorId, client.transferedToCounsellorId].filter(
+        (id): id is number => id != null && Number.isFinite(id)
+      )
+    ),
+  ];
+
+  const counsellorUsers =
+    counsellorUserIds.length > 0
+      ? await db
+          .select({
+            id: users.id,
+            name: users.fullName,
+            designation: users.designation,
+          })
+          .from(users)
+          .where(inArray(users.id, counsellorUserIds))
+      : [];
+
+  const counsellorById = new Map(
+    counsellorUsers.map((row) => [row.id, row])
+  );
+
+  const ownerCounsellor = counsellorById.get(client.counsellorId) ?? null;
+  const transferredCounsellor = client.transferedToCounsellorId
+    ? counsellorById.get(client.transferedToCounsellorId) ?? null
+    : null;
+
+  const currentCounsellorId =
+    client.transferStatus === true && client.transferedToCounsellorId
+      ? client.transferedToCounsellorId
+      : client.counsellorId;
+  const currentCounsellor = counsellorById.get(currentCounsellorId) ?? null;
+
+  const counsellorName = ownerCounsellor?.name ?? null;
+  const transferedToCounsellorName = transferredCounsellor?.name ?? null;
+  const currentCounsellorName = currentCounsellor?.name ?? null;
 
   // 3. Get enhanced product payments with entity data
   const productPayments = await getProductPaymentsByClientId(clientId);
@@ -438,7 +643,24 @@ export const getClientFullDetailsById = async (clientId: number) => {
   return {
     client: {
       ...client,
+      counsellorName,
+      currentCounsellorName,
+      currentCounsellorId,
       transferedToCounsellorName,
+      counsellor: ownerCounsellor
+        ? {
+            id: ownerCounsellor.id,
+            name: ownerCounsellor.name,
+            designation: ownerCounsellor.designation || null,
+          }
+        : null,
+      currentCounsellor: currentCounsellor
+        ? {
+            id: currentCounsellor.id,
+            name: currentCounsellor.name,
+            designation: currentCounsellor.designation || null,
+          }
+        : null,
     },
     leadType: {
       id: leadType.id,

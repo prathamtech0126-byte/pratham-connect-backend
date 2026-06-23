@@ -11,7 +11,12 @@ import { saleTypes } from "../../sales/schemas/saleType.schema";
 import { visaCategories } from "../../sales/schemas/visaCategories.schema";
 import { visaCases } from "../schemas/visaCase.schema";
 import { visaCaseStatusEvents } from "../schemas/visaCaseStatusEvent.schema";
-import { DECISION_SUB_STATUS_TO_OUTCOME, isDecisionOutcomeFilter } from "../constants/visaCase.constants";
+import {
+  DECISION_SUB_STATUS_TO_OUTCOME,
+  isDecisionOutcomeFilter,
+  assignedTeamsForFilter,
+  toDisplayAssignedTeam,
+} from "../constants/visaCase.constants";
 
 const saleTypeCountries = alias(countries, "sale_type_countries");
 
@@ -144,12 +149,22 @@ const buildListConditions = (filters: VisaCaseListFilters): SQL[] => {
     }
   }
   if (filters.assignedTeam) {
-    conditions.push(
-      eq(
-        visaCases.assignedTeam,
-        filters.assignedTeam as (typeof visaCases.$inferSelect)["assignedTeam"]
-      )
-    );
+    const teams = assignedTeamsForFilter(filters.assignedTeam);
+    if (teams?.length === 1) {
+      conditions.push(
+        eq(
+          visaCases.assignedTeam,
+          teams[0] as (typeof visaCases.$inferSelect)["assignedTeam"]
+        )
+      );
+    } else if (teams && teams.length > 1) {
+      conditions.push(
+        inArray(
+          visaCases.assignedTeam,
+          teams as (typeof visaCases.$inferSelect)["assignedTeam"][]
+        )
+      );
+    }
   }
   if (filters.assignedUserId != null) {
     conditions.push(eq(visaCases.assignedUserId, filters.assignedUserId));

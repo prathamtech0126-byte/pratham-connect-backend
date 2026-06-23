@@ -9,6 +9,7 @@ import {
   VISA_CASE_ASSIGNABLE_ROLES,
   VISA_CASE_BINDING_APPLICATION_ROLES,
   VISA_CASE_OPS_ROLES,
+  toDisplayAssignedTeam,
   type VisaAssignedTeam,
 } from "../constants/visaCase.constants";
 import {
@@ -40,7 +41,7 @@ export type ViewerContext = {
 const OPS_TEAM_BY_ROLE: Record<string, VisaAssignedTeam> = {
   cx: "cx",
   binding: "binding",
-  application: "application",
+  application: "binding",
 };
 
 export const isStrictAssignmentVisibility = (): boolean =>
@@ -481,7 +482,7 @@ export const getVisaCaseAssignments = async (visaCaseId: string) => {
   return rows.map((row) => ({
     id: row.id,
     assignmentType: row.assignmentType,
-    assignedTeam: row.assignedTeam,
+    assignedTeam: toDisplayAssignedTeam(row.assignedTeam),
     notes: row.notes,
     createdAt: row.createdAt,
     assignedUser: userMap.get(row.assignedUserId) ?? {
@@ -653,7 +654,7 @@ export const buildAssignmentMeta = (
 
   return {
     assignedUserId: visaCase.assignedUserId,
-    assignedTeam: visaCase.assignedTeam,
+    assignedTeam: toDisplayAssignedTeam(visaCase.assignedTeam),
     canAssign,
     assignableTargetTeam: null,
     assignableTargetRole: handoff?.targetRoles[0] ?? null,

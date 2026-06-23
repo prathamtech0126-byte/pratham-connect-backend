@@ -5,8 +5,13 @@ import {
   clientPaymentsPaths,
   clientProductPaymentsPaths,
   clientsPaths,
+  modulePaymentsModulesPaths,
   modulePaymentsPaths,
 } from "./clients.paths";
+import { moduleCountriesPaths } from "./countries.paths";
+import { journeyPaths } from "./journey.paths";
+import { moduleReportsPaths } from "./moduleReports.paths";
+import { visaCasePaths } from "./visaCase.paths";
 import {
   activityLogsPaths,
   dashboardPaths,
@@ -54,6 +59,11 @@ export const v1Paths = mergePaths(
   clientPaymentsPaths,
   clientProductPaymentsPaths,
   modulePaymentsPaths,
+  modulePaymentsModulesPaths,
+  moduleCountriesPaths,
+  journeyPaths,
+  moduleReportsPaths,
+  visaCasePaths,
   leadsPaths,
   leadRegistrationPaths,
   frontDeskPaths,

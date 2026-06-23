@@ -1,4 +1,5 @@
 import { getRedisClient, redisGetJson, redisSetJson } from "../../config/redis";
+import { getModulesCacheGeneration } from "./generation";
 
 export type CacheSource = "redis" | "database";
 
@@ -14,6 +15,39 @@ export type CacheResult<T> = {
 /** Coalesce concurrent cache misses for the same key into one DB fetch. */
 const inflightFetches = new Map<string, Promise<unknown>>();
 
+const MODULES_KEY_PREFIX = "modules:";
+
+const isModulesCacheKey = (key: string): boolean =>
+  key.startsWith(MODULES_KEY_PREFIX);
+
+type ResolvedCacheKey = {
+  redisKey: string;
+  /** Base key returned in API meta; generation suffix omitted. */
+  displayKey: string;
+  /** Captured at read start — skip cache write if generation changed during fetch. */
+  generation: number | null;
+};
+
+const resolveCacheKey = async (key: string): Promise<ResolvedCacheKey> => {
+  if (!isModulesCacheKey(key)) {
+    return { redisKey: key, displayKey: key, generation: null };
+  }
+
+  const generation = await getModulesCacheGeneration();
+  return {
+    redisKey: `${key}:g:${generation}`,
+    displayKey: key,
+    generation,
+  };
+};
+
+const shouldWriteCache = async (
+  generation: number | null
+): Promise<boolean> => {
+  if (generation === null) return true;
+  return (await getModulesCacheGeneration()) === generation;
+};
+
 export async function getOrSetCache<T>(
   key: string,
   ttlSeconds: number,
@@ -21,25 +55,28 @@ export async function getOrSetCache<T>(
 ): Promise<CacheResult<T>> {
   const redisClient = await getRedisClient();
   const redisEnabled = redisClient != null;
+  const resolved = await resolveCacheKey(key);
 
-  const hit = await redisGetJson<T>(key);
+  const hit = await redisGetJson<T>(resolved.redisKey);
   if (hit !== null) {
     return {
       data: hit,
       cached: true,
-      cacheKey: key,
+      cacheKey: resolved.displayKey,
       source: "redis",
       redisEnabled,
     };
   }
 
-  const existing = inflightFetches.get(key) as Promise<T> | undefined;
+  const existing = inflightFetches.get(resolved.redisKey) as
+    | Promise<T>
+    | undefined;
   if (existing) {
     const data = await existing;
     return {
       data,
       cached: false,
-      cacheKey: key,
+      cacheKey: resolved.displayKey,
       source: "database",
       redisEnabled,
     };
@@ -48,20 +85,22 @@ export async function getOrSetCache<T>(
   const fetchPromise = (async () => {
     try {
       const data = await fetcher();
-      await redisSetJson(key, data, ttlSeconds);
+      if (await shouldWriteCache(resolved.generation)) {
+        await redisSetJson(resolved.redisKey, data, ttlSeconds);
+      }
       return data;
     } finally {
-      inflightFetches.delete(key);
+      inflightFetches.delete(resolved.redisKey);
     }
   })();
 
-  inflightFetches.set(key, fetchPromise);
+  inflightFetches.set(resolved.redisKey, fetchPromise);
   const data = await fetchPromise;
 
   return {
     data,
     cached: false,
-    cacheKey: key,
+    cacheKey: resolved.displayKey,
     source: "database",
     redisEnabled,
   };

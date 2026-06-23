@@ -51,7 +51,6 @@ export type BackendDashboardAggregates = {
     withdrawn: string;
     pending: string;
     files_submitted: string;
-    balance_due: string;
   } | undefined;
   byCategory: Array<{ category: string; count: string }>;
   byStage: Array<{ stage: string; count: string }>;
@@ -80,9 +79,7 @@ export const fetchBackendDashboardAggregates = async (
         vc.current_sub_status,
         vc.current_stage,
         vc.assigned_user_id,
-        vc.assigned_team,
-        c.id AS client_id,
-        c.pending_amount
+        vc.assigned_team
       FROM visa_cases vc
       INNER JOIN clients c ON c.id = vc.client_id
       ${clause}
@@ -98,7 +95,6 @@ export const fetchBackendDashboardAggregates = async (
         withdrawn: string;
         pending: string;
         files_submitted: string;
-        balance_due: string;
       };
       by_stage: Array<{ stage: string; count: string }> | null;
       team_leaderboard: Array<{
@@ -124,14 +120,7 @@ export const fetchBackendDashboardAggregates = async (
               COUNT(*) FILTER (WHERE decision = 'REFUSED')::text AS refused,
               COUNT(*) FILTER (WHERE decision = 'WITHDRAWN')::text AS withdrawn,
               COUNT(*) FILTER (WHERE decision = 'PENDING')::text AS pending,
-              COUNT(*) FILTER (WHERE current_sub_status = 'FILE_SUBMITTED')::text AS files_submitted,
-              COALESCE((
-                SELECT SUM(client_balances.pending_amount::numeric)
-                FROM (
-                  SELECT DISTINCT client_id, pending_amount
-                  FROM scoped_cases
-                ) client_balances
-              ), 0)::text AS balance_due
+              COUNT(*) FILTER (WHERE current_sub_status = 'FILE_SUBMITTED')::text AS files_submitted
             FROM scoped_cases
           ) t
         ) AS totals,

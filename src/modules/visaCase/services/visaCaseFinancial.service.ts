@@ -19,6 +19,24 @@ export type VisaCaseFinancialLookup = {
   legacySaleTypeId?: number | null;
 };
 
+export type DashboardFinancialAggregate = {
+  totalCharges: string;
+  initialCharges: string;
+  financeCharges: string;
+  balanceDue: string;
+  clientsFullyPaid: number;
+  clientsWithBalance: number;
+};
+
+const emptyDashboardFinancialAggregate = (): DashboardFinancialAggregate => ({
+  totalCharges: "0.00",
+  initialCharges: "0.00",
+  financeCharges: "0.00",
+  balanceDue: "0.00",
+  clientsFullyPaid: 0,
+  clientsWithBalance: 0,
+});
+
 const formatMoney = (value: number): string =>
   Number.isFinite(value) ? value.toFixed(2) : "0.00";
 
@@ -238,6 +256,59 @@ const getModulesFinancialFallbackBulk = async (
   }
 
   return result;
+};
+
+/** Sum per-case financials (client_payment lifetime balance) for dashboard/report scopes. */
+export const aggregateDashboardFinancials = async (
+  lookups: VisaCaseFinancialLookup[]
+): Promise<DashboardFinancialAggregate> => {
+  if (lookups.length === 0) {
+    return emptyDashboardFinancialAggregate();
+  }
+
+  const summaries = await getFinancialSummariesForVisaCases(lookups);
+
+  let totalCharges = 0;
+  let initialCharges = 0;
+  let financeCharges = 0;
+  let balanceDue = 0;
+  let clientsFullyPaid = 0;
+  let clientsWithBalance = 0;
+
+  for (const lookup of lookups) {
+    const key = buildVisaCaseFinancialKey(
+      lookup.clientId,
+      lookup.legacyClientId,
+      lookup.legacySaleTypeId
+    );
+    const summary = summaries.get(key) ?? {
+      totalCharges: "0.00",
+      initialCharges: "0.00",
+      financeCharges: "0.00",
+      balanceDue: "0.00",
+    };
+
+    totalCharges += parseMoney(summary.totalCharges);
+    initialCharges += parseMoney(summary.initialCharges);
+    financeCharges += parseMoney(summary.financeCharges);
+
+    const due = parseMoney(summary.balanceDue);
+    balanceDue += due;
+    if (due > 0) {
+      clientsWithBalance += 1;
+    } else {
+      clientsFullyPaid += 1;
+    }
+  }
+
+  return {
+    totalCharges: formatMoney(totalCharges),
+    initialCharges: formatMoney(initialCharges),
+    financeCharges: formatMoney(financeCharges),
+    balanceDue: formatMoney(balanceDue),
+    clientsFullyPaid,
+    clientsWithBalance,
+  };
 };
 
 export const getFinancialSummaryForClient = async (

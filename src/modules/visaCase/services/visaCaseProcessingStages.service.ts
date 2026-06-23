@@ -6,7 +6,8 @@ import {
   STAGE_TO_TEAM,
   SUB_STATUS_LABELS,
   TEAM_PROCESSING_STAGES,
-  type VisaAssignedTeam,
+  toDisplayAssignedTeam,
+  type DisplayAssignedTeam,
   type VisaProcessingStage,
 } from "../constants/visaCase.constants";
 import {
@@ -27,21 +28,20 @@ export type ProcessingSubStatusOption = {
 export type ProcessingStageOption = {
   stage: VisaProcessingStage;
   label: string;
-  team: VisaAssignedTeam;
+  team: DisplayAssignedTeam;
   subStatuses: ProcessingSubStatusOption[];
 };
 
 export type ProcessingTeamView = {
-  team: Exclude<VisaAssignedTeam, "none">;
+  team: DisplayAssignedTeam;
   label: string;
   stages: VisaProcessingStage[];
   subStatuses: ProcessingSubStatusOption[];
 };
 
-const OPS_TEAM_LABELS: Record<Exclude<VisaAssignedTeam, "none">, string> = {
+const OPS_TEAM_LABELS: Record<DisplayAssignedTeam, string> = {
   cx: "CX",
   binding: "Binding",
-  application: "Application",
 };
 
 const buildSubStatusOption = (
@@ -61,13 +61,11 @@ const buildSubStatusOption = (
 const buildStageOption = (stage: VisaProcessingStage): ProcessingStageOption => ({
   stage,
   label: STAGE_LABELS[stage],
-  team: STAGE_TO_TEAM[stage],
+  team: toDisplayAssignedTeam(STAGE_TO_TEAM[stage]) ?? "binding",
   subStatuses: SUB_STATUS_BY_STAGE[stage].map(buildSubStatusOption),
 });
 
-const buildTeamView = (
-  team: Exclude<VisaAssignedTeam, "none">
-): ProcessingTeamView => {
+const buildTeamView = (team: DisplayAssignedTeam): ProcessingTeamView => {
   const stages = [...TEAM_PROCESSING_STAGES[team]];
   return {
     team,
@@ -79,12 +77,9 @@ const buildTeamView = (
   };
 };
 
-const roleToOpsTeam = (
-  role: Role
-): Exclude<VisaAssignedTeam, "none"> | null => {
-  if (role === "cx" || role === "binding" || role === "application") {
-    return role;
-  }
+const roleToOpsTeam = (role: Role): DisplayAssignedTeam | null => {
+  if (role === "cx") return "cx";
+  if (role === "binding" || role === "application") return "binding";
   return null;
 };
 
@@ -105,7 +100,6 @@ export const getVisaCaseProcessingStages = (viewerRole?: Role) => {
   const teamViews = {
     cx: buildTeamView("cx"),
     binding: buildTeamView("binding"),
-    application: buildTeamView("application"),
   };
 
   const viewerTeam = viewerRole ? roleToOpsTeam(viewerRole) : null;

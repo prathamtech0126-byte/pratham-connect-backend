@@ -76,15 +76,15 @@ const shutdown = async (signal: string) => {
   try {
     logger.warn(`🛑 Received ${signal}. Shutting down gracefully...`);
 
-    await new Promise<void>((resolve) => {
-      httpServer.close(() => resolve());
-    });
-
     try {
       await stopNotificationScheduler();
     } catch (e) {
       logger.warn("⚠️ Error stopping notification scheduler:", e);
     }
+
+    await new Promise<void>((resolve) => {
+      httpServer.close(() => resolve());
+    });
 
     try {
       await pool.end();
@@ -117,27 +117,34 @@ process.on("uncaughtException", (err) => {
   void shutdown("uncaughtException");
 });
 
+function logNetworkAddresses(port: number | string): void {
+  console.log(`🌐 Server accessible on network at:`);
+  try {
+    const os = require("os");
+    const networkInterfaces = os.networkInterfaces();
+    Object.keys(networkInterfaces).forEach((interfaceName) => {
+      const interfaces = networkInterfaces[interfaceName];
+      if (interfaces) {
+        interfaces.forEach((iface: any) => {
+          if (iface.family === "IPv4" && !iface.internal) {
+            console.log(`   http://${iface.address}:${port}`);
+          }
+        });
+      }
+    });
+  } catch (err: any) {
+    logger.warn(
+      "⚠️ Could not list network interfaces:",
+      err?.message ?? err
+    );
+  }
+  console.log(`   http://localhost:${port} (local)`);
+}
+
 // Start server - listen on all network interfaces (0.0.0.0) to allow network access
 httpServer.listen(Number(PORT), "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🌐 Server accessible on network at:`);
-
-  // Get network IP addresses
-  const os = require("os");
-  const networkInterfaces = os.networkInterfaces();
-
-  Object.keys(networkInterfaces).forEach((interfaceName) => {
-    const interfaces = networkInterfaces[interfaceName];
-    if (interfaces) {
-      interfaces.forEach((iface: any) => {
-        if (iface.family === "IPv4" && !iface.internal) {
-          console.log(`   http://${iface.address}:${PORT}`);
-        }
-      });
-    }
-  });
-
-  console.log(`   http://localhost:${PORT} (local)`);
+  logNetworkAddresses(PORT);
 
   // Check database connection asynchronously
   checkDbConnection()

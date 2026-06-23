@@ -18,6 +18,8 @@ import {
 } from "../models/studentApplication.model";
 import { redisDel, redisDelByPrefix } from "../config/redis";
 import { logActivity } from "../services/activityLog.service";
+import { syncVisaCaseIfEligible } from "../modules/sync/modulesSync.service";
+import { invalidateModulesCachesOnWrite } from "../modules/cache/invalidate";
 
 const canUserTouchClient = async (
   clientId: number,
@@ -75,6 +77,7 @@ const invalidateDashboardCache = async () => {
     await Promise.all([
       redisDelByPrefix("dashboard:"),
       redisDelByPrefix("reports:"),
+      invalidateModulesCachesOnWrite({ reason: "main-crm:student-application" }),
     ]);
   } catch {}
 };
@@ -140,6 +143,14 @@ export const createStudentApplicationController = async (req: Request, res: Resp
     await invalidateClientCache(clientId);
     await invalidateDashboardCache();
 
+    let visaCaseSync: { visaCaseCreated: boolean } | null = null;
+    const visaCaseCreated = await syncVisaCaseIfEligible({
+      legacyClientId: clientId,
+      legacySaleTypeId: saleTypeId,
+      counsellorId,
+    });
+    visaCaseSync = { visaCaseCreated };
+
     try {
       await logActivity(req, {
         entityType: "student_application",
@@ -160,7 +171,7 @@ export const createStudentApplicationController = async (req: Request, res: Resp
       console.error("Activity log error in createStudentApplicationController:", activityError);
     }
 
-    return res.status(201).json({ success: true, data: created });
+    return res.status(201).json({ success: true, data: created, visaCaseSync });
   } catch (error: any) {
     return res.status(500).json({
       success: false,

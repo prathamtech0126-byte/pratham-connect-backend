@@ -105,13 +105,51 @@ export const STAGE_ORDER: VisaProcessingStage[] = [
 export const STAGE_TO_TEAM: Record<VisaProcessingStage, VisaAssignedTeam> = {
   DOCUMENTATION: "cx",
   FINANCIAL_ASSESSMENT: "binding",
-  CASE_PREPARATION: "application",
-  FILING_PREPARATION: "application",
-  SUBMISSION: "application",
-  DECISION: "application",
-  REFILING: "application",
+  CASE_PREPARATION: "binding",
+  FILING_PREPARATION: "binding",
+  SUBMISSION: "binding",
+  DECISION: "binding",
+  REFILING: "binding",
   ON_HOLD: "none",
   CLIENT_DROP: "none",
+};
+
+/** API-facing ops teams — binding and application are shown as one team. */
+export type DisplayAssignedTeam = "cx" | "binding";
+
+export const DISPLAY_OPS_TEAMS: readonly DisplayAssignedTeam[] = [
+  "cx",
+  "binding",
+] as const;
+
+/** Map stored team (cx | binding | application) → display team (cx | binding). */
+export const toDisplayAssignedTeam = (
+  team: VisaAssignedTeam | string | null | undefined
+): DisplayAssignedTeam | null => {
+  if (team === "cx") return "cx";
+  if (team === "binding" || team === "application") return "binding";
+  return null;
+};
+
+/** Normalize team before persisting — application is stored as binding. */
+export const normalizeAssignedTeamForStorage = (
+  team: VisaAssignedTeam | string | null | undefined
+): VisaAssignedTeam => {
+  if (team === "application") return "binding";
+  if (team === "cx" || team === "binding" || team === "none") return team;
+  return "none";
+};
+
+/** DB filter teams for a display/query team (binding includes legacy application rows). */
+export const assignedTeamsForFilter = (
+  team: string | null | undefined
+): VisaAssignedTeam[] | null => {
+  if (!team) return null;
+  if (team === "binding" || team === "application") {
+    return ["binding", "application"];
+  }
+  if (team === "cx") return ["cx"];
+  return null;
 };
 
 /** Ops team → macro stages shown together in filters / status pickers. */

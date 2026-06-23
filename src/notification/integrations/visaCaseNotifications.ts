@@ -1,30 +1,7 @@
 import {
   getUserById,
 } from "../../modules/visaCase/services/visaCaseAssignment.service";
-
-type NotifyUsersInput = {
-  type: string;
-  userIds: number[];
-  title: string;
-  body: string;
-  priority?: string;
-  entityType?: string;
-  entityId?: number;
-  actionUrl?: string;
-  actorUserId?: number;
-  dedupeKey?: string;
-  meta?: Record<string, unknown>;
-};
-
-async function notifyUsers(input: NotifyUsersInput): Promise<void> {
-  try {
-    // @ts-expect-error notification stack may be absent in partial deployments
-    const mod = await import("../services/notification.service");
-    await mod.notifyUsers(input);
-  } catch {
-    // Notification stack is optional (e.g. seed scripts, partial deployments).
-  }
-}
+import { notifyUsers } from "../services/notification.service";
 
 const TEAM_LABELS: Record<string, string> = {
   cx: "CX",

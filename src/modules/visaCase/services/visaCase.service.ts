@@ -11,6 +11,7 @@ import {
   SPONSOR_RELATIONSHIP_LABELS,
   VISA_CASE_VIEW_ALL_ROLES,
   VISA_CATEGORY_LABELS,
+  toDisplayAssignedTeam,
 } from "../constants/visaCase.constants";
 import {
   getVisaCaseById,
@@ -282,7 +283,7 @@ const mapRowToListItem = (
         row.visaCase.currentStage,
         row.visaCase.currentSubStatus
       ),
-      assignedTeam: row.visaCase.assignedTeam,
+      assignedTeam: toDisplayAssignedTeam(row.visaCase.assignedTeam),
       assignedUserId: row.visaCase.assignedUserId,
       decision: isDecisionStage
         ? {
@@ -324,6 +325,9 @@ const resolveListFilters = async (
   }
 
   let assignedTeam = query.assignedTeam;
+  if (assignedTeam === "application") {
+    assignedTeam = "binding";
+  }
   let assignedUserId = query.assignedUserId;
   let involvedUserId = query.involvedUserId;
   let unassigned = query.unassigned;
@@ -552,7 +556,7 @@ export const getVisaCaseDetail = async (
         row.visaCase.currentStage,
         row.visaCase.currentSubStatus
       ),
-      assignedTeam: row.visaCase.assignedTeam,
+      assignedTeam: toDisplayAssignedTeam(row.visaCase.assignedTeam),
       assignedUserId: row.visaCase.assignedUserId,
       assignedUser: assignedUser
         ? {

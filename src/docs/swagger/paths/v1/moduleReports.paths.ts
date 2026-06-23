@@ -16,7 +16,7 @@ export const moduleReportsPaths = buildPaths([
     tag: TAG_NAMES.MODULE_REPORTS,
     summary: "Backend analytics report",
     description:
-      "Full backend analytics report for admin, manager, and branch manager: KPI cards, financial summary, enrollment trend, categorical breakdowns, decision by destination, accompanying members, and processing times. Scoped by enrollment date. Data from modules DB.",
+      "Full backend analytics report for admin, manager, and branch manager: KPI cards, financial summary, categorical breakdowns, decision by destination, accompanying members, and processing times. Scoped by enrollment date. Use GET /enrollment-trend for the enrollment chart. Data from modules DB.",
     roles: backendDashboardRoles,
     parameters: [
       param.query(
@@ -69,10 +69,6 @@ export const moduleReportsPaths = buildPaths([
           clientsFullyPaid: 33,
           clientsWithBalanceDue: 8,
         },
-        enrollmentTrend: [
-          { month: "Jan 2026", enrollments: 18 },
-          { month: "Feb 2026", enrollments: 18 },
-        ],
         quickHighlights: {
           topDestination: "Canada",
           topTravelReason: "Tourism",
@@ -114,6 +110,39 @@ export const moduleReportsPaths = buildPaths([
           submissionToDecisionDays: "30",
           enrollmentToDecisionDays: "45",
         },
+      },
+    },
+  },
+  {
+    method: "get",
+    path: "/api/modules/reports/enrollment-trend",
+    tag: TAG_NAMES.MODULE_REPORTS,
+    summary: "Enrollment trend chart",
+    description:
+      "Monthly enrollment trend for backend report chart. Independent of backend-report period filters. " +
+      "range=6_month | 12_month (default) | maximum (all time). Optional branchCode filter.",
+    roles: backendDashboardRoles,
+    parameters: [
+      param.query("range", "6_month | 12_month | maximum (default: 12_month)"),
+      param.query("branchCode", "Filter by branch code, e.g. VAD"),
+    ],
+    responseExample: {
+      success: true,
+      data: {
+        meta: {
+          title: "Enrollment Trend",
+          range: "12_month",
+          rangeLabel: "Last 12 months",
+          granularity: "month",
+          bucketCount: 12,
+          totalEnrollments: 847,
+          availableRanges: ["6_month", "12_month", "maximum"],
+        },
+        enrollmentTrend: [
+          { month: "Jul 2025", enrollments: 4 },
+          { month: "Aug 2025", enrollments: 7 },
+          { month: "Jun 2026", enrollments: 67 },
+        ],
       },
     },
   },

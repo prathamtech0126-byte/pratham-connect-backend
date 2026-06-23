@@ -184,6 +184,7 @@ import otherProductsRoutes from "./routes/otherProducts.routes";
 import ruleConfigurationRoutes from "./routes/ruleConfiguration.routes";
 import notificationRoutes from "./notification/routes/notification.routes";
 import modulePaymentRoutes from "./modules/payments/routes/payment.routes";
+import modulesRoutes from "./modules/routes/modules.routes";
 import { registerSwagger } from "./docs/swagger/registerSwagger";
 
 
@@ -274,8 +275,12 @@ app.use(
         styleSrc: ["'self'", "'unsafe-inline'"],
         scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
         imgSrc: ["'self'", "data:", "https:"],
+        connectSrc: ["'self'"],
+        // Helmet defaults include upgrade-insecure-requests, which breaks Swagger UI on HTTP dev/LAN.
+        ...(isProduction ? {} : { upgradeInsecureRequests: null }),
       },
     },
+    ...(isProduction ? {} : { strictTransportSecurity: false }),
   })
 );
 app.use(compression());
@@ -347,7 +352,7 @@ app.use("/api/other-products", otherProductsRoutes);
 app.use("/api/rule-configurations", ruleConfigurationRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/module-payments", modulePaymentRoutes);
-
+app.use("/api/modules", modulesRoutes);
 
 // 404
 app.use((_req, res) => {

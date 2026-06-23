@@ -8,8 +8,10 @@ import {
 } from "../constants/visaCase.constants";
 import {
   fetchDashboardAggregates,
+  fetchScopedVisaCaseFinancialLookups,
   type DashboardDateFilter,
 } from "../models/visaCaseDashboard.model";
+import { aggregateDashboardFinancials } from "./visaCaseFinancial.service";
 
 type ViewerContext = {
   userId: number;
@@ -55,7 +57,11 @@ export const getVisaCaseDashboard = async (
     scopedFilters.userId = viewer.userId;
   }
 
-  const raw = await fetchDashboardAggregates(scopedFilters);
+  const [raw, financialLookups] = await Promise.all([
+    fetchDashboardAggregates(scopedFilters),
+    fetchScopedVisaCaseFinancialLookups(scopedFilters),
+  ]);
+  const financial = await aggregateDashboardFinancials(financialLookups);
 
   const totalClients = parseCount(raw.totals?.total_clients);
   const approved = parseCount(raw.totals?.approved);
@@ -64,9 +70,9 @@ export const getVisaCaseDashboard = async (
   const pending = parseCount(raw.totals?.pending);
   const filesSubmitted = parseCount(raw.totals?.files_submitted);
 
-  const totalCharges = parseMoney(raw.financial?.total_charges);
-  const initialCharges = parseMoney(raw.financial?.initial_charges);
-  const balanceDue = parseMoney(raw.financial?.balance_due);
+  const totalCharges = financial.totalCharges;
+  const initialCharges = financial.initialCharges;
+  const balanceDue = financial.balanceDue;
   const collectionPct = formatRate(
     Number.parseFloat(initialCharges),
     Number.parseFloat(totalCharges)
@@ -121,15 +127,15 @@ export const getVisaCaseDashboard = async (
       currency: "INR",
       totalCharges,
       initialChargesReceived: initialCharges,
-      financeCharges: parseMoney(raw.financial?.finance_charges),
+      financeCharges: financial.financeCharges,
       totalBalanceDue: balanceDue,
       collectionPercent: collectionPct,
       avgChargePerClient:
         totalClients > 0
           ? (Number.parseFloat(totalCharges) / totalClients).toFixed(2)
           : null,
-      clientsFullyPaid: parseCount(raw.financial?.clients_fully_paid),
-      clientsWithBalanceDue: parseCount(raw.financial?.clients_with_balance),
+      clientsFullyPaid: financial.clientsFullyPaid,
+      clientsWithBalanceDue: financial.clientsWithBalance,
     },
     accompanyingMembers: {
       total: parseCount(raw.accompanying?.total_accompanying),

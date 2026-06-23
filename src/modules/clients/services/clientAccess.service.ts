@@ -193,6 +193,151 @@ export async function canUserModifyClient(
   return (await resolveClientAccess(clientId, userId, role)) === "write";
 }
 
+const OPS_READ_ROLES = new Set(["cx", "binding", "application"]);
+
+const BASIC_DETAILS_ADMIN_ROLES = new Set([
+  "admin",
+  "developer",
+  "superadmin",
+]);
+
+/**
+ * Who may PATCH /api/clients/:clientId/basic-details.
+ * Admin/developer always; manager/counsellor need write; ops roles need read.
+ */
+export async function canUserUpdateClientBasicDetails(
+  clientId: number,
+  userId: number,
+  role: string
+): Promise<boolean> {
+  if (BASIC_DETAILS_ADMIN_ROLES.has(role)) return true;
+
+  const access = await resolveClientAccess(clientId, userId, role);
+  if (access === "none") return false;
+  if (access === "write") return true;
+
+  return OPS_READ_ROLES.has(role);
+}
+
+/**
+ * Filter payments in client detail data based on viewer's relationship to the client.
+ * Also stamps each payment with `isEditable` and adds `paymentPermissions`.
+ */
+export const filterClientPaymentDetailsForViewer = (
+  data: Record<string, unknown> | null | undefined,
+  viewerId: number | undefined,
+  viewerRole: string | undefined
+): Record<string, unknown> | null => {
+  if (!data) return null;
+
+  const isAdminOrManager =
+    viewerRole === "admin" ||
+    viewerRole === "manager" ||
+    viewerRole === "developer" ||
+    viewerRole === "superadmin";
+
+  if (!viewerId || isAdminOrManager) {
+    return {
+      ...data,
+      payments: ((data.payments as unknown[]) || []).map((p: unknown) => ({
+        ...(p as Record<string, unknown>),
+        isEditable: true,
+      })),
+      paymentPermissions: { canAddPayment: true, canEditTotalPayment: true },
+    };
+  }
+
+  const client = data.client as
+    | {
+        counsellorId?: number;
+        transferStatus?: boolean;
+        transferedToCounsellorId?: number;
+      }
+    | undefined;
+
+  const isOriginalOwner = Number(client?.counsellorId) === viewerId;
+  const isTransferred = client?.transferStatus === true;
+  const isCurrentSharedTo =
+    isTransferred && Number(client?.transferedToCounsellorId) === viewerId;
+
+  if (isCurrentSharedTo) {
+    return {
+      ...data,
+      payments: ((data.payments as unknown[]) || []).map((p: unknown) => ({
+        ...(p as Record<string, unknown>),
+        isEditable: Number((p as { handledBy?: number }).handledBy) === viewerId,
+      })),
+      paymentPermissions: { canAddPayment: true, canEditTotalPayment: true },
+    };
+  }
+
+  if (isOriginalOwner) {
+    if (isTransferred) {
+      return {
+        ...data,
+        payments: ((data.payments as unknown[]) || []).map((p: unknown) => ({
+          ...(p as Record<string, unknown>),
+          isEditable: Number((p as { handledBy?: number }).handledBy) === viewerId,
+        })),
+        paymentPermissions: { canAddPayment: true, canEditTotalPayment: true },
+      };
+    }
+
+    return {
+      ...data,
+      payments: ((data.payments as unknown[]) || []).map((p: unknown) => ({
+        ...(p as Record<string, unknown>),
+        isEditable: true,
+      })),
+      paymentPermissions: { canAddPayment: true, canEditTotalPayment: true },
+    };
+  }
+
+  return {
+    ...data,
+    payments: [],
+    paymentPermissions: { canAddPayment: false, canEditTotalPayment: false },
+  };
+};
+
+const filterReadOnlyClientDetails = (
+  data: Record<string, unknown>
+): Record<string, unknown> => ({
+  ...data,
+  payments: ((data.payments as unknown[]) || []).map((p: unknown) => ({
+    ...(p as Record<string, unknown>),
+    isEditable: false,
+  })),
+  paymentPermissions: { canAddPayment: false, canEditTotalPayment: false },
+});
+
+/**
+ * Enforce client visibility and apply payment edit rules for the viewer.
+ * Returns null when the viewer may not access this client.
+ */
+export async function filterClientDetailsForViewer(
+  data: Record<string, unknown> | null | undefined,
+  viewerId: number | undefined,
+  viewerRole: string | undefined
+): Promise<Record<string, unknown> | null> {
+  if (!data) return null;
+
+  const clientId = Number(
+    (data.client as { clientId?: number } | undefined)?.clientId
+  );
+  if (!Number.isFinite(clientId) || clientId <= 0) return null;
+  if (!viewerId || !viewerRole) return null;
+
+  const access = await resolveClientAccess(clientId, viewerId, viewerRole);
+  if (access === "none") return null;
+
+  if (access === "read" || OPS_READ_ROLES.has(viewerRole)) {
+    return filterReadOnlyClientDetails(data);
+  }
+
+  return filterClientPaymentDetailsForViewer(data, viewerId, viewerRole);
+}
+
 /** Drizzle OR condition for counsellor client lists (active or archived). */
 export async function buildCounsellorClientVisibilityCondition(
   counsellorId: number
