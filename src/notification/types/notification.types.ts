@@ -28,6 +28,7 @@ export type NotificationType =
   | "tech_support_ticket"
   | "tech_support_request"
   | "deadline_missed"
+  | "visa_case_document_request"
   | "system";
 
 export interface NotifyInput {

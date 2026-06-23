@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { saveClientController, getAllClientsByCounsellorController, getAllClientsController, getCounsellorClientsWithFilterController, getClientCompleteDetailsController, getArchivedClientsController, archiveClientController, getAllClientsForAdminController, transferClientController } from "../controllers/client.controller";
+import { saveClientController, getAllClientsByCounsellorController, getAllClientsController, getCounsellorClientsWithFilterController, getClientCompleteDetailsController, updateClientBasicDetailsController, getArchivedClientsController, archiveClientController, getAllClientsForAdminController, transferClientController } from "../controllers/client.controller";
 import { requireAuth, requireRole } from "../middlewares/auth.middleware";
 import { preventDuplicateRequests } from "../middlewares/requestDeduplication.middleware";
 
@@ -232,6 +232,7 @@ router.get(
   requireRole("admin", "counsellor", "manager","developer"),
   getCounsellorClientsWithFilterController
 );
+
 router.post(
   "/counsellor-clients/filtered",
   requireAuth,
@@ -276,6 +277,19 @@ router.get(
   "/:clientId/complete",
   requireAuth, requireRole("admin", "counsellor", "manager", "developer", "cx", "binding", "application"),
   getClientCompleteDetailsController
+);
+
+/**
+ * Update client basic details (client_information).
+ * Backend ops (cx / binding / application) and admin roles.
+ * Must come BEFORE /:counsellorId route to avoid route conflicts.
+ */
+router.patch(
+  "/:clientId/basic-details",
+  requireAuth,
+  requireRole("admin", "manager", "developer", "cx", "binding", "application"),
+  preventDuplicateRequests,
+  updateClientBasicDetailsController
 );
 
 /**

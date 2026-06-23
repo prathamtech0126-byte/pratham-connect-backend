@@ -5,10 +5,7 @@ import {
   upsertFacebookLeadMeta,
   type FacebookLeadMetaInput,
 } from "../facebookautomation/facebook_models/facebookLead.model";
-import {
-  createLeadCreatedActivity,
-  createLeadInitialNote,
-} from "./leadActivityEvents.service";
+import { createLeadCreatedActivity } from "./leadActivityEvents.service";
 
 type LeadInsert = typeof leads.$inferInsert;
 
@@ -24,25 +21,12 @@ export async function insertLeadRecord(
     await upsertFacebookLeadMeta({ leadId: created.id, ...facebookMeta });
   }
 
-  const createdAt = created.createdAt ? new Date(created.createdAt) : undefined;
-
   await createLeadCreatedActivity({
     leadId: created.id,
     userId: activity?.userId,
     performerName: activity?.performerName,
-    createdAt,
+    createdAt: created.createdAt ? new Date(created.createdAt) : undefined,
   });
-
-  const initialNote = typeof data.latestNote === "string" ? data.latestNote.trim() : "";
-  if (initialNote) {
-    await createLeadInitialNote({
-      leadId: created.id,
-      userId: activity?.userId,
-      performerName: activity?.performerName,
-      message: initialNote,
-      createdAt,
-    });
-  }
 
   return serialized;
 }

@@ -183,6 +183,7 @@ export interface CounsellorReportResult {
     category_name: string;
     count: number;
     amount: string;
+    app_count?: number;
   }>;
 }
 
@@ -881,6 +882,7 @@ export const getCounsellorReport = async (
       category_name: c.categoryName,
       count: c.count,
       amount: c.amount,
+      ...(c.appCount !== undefined ? { app_count: c.appCount } : {}),
     })),
   };
 };

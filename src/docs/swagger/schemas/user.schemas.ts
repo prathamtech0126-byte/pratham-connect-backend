@@ -1,0 +1,90 @@
+import type { ComponentsObject } from "../types";
+
+export const userSchemas: ComponentsObject["schemas"] = {
+  User: {
+    type: "object",
+    description: "Application user entity",
+    properties: {
+      id: { type: "integer", format: "int64", example: 42 },
+      emp_id: { type: "string", nullable: true, example: "EMP-1024" },
+      fullName: { type: "string", example: "Jane Doe" },
+      email: { type: "string", format: "email", example: "jane.doe@example.com" },
+      role: {
+        type: "string",
+        example: "counsellor",
+        description: "Primary role slug (legacy field, aligned with roles.name)",
+      },
+      roleId: { type: "integer", nullable: true, example: 3 },
+      teamId: { type: "integer", nullable: true, example: 2 },
+      managerId: { type: "integer", nullable: true, example: 7 },
+      officePhone: { type: "string", nullable: true, example: "9876543210" },
+      personalPhone: { type: "string", nullable: true },
+      designation: { type: "string", nullable: true, example: "Senior Counsellor" },
+      isSupervisor: { type: "boolean", example: false },
+      status: { type: "boolean", example: true, description: "Active flag" },
+      retainedAccessories: {
+        type: "string",
+        nullable: true,
+        description: "Comma-separated accessories retained after device unassign",
+      },
+      createdAt: { type: "string", format: "date-time" },
+    },
+    required: ["id", "fullName", "email", "role", "status"],
+  },
+
+  UserPublic: {
+    type: "object",
+    description: "User without sensitive fields",
+    properties: {
+      id: { type: "integer", example: 42 },
+      emp_id: { type: "string", nullable: true },
+      fullName: { type: "string" },
+      email: { type: "string", format: "email" },
+      role: { type: "string" },
+      roleId: { type: "integer", nullable: true },
+      teamId: { type: "integer", nullable: true },
+      managerId: { type: "integer", nullable: true },
+      officePhone: { type: "string", nullable: true },
+      designation: { type: "string", nullable: true },
+      isSupervisor: { type: "boolean" },
+      status: { type: "boolean" },
+    },
+  },
+
+  RegisterUserRequest: {
+    type: "object",
+    required: ["fullName", "email", "password", "role"],
+    properties: {
+      fullName: { type: "string", example: "Jane Doe" },
+      email: { type: "string", format: "email" },
+      password: { type: "string", format: "password", minLength: 8 },
+      role: { type: "string", example: "counsellor" },
+      emp_id: { type: "string", example: "EMP-2048" },
+      roleId: { type: "integer" },
+      teamId: { type: "integer" },
+      managerId: { type: "integer" },
+      officePhone: { type: "string" },
+      personalPhone: { type: "string" },
+      designation: { type: "string" },
+      isSupervisor: { type: "boolean" },
+    },
+  },
+
+  UpdateUserRequest: {
+    type: "object",
+    properties: {
+      fullName: { type: "string" },
+      email: { type: "string", format: "email" },
+      role: { type: "string" },
+      emp_id: { type: "string" },
+      roleId: { type: "integer" },
+      teamId: { type: "integer" },
+      managerId: { type: "integer" },
+      officePhone: { type: "string" },
+      personalPhone: { type: "string" },
+      designation: { type: "string" },
+      isSupervisor: { type: "boolean" },
+      status: { type: "boolean" },
+    },
+  },
+};

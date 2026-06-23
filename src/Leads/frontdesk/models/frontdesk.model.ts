@@ -8,9 +8,7 @@ import { users } from "../../../schemas/users.schema";
 import { saleTypes } from "../../../schemas/saleType.schema";
 import { activityLog } from "../../../schemas/activityLog.schema";
 import { publishLeadChange } from "../../services/leadRealtime.service";
-import { notifyLeadAssignedCounsellor } from "../../../notification/integrations/leadNotifications";
 import { createActivityLog } from "../../../services/activityLog.service";
-import { serializeActivityLogTimestampAsIst } from "../../../utils/pgTimestamp";
 import {
   eq,
   and,
@@ -96,15 +94,7 @@ export async function getFrontDeskActivityLogsForViewer(userId: number, viewerRo
       .where(where),
   ]);
 
-  return {
-    rows: rows.map((row) => ({
-      ...row,
-      createdAt: serializeActivityLogTimestampAsIst(row.createdAt),
-    })),
-    total: Number(total),
-    page,
-    limit,
-  };
+  return { rows, total: Number(total), page, limit };
 }
 
 // ─── Dashboard Stats ───────────────────────────────────────────────────────────
@@ -352,16 +342,6 @@ export async function assignLeadToCounsellor(leadId: number, counsellorId: numbe
     await publishLeadChange("lead:assigned", updatedLead as Record<string, unknown>, {
       notifyCounsellorId: counsellorId,
     });
-    notifyLeadAssignedCounsellor(
-      {
-        id: updatedLead.id,
-        fullName: updatedLead.fullName,
-        assignmentStatus: updatedLead.assignmentStatus,
-        currentCounsellorId: counsellorId,
-      },
-      counsellorId,
-      { actorUserId: assignedByUserId, transferred: false }
-    ).catch((e: unknown) => console.error("[notification] front desk assign:", e));
   }
 
   await logFrontDeskActivity({

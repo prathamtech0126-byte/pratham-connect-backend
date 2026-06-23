@@ -36,6 +36,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { users } from "./users.schema";
 import { leadTypes } from "../Leads/schemas/leadType.schema";
+import { leads } from "../Leads/schemas/leads.schema";
 
 export const clientInformation = pgTable(
   "client_information",
@@ -61,6 +62,9 @@ export const clientInformation = pgTable(
 
     transferStatus: boolean("transfer_status").default(false),
 
+    /** Lead that was converted to create this client (null for manually created clients). */
+    convertedLeadId: bigint("converted_lead_id", { mode: "number" }).references(() => leads.id),
+
     archived: boolean("archived").default(false),
 
     createdAt: timestamp("created_at").defaultNow(),
@@ -82,5 +86,7 @@ export const clientInformation = pgTable(
       table.counsellorId,
       table.createdAt
     ),
+
+    convertedLeadIdx: index("idx_client_converted_lead").on(table.convertedLeadId),
   })
 );

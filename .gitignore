@@ -30,6 +30,9 @@ out/
 # Drizzle / Database
 # =========================
 drizzle/
+# Application source (not migration output)
+!src/modules/time/drizzle/
+!src/modules/time/drizzle/**
 *.sql
 *.db
 

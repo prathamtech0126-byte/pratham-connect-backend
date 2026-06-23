@@ -2,6 +2,7 @@ import "dotenv/config";
 import bcrypt from "bcrypt";
 import { db } from "../config/databaseConnection";
 import { users } from "./../schemas/users.schema";
+import { ensureSystemRoles, replaceUserPrimaryRoleLink } from "../utils/rbacSync";
 
 async function seedAdmin() {
   const email = "admin@pratham";
@@ -9,18 +10,25 @@ async function seedAdmin() {
 
   const hashedPassword = await bcrypt.hash(password, 10);
 
-  await db.insert(users).values({
+  const [created] = await db
+    .insert(users)
+    .values({
+      fullName: "Super Admin",
+      email,
+      emp_id: null,
+      designation: "Super Admin",
+      officePhone: null,
+      personalPhone: null,
+      passwordHash: hashedPassword,
+      role: "admin",
+      managerId: null,
+    })
+    .returning({ id: users.id });
 
-    fullName: "Super Admin",
-    email,
-    emp_id: null,
-    designation: "Super Admin",
-    officePhone: null,
-    personalPhone: null,
-    passwordHash: hashedPassword,
-    role: "admin",
-    managerId: null,
-  });
+  if (created) {
+    await ensureSystemRoles(db);
+    await replaceUserPrimaryRoleLink(db, created.id, "admin");
+  }
 
   console.log("✅ Admin user created");
   console.log("📧 Email:", email);

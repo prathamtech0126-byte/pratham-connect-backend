@@ -1,6 +1,6 @@
 import { db } from "../config/databaseConnection";
 import { activityLog } from "../schemas/activityLog.schema";
-import { serializeActivityLogTimestampAsIst } from "../utils/pgTimestamp";
+import { serializeActivityLogTimestampAsIst } from "../utils/istTime";
 import { users } from "../schemas/users.schema";
 import { clientInformation } from "../schemas/clientInformation.schema";
 import { eq, and, or, desc, sql, gte, lte, isNotNull } from "drizzle-orm";

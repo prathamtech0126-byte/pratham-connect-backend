@@ -16,8 +16,10 @@ import {
   upsertTuitionDepositForApplication,
   getTuitionDepositForApplication,
 } from "../models/studentApplication.model";
-import { redisDel } from "../config/redis";
+import { redisDel, redisDelByPrefix } from "../config/redis";
 import { logActivity } from "../services/activityLog.service";
+import { syncVisaCaseIfEligible } from "../modules/sync/modulesSync.service";
+import { invalidateModulesCachesOnWrite } from "../modules/cache/invalidate";
 
 const canUserTouchClient = async (
   clientId: number,
@@ -67,6 +69,16 @@ const canUserTouchClient = async (
 const invalidateClientCache = async (clientId: number) => {
   try {
     await redisDel(`clients:complete:${clientId}`);
+  } catch {}
+};
+
+const invalidateDashboardCache = async () => {
+  try {
+    await Promise.all([
+      redisDelByPrefix("dashboard:"),
+      redisDelByPrefix("reports:"),
+      invalidateModulesCachesOnWrite({ reason: "main-crm:student-application" }),
+    ]);
   } catch {}
 };
 
@@ -129,6 +141,15 @@ export const createStudentApplicationController = async (req: Request, res: Resp
     });
 
     await invalidateClientCache(clientId);
+    await invalidateDashboardCache();
+
+    let visaCaseSync: { visaCaseCreated: boolean } | null = null;
+    const visaCaseCreated = await syncVisaCaseIfEligible({
+      legacyClientId: clientId,
+      legacySaleTypeId: saleTypeId,
+      counsellorId,
+    });
+    visaCaseSync = { visaCaseCreated };
 
     try {
       await logActivity(req, {
@@ -150,7 +171,7 @@ export const createStudentApplicationController = async (req: Request, res: Resp
       console.error("Activity log error in createStudentApplicationController:", activityError);
     }
 
-    return res.status(201).json({ success: true, data: created });
+    return res.status(201).json({ success: true, data: created, visaCaseSync });
   } catch (error: any) {
     return res.status(500).json({
       success: false,
@@ -204,6 +225,7 @@ export const deleteStudentApplicationController = async (req: Request, res: Resp
 
     await deleteStudentApplication(applicationId);
     await invalidateClientCache(existing.clientId);
+    await invalidateDashboardCache();
 
     return res.status(200).json({ success: true, message: "Application deleted successfully." });
   } catch (error: any) {
@@ -279,6 +301,7 @@ export const upsertTuitionDepositController = async (req: Request, res: Response
     });
 
     await invalidateClientCache(existing.clientId);
+    await invalidateDashboardCache();
 
     try {
       const isUpdate = !!priorDeposit?.tuitionDepositProductPaymentId;
@@ -303,9 +326,11 @@ export const upsertTuitionDepositController = async (req: Request, res: Response
 
     return res.status(200).json({ success: true, data: tuitionDeposit });
   } catch (error: any) {
-    return res.status(500).json({
+    const message = error.message || "Failed to save tuition deposit.";
+    const isDuplicateTuitionDeposit = message.toLowerCase().includes("tuition deposit");
+    return res.status(isDuplicateTuitionDeposit ? 409 : 500).json({
       success: false,
-      message: error.message || "Failed to save tuition deposit.",
+      message,
     });
   }
 };

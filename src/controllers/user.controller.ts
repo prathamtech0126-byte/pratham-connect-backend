@@ -46,6 +46,17 @@ export const registerUser = async (req: Request, res: Response) => {
 
     // normalize input: accept snake_case or variants from clients
     const body = req.body || {};
+    const teamRaw = body.teamId ?? body.team_id;
+    let teamId: number | null | undefined = undefined;
+    if (teamRaw === null || teamRaw === "") {
+      teamId = null;
+    } else if (teamRaw !== undefined) {
+      const parsed = Number(teamRaw);
+      if (!Number.isFinite(parsed) || isNaN(parsed)) {
+        return res.status(400).json({ message: "teamId must be a valid number" });
+      }
+      teamId = parsed;
+    }
     // normalize managerId: accept numeric strings, null/empty => undefined
     const managerRaw = body.managerId ?? body.manager_id;
     let managerId: number | undefined = undefined;
@@ -62,6 +73,8 @@ export const registerUser = async (req: Request, res: Response) => {
       email: body.email ? body.email.toLowerCase().trim() : undefined,
       password: body.password,
       role: body.role,
+      roleId: body.roleId ?? body.role_id,
+      teamId,
       empId: body.empId ?? body.emp_id,
       managerId,
       officePhone:
@@ -90,6 +103,7 @@ export const registerUser = async (req: Request, res: Response) => {
             email: user.email,
             fullName: user.fullName,
             role: user.role,
+            roleId: user.roleId,
             managerId: user.managerId,
           },
           description: `User created: ${user.fullName} (${user.role})`,
@@ -280,6 +294,8 @@ export const login = async (req: Request, res: Response) => {
     personalPhone: user.personalPhone,
     designation: user.designation,
     role: user.role,
+    roleId: user.roleId ?? null,
+    teamId: user.teamId ?? null,
     accessToken,
     csrfToken,
   });
@@ -458,6 +474,8 @@ export const refreshAccessToken = async (req: Request, res: Response) => {
     message: "Token refreshed successfully",
     accessToken: newAccessToken,
     role: dbUser.role,
+    roleId: dbUser.roleId ?? null,
+    teamId: dbUser.teamId ?? null,
     expiresIn: "15m",
     csrfToken,
   });
@@ -549,6 +567,8 @@ export const getCurrentUser = async (req: Request, res: Response) => {
         personalPhone: users.personalPhone,
         designation: users.designation,
         role: users.role,
+        roleId: users.roleId,
+        teamId: users.teamId,
         managerId: users.managerId,
         isSupervisor: users.isSupervisor,
         tourSeenPages: users.tourSeenPages,
@@ -571,6 +591,8 @@ export const getCurrentUser = async (req: Request, res: Response) => {
       personalPhone: user.personalPhone,
       designation: user.designation,
       role: user.role,
+      roleId: user.roleId ?? null,
+      teamId: user.teamId ?? null,
       managerId: user.managerId,
       isSupervisor: user.isSupervisor,
       tourSeenPages: user.tourSeenPages ?? [],
@@ -589,6 +611,17 @@ export const updateUserController = async (req: Request, res: Response) => {
   const userId = Number(req.params.userId);
 
   const body = req.body || {};
+  const teamRaw = body.teamId ?? body.team_id;
+  let teamId: number | null | undefined = undefined;
+  if (teamRaw === null || teamRaw === "") {
+    teamId = null;
+  } else if (teamRaw !== undefined) {
+    const parsed = Number(teamRaw);
+    if (!Number.isFinite(parsed) || isNaN(parsed)) {
+      return res.status(400).json({ message: "teamId must be a valid number" });
+    }
+    teamId = parsed;
+  }
 
   // normalize managerId: accept numeric strings, null/empty => undefined
   const managerRaw = body.managerId ?? body.manager_id;
@@ -622,6 +655,8 @@ export const updateUserController = async (req: Request, res: Response) => {
     email: body.email ? body.email.toLowerCase().trim() : undefined,
     password: body.password,
     role: body.role,
+    roleId: body.roleId ?? body.role_id,
+    teamId,
     empId: normalizeOptional(body.empId ?? body.emp_id),
     managerId,
     officePhone: normalizeOptional(
@@ -650,6 +685,8 @@ export const updateUserController = async (req: Request, res: Response) => {
           fullName: users.fullName,
           email: users.email,
           role: users.role,
+          roleId: users.roleId,
+          teamId: users.teamId,
           empId: users.emp_id,
           managerId: users.managerId,
           officePhone: users.officePhone,
@@ -692,6 +729,8 @@ export const updateUserController = async (req: Request, res: Response) => {
           email: updatedUser.email,
           fullName: updatedUser.fullName,
           role: updatedUser.role,
+          roleId: updatedUser.roleId,
+          teamId: updatedUser.teamId,
           managerId: updatedUser.managerId,
           status: updatedUser.status,
         },
@@ -745,6 +784,8 @@ export const deleteUserController = async (req: Request, res: Response) => {
         fullName: users.fullName,
         email: users.email,
         role: users.role,
+        roleId: users.roleId,
+        teamId: users.teamId,
         emp_id: users.emp_id,
         managerId: users.managerId,
         designation: users.designation,
@@ -762,6 +803,8 @@ export const deleteUserController = async (req: Request, res: Response) => {
         fullName: targetUser.fullName,
         email: targetUser.email,
         role: targetUser.role,
+        roleId: targetUser.roleId ?? null,
+        teamId: targetUser.teamId ?? null,
         empId: targetUser.emp_id ?? null,
         managerId: targetUser.managerId ?? null,
         designation: targetUser.designation ?? null,
@@ -925,9 +968,10 @@ export const getAllCounsellorsAdminController = async (req: Request, res: Respon
     const [self] = await db
       .select({
         id: users.id,
-        fullName: users.fullName,
+        fullName: users.fullName, 
         email: users.email,
         managerId: users.managerId,
+        status:users.status
       })
       .from(users)
       .where(and(eq(users.id, authReq.user.id), eq(users.role, "counsellor")))
