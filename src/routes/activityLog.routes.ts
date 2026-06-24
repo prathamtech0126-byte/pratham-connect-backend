@@ -5,20 +5,55 @@ import { requireAuth, requireRole } from "../middlewares/auth.middleware";
 const router = Router();
 
 /**
- * Get activity logs (role-based access)
- * - Admin: All logs
- * - Manager: Only counsellor activities
- * - Counsellor: Own activities + Manager activities on their clients
- * - Telecaller: Own activities only
- *
- * Query parameters:
- * - clientId: Filter by client ID
- * - action: Filter by action (CREATE, UPDATE, DELETE, etc.)
- * - entityType: Filter by entity type (client, client_payment, etc.)
- * - startDate: Filter from date (ISO string: YYYY-MM-DD)
- * - endDate: Filter to date (ISO string: YYYY-MM-DD)
- * - page: Page number (default: 1)
- * - limit: Items per page (default: 50, max: 100)
+ * @openapi
+ * /api/activity-logs:
+ *   get:
+ *     tags: [ActivityLogs]
+ *     summary: Get activity logs (scope depends on role)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: clientId
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: action
+ *         schema:
+ *           type: string
+ *           example: CREATE
+ *       - in: query
+ *         name: entityType
+ *         schema:
+ *           type: string
+ *           example: client
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *     responses:
+ *       200:
+ *         description: Activity logs
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
  */
 router.get(
   "/",

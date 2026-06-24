@@ -13,9 +13,111 @@ import {
 const router = Router();
 
 /**
- * Test Google Sheets connection
- * GET /api/google-sheets/test
- * Access: admin, manager
+ * @openapi
+ * /api/google-sheets/test:
+ *   get:
+ *     tags: [GoogleSheets]
+ *     summary: Test Google Sheets connection
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Connection OK
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/google-sheets/metadata:
+ *   get:
+ *     tags: [GoogleSheets]
+ *     summary: Get spreadsheet metadata
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Metadata
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/google-sheets/read:
+ *   get:
+ *     tags: [GoogleSheets]
+ *     summary: Read data from a sheet range
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: range
+ *         required: true
+ *         schema:
+ *           type: string
+ *           example: Sheet1!A1:Z1000
+ *     responses:
+ *       200:
+ *         description: Sheet data
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/google-sheets/write:
+ *   post:
+ *     tags: [GoogleSheets]
+ *     summary: Write data to a sheet range
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Written
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/google-sheets/append:
+ *   post:
+ *     tags: [GoogleSheets]
+ *     summary: Append rows to a sheet range
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Appended
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/google-sheets/clear:
+ *   delete:
+ *     tags: [GoogleSheets]
+ *     summary: Clear a sheet range
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: range
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Cleared
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden — admin/developer only
+ * /api/google-sheets/batch-update:
+ *   post:
+ *     tags: [GoogleSheets]
+ *     summary: Batch update multiple sheet ranges
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Updated
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
  */
 router.get(
   "/test",
@@ -23,75 +125,36 @@ router.get(
   requireRole("developer","admin", "manager"),
   testConnectionController
 );
-
-/**
- * Get sheet metadata
- * GET /api/google-sheets/metadata
- * Access: admin, manager
- */
 router.get(
   "/metadata",
   requireAuth,
   requireRole("developer","admin", "manager"),
   getMetadataController
 );
-
-/**
- * Read data from Google Sheet
- * GET /api/google-sheets/read?range=Sheet1!A1:Z1000
- * Access: admin, manager, counsellor
- */
 router.get(
   "/read",
   requireAuth,
   requireRole("developer","admin", "manager", "counsellor","cx", "binding", "application"),
   readSheetController
 );
-
-/**
- * Write data to Google Sheet
- * POST /api/google-sheets/write
- * Body: { range: "Sheet1!A1", values: [[...], [...]], valueInputOption?: "RAW" | "USER_ENTERED" }
- * Access: admin, manager
- */
 router.post(
   "/write",
   requireAuth,
   requireRole("developer","admin", "manager"),
   writeSheetController
 );
-
-/**
- * Append data to Google Sheet
- * POST /api/google-sheets/append
- * Body: { range: "Sheet1!A:Z", values: [[...], [...]], valueInputOption?: "RAW" | "USER_ENTERED" }
- * Access: admin, manager
- */
 router.post(
   "/append",
   requireAuth,
   requireRole("developer","admin", "manager"),
   appendSheetController
 );
-
-/**
- * Clear data from Google Sheet
- * DELETE /api/google-sheets/clear?range=Sheet1!A1:Z1000
- * Access: admin
- */
 router.delete(
   "/clear",
   requireAuth,
   requireRole("developer","admin"),
   clearSheetController
 );
-
-/**
- * Batch update multiple ranges
- * POST /api/google-sheets/batch-update
- * Body: { data: [{ range: "...", values: [...] }, ...], valueInputOption?: "RAW" | "USER_ENTERED" }
- * Access: admin, manager
- */
 router.post(
   "/batch-update",
   requireAuth,

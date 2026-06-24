@@ -238,8 +238,8 @@ export const saveClientPaymentController = async (
             oldValue: oldValue,
             newValue: newValueForLog,
             description: result.action === "CREATED"
-              ? `New payment added: ${result.payment.stage} - $${result.payment.amount}`
-              : `Payment updated: ${result.payment.stage} - $${result.payment.amount}`,
+              ? `New payment added: ${result.payment.stage} - ₹${Number(result.payment.amount).toLocaleString("en-IN")}`
+              : `Payment updated: ${result.payment.stage} - ₹${Number(result.payment.amount).toLocaleString("en-IN")}`,
             metadata: {
               stage: result.payment.stage,
               amount: result.payment.amount != null ? String(result.payment.amount) : null,

@@ -1124,7 +1124,11 @@ export const getSaleMetricSeries = async (
   if (filter === "monthly" || filter === "custom") {
     const totalDays =
       filter === "monthly"
-        ? new Date(current.start.getFullYear(), current.start.getMonth() + 1, 0).getDate()
+        ? Math.max(
+            new Date(current.start.getFullYear(), current.start.getMonth() + 1, 0).getDate(),
+            new Date(previous.start.getFullYear(), previous.start.getMonth() + 1, 0).getDate(),
+            new Date(previous2.start.getFullYear(), previous2.start.getMonth() + 1, 0).getDate()
+          )
         : Math.max(1, Math.floor((current.end.getTime() - current.start.getTime()) / 86400000) + 1);
     const dayRanges = Array.from({ length: totalDays }, (_, idx) => {
       const day = idx + 1;

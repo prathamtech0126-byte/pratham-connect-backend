@@ -15,9 +15,114 @@ import { preventDuplicateRequests } from "../middlewares/requestDeduplication.mi
 const router = Router();
 
 /**
- * Get leaderboard (ranked counsellors)
- * GET /api/leaderboard?month=1&year=2026
- * Access: admin, manager, counsellor
+ * @openapi
+ * /api/leaderboard:
+ *   get:
+ *     tags: [Leaderboard]
+ *     summary: Get ranked counsellor leaderboard
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: month
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: year
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Leaderboard
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/leaderboard/summary:
+ *   get:
+ *     tags: [Leaderboard]
+ *     summary: Get leaderboard summary (totals)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: month
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: year
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Summary stats
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/leaderboard/counsellors:
+ *   get:
+ *     tags: [Leaderboard]
+ *     summary: Get counsellor list for target dropdown
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Counsellor list
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/leaderboard/target:
+ *   post:
+ *     tags: [Leaderboard]
+ *     summary: Set a counsellor target
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       201:
+ *         description: Target set
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/leaderboard/target/{id}:
+ *   put:
+ *     tags: [Leaderboard]
+ *     summary: Update a counsellor target
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Updated
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *   delete:
+ *     tags: [Leaderboard]
+ *     summary: Delete a counsellor target
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Deleted
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
  */
 router.get(
   "/",
@@ -25,31 +130,19 @@ router.get(
   requireRole("developer","admin", "manager", "counsellor"),
   getLeaderboardController
 );
-
-/**
- * Get leaderboard summary (total counsellors, enrollments, revenue)
- * GET /api/leaderboard/summary?month=1&year=2026
- * Access: admin, manager, counsellor
- */
 router.get(
   "/summary",
   requireAuth,
   requireRole("developer","admin", "manager", "counsellor"),
   getLeaderboardSummaryController
 );
-
-/**
- * Get counsellor list for target dropdown (id, name only).
- * Admin / manager (supervisor): all counsellors; manager (not supervisor): own team; counsellor: [].
- * GET image.png
- * get /api/leaderboard/counsellors
- */
 router.get(
   "/counsellors",
   requireAuth,
   requireRole("developer","admin", "manager"),
   getLeaderboardCounsellorsController
 );
+
 
 /**
  * Get sale type categories for leaderboard tabs
@@ -79,6 +172,7 @@ router.get(
  * Body: { counsellorId, target, month, year }
  * Access: admin, manager
  */
+
 router.post(
   "/target",
   requireAuth,
@@ -86,13 +180,6 @@ router.post(
   preventDuplicateRequests,
   setTargetController
 );
-
-/**
- * Update target
- * PUT /api/leaderboard/target/:id
- * Body: { target }
- * Access: admin, manager
- */
 router.put(
   "/target/:id",
   requireAuth,
@@ -100,13 +187,6 @@ router.put(
   preventDuplicateRequests,
   updateTargetController
 );
-
-/**
- * Delete target
- * DELETE /api/leaderboard/target/:id
- * Access: admin, or manager (only targets they created)
- * Emits only the affected counsellor's leaderboard row.
- */
 router.delete(
   "/target/:id",
   requireAuth,

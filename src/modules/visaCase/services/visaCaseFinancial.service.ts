@@ -9,6 +9,7 @@ import { products } from "../../products/schemas/product.schema";
 export type VisaCaseFinancialSummary = {
   totalCharges: string;
   initialCharges: string;
+  beforeVisaCharges: string;
   financeCharges: string;
   balanceDue: string;
 };
@@ -22,6 +23,7 @@ export type VisaCaseFinancialLookup = {
 export type DashboardFinancialAggregate = {
   totalCharges: string;
   initialCharges: string;
+  beforeVisaCharges: string;
   financeCharges: string;
   balanceDue: string;
   clientsFullyPaid: number;
@@ -31,6 +33,7 @@ export type DashboardFinancialAggregate = {
 const emptyDashboardFinancialAggregate = (): DashboardFinancialAggregate => ({
   totalCharges: "0.00",
   initialCharges: "0.00",
+  beforeVisaCharges: "0.00",
   financeCharges: "0.00",
   balanceDue: "0.00",
   clientsFullyPaid: 0,
@@ -64,17 +67,19 @@ type ClientPaymentAggregateRow = {
   total_payment: string;
   paid_amount: string;
   initial_amount: string;
+  before_visa_amount: string;
 };
 
 const mapClientPaymentAggregate = (
   row: ClientPaymentAggregateRow
-): Pick<VisaCaseFinancialSummary, "totalCharges" | "initialCharges" | "balanceDue"> => {
+): Pick<VisaCaseFinancialSummary, "totalCharges" | "initialCharges" | "beforeVisaCharges" | "balanceDue"> => {
   const totalCharges = parseMoney(row.total_payment);
   const paidAmount = parseMoney(row.paid_amount);
 
   return {
     totalCharges: formatMoney(totalCharges),
     initialCharges: formatMoney(parseMoney(row.initial_amount)),
+    beforeVisaCharges: formatMoney(parseMoney(row.before_visa_amount)),
     balanceDue: formatMoney(Math.max(totalCharges - paidAmount, 0)),
   };
 };
@@ -82,7 +87,7 @@ const mapClientPaymentAggregate = (
 /** Core sale financials from main CRM client_payment (per client + sale type). */
 export const getFinancialSummariesFromClientPayment = async (
   pairs: Array<{ legacyClientId: number; legacySaleTypeId: number }>
-): Promise<Map<string, Pick<VisaCaseFinancialSummary, "totalCharges" | "initialCharges" | "balanceDue">>> => {
+): Promise<Map<string, Pick<VisaCaseFinancialSummary, "totalCharges" | "initialCharges" | "beforeVisaCharges" | "balanceDue">>> => {
   const uniquePairs = [
     ...new Map(
       pairs.map((pair) => [
@@ -110,7 +115,10 @@ export const getFinancialSummariesFromClientPayment = async (
       ), 0)::text AS paid_amount,
       COALESCE(SUM(cp.amount::numeric) FILTER (
         WHERE cp.stage = 'INITIAL'
-      ), 0)::text AS initial_amount
+      ), 0)::text AS initial_amount,
+      COALESCE(SUM(cp.amount::numeric) FILTER (
+        WHERE cp.stage = 'BEFORE_VISA'
+      ), 0)::text AS before_visa_amount
     FROM client_payment cp
     INNER JOIN unnest($1::bigint[], $2::int[]) AS t(client_id, sale_type_id)
       ON cp.client_id = t.client_id AND cp.sale_type_id = t.sale_type_id
@@ -121,7 +129,7 @@ export const getFinancialSummariesFromClientPayment = async (
 
   const result = new Map<
     string,
-    Pick<VisaCaseFinancialSummary, "totalCharges" | "initialCharges" | "balanceDue">
+    Pick<VisaCaseFinancialSummary, "totalCharges" | "initialCharges" | "beforeVisaCharges" | "balanceDue">
   >();
 
   for (const row of rows) {
@@ -169,12 +177,13 @@ const getFinanceChargesForClientsBulk = async (
 
 const getModulesFinancialFallback = async (
   clientId: string
-): Promise<Pick<VisaCaseFinancialSummary, "totalCharges" | "initialCharges" | "balanceDue">> => {
+): Promise<Pick<VisaCaseFinancialSummary, "totalCharges" | "initialCharges" | "beforeVisaCharges" | "balanceDue">> => {
   const fallbackMap = await getModulesFinancialFallbackBulk([clientId]);
   return (
     fallbackMap.get(clientId) ?? {
       totalCharges: "0.00",
       initialCharges: "0.00",
+      beforeVisaCharges: "0.00",
       balanceDue: "0.00",
     }
   );
@@ -183,7 +192,7 @@ const getModulesFinancialFallback = async (
 const getModulesFinancialFallbackBulk = async (
   clientIds: string[]
 ): Promise<
-  Map<string, Pick<VisaCaseFinancialSummary, "totalCharges" | "initialCharges" | "balanceDue">>
+  Map<string, Pick<VisaCaseFinancialSummary, "totalCharges" | "initialCharges" | "beforeVisaCharges" | "balanceDue">>
 > => {
   const uniqueIds = [...new Set(clientIds)];
   if (uniqueIds.length === 0) return new Map();
@@ -226,19 +235,20 @@ const getModulesFinancialFallbackBulk = async (
   }
 
   const initialTotalByClient = new Map<string, number>();
+  const beforeVisaTotalByClient = new Map<string, number>();
   for (const row of amountRows) {
     if (row.consultancyStage === "INITIAL") {
       const current = initialTotalByClient.get(row.clientId) ?? 0;
-      initialTotalByClient.set(
-        row.clientId,
-        current + parseMoney(row.amount)
-      );
+      initialTotalByClient.set(row.clientId, current + parseMoney(row.amount));
+    } else if (row.consultancyStage === "BEFORE_VISA") {
+      const current = beforeVisaTotalByClient.get(row.clientId) ?? 0;
+      beforeVisaTotalByClient.set(row.clientId, current + parseMoney(row.amount));
     }
   }
 
   const result = new Map<
     string,
-    Pick<VisaCaseFinancialSummary, "totalCharges" | "initialCharges" | "balanceDue">
+    Pick<VisaCaseFinancialSummary, "totalCharges" | "initialCharges" | "beforeVisaCharges" | "balanceDue">
   >();
 
   for (const clientId of uniqueIds) {
@@ -251,6 +261,7 @@ const getModulesFinancialFallbackBulk = async (
     result.set(clientId, {
       totalCharges: formatMoney(totalCharges),
       initialCharges: formatMoney(initialTotalByClient.get(clientId) ?? 0),
+      beforeVisaCharges: formatMoney(beforeVisaTotalByClient.get(clientId) ?? 0),
       balanceDue: formatMoney(balanceDue),
     });
   }
@@ -270,6 +281,7 @@ export const aggregateDashboardFinancials = async (
 
   let totalCharges = 0;
   let initialCharges = 0;
+  let beforeVisaCharges = 0;
   let financeCharges = 0;
   let balanceDue = 0;
   let clientsFullyPaid = 0;
@@ -284,12 +296,14 @@ export const aggregateDashboardFinancials = async (
     const summary = summaries.get(key) ?? {
       totalCharges: "0.00",
       initialCharges: "0.00",
+      beforeVisaCharges: "0.00",
       financeCharges: "0.00",
       balanceDue: "0.00",
     };
 
     totalCharges += parseMoney(summary.totalCharges);
     initialCharges += parseMoney(summary.initialCharges);
+    beforeVisaCharges += parseMoney(summary.beforeVisaCharges);
     financeCharges += parseMoney(summary.financeCharges);
 
     const due = parseMoney(summary.balanceDue);
@@ -304,6 +318,7 @@ export const aggregateDashboardFinancials = async (
   return {
     totalCharges: formatMoney(totalCharges),
     initialCharges: formatMoney(initialCharges),
+    beforeVisaCharges: formatMoney(beforeVisaCharges),
     financeCharges: formatMoney(financeCharges),
     balanceDue: formatMoney(balanceDue),
     clientsFullyPaid,
@@ -400,6 +415,7 @@ export const getFinancialSummariesForVisaCases = async (
       modulesFallbackMap.get(lookup.clientId) ?? {
         totalCharges: "0.00",
         initialCharges: "0.00",
+        beforeVisaCharges: "0.00",
         balanceDue: "0.00",
       };
 

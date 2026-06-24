@@ -10,9 +10,20 @@ import {
 const router = Router();
 
 /**
- * Get pending all finance approvals
- * GET /api/all-finance/pending
- * Access: admin, manager
+ * @openapi
+ * /api/all-finance/pending:
+ *   get:
+ *     tags: [AllFinance]
+ *     summary: Get pending all-finance payment approvals
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of pending approvals
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden — admin/manager/developer only
  */
 router.get(
   "/pending",
@@ -22,9 +33,26 @@ router.get(
 );
 
 /**
- * Approve all finance payment
- * POST /api/all-finance/:financeId/approve
- * Access: admin, manager
+ * @openapi
+ * /api/all-finance/{financeId}/approve:
+ *   post:
+ *     tags: [AllFinance]
+ *     summary: Approve an all-finance payment
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: financeId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Approved
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
  */
 router.post(
   "/:financeId/approve",
@@ -34,9 +62,26 @@ router.post(
 );
 
 /**
- * Reject all finance payment
- * POST /api/all-finance/:financeId/reject
- * Access: admin, manager
+ * @openapi
+ * /api/all-finance/{financeId}/reject:
+ *   post:
+ *     tags: [AllFinance]
+ *     summary: Reject an all-finance payment
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: financeId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Rejected
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
  */
 router.post(
   "/:financeId/reject",
@@ -46,11 +91,20 @@ router.post(
 );
 
 /**
- * Get approval/rejection history
- * GET /api/all-finance/history
- * Access: admin, manager
- * - Admin: all records
- * - Manager: all except their own approvals/rejections
+ * @openapi
+ * /api/all-finance/history:
+ *   get:
+ *     tags: [AllFinance]
+ *     summary: Get all-finance approval/rejection history
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Approval history
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
  */
 router.get(
   "/history",

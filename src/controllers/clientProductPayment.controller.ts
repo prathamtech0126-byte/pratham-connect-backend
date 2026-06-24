@@ -348,7 +348,7 @@ export const saveClientProductPaymentController = async (
 
         const amount = newValueForLog?.amount;
         const amountText =
-          amount != null && amount !== "" ? `$${Number(amount).toFixed(2)}` : "—";
+          amount != null && amount !== "" ? `₹${Number(amount).toLocaleString("en-IN")}` : "—";
         await logActivity(req, {
           entityType: "clientProductPayment",
           entityId: Number(result.record.entityId ?? result.record.productPaymentId),

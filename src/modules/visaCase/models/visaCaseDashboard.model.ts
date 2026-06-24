@@ -232,10 +232,10 @@ export const fetchDashboardAggregates = async (
       `
       SELECT
         COUNT(*)::text AS total_clients,
-        COUNT(*) FILTER (WHERE vc.decision = 'APPROVED')::text AS approved,
-        COUNT(*) FILTER (WHERE vc.decision = 'REFUSED')::text AS refused,
-        COUNT(*) FILTER (WHERE vc.decision = 'WITHDRAWN')::text AS withdrawn,
-        COUNT(*) FILTER (WHERE vc.decision = 'PENDING')::text AS pending,
+        COUNT(*) FILTER (WHERE vc.current_sub_status = 'DECISION_APPROVED')::text AS approved,
+        COUNT(*) FILTER (WHERE vc.current_sub_status = 'DECISION_REFUSED')::text AS refused,
+        COUNT(*) FILTER (WHERE vc.current_sub_status = 'DECISION_WITHDRAWN')::text AS withdrawn,
+        COUNT(*) FILTER (WHERE vc.current_sub_status NOT IN ('DECISION_APPROVED', 'DECISION_REFUSED', 'DECISION_WITHDRAWN'))::text AS pending,
         COUNT(*) FILTER (WHERE vc.current_sub_status = 'FILE_SUBMITTED')::text AS files_submitted
       ${withWhere(baseFrom)}
       `,
@@ -329,10 +329,10 @@ export const fetchDashboardAggregates = async (
       `
       SELECT
         ${resolvedCountryNameSql} AS country_name,
-        COUNT(*) FILTER (WHERE vc.decision = 'APPROVED')::text AS approved,
-        COUNT(*) FILTER (WHERE vc.decision = 'REFUSED')::text AS refused,
-        COUNT(*) FILTER (WHERE vc.decision = 'WITHDRAWN')::text AS withdrawn,
-        COUNT(*) FILTER (WHERE vc.decision = 'PENDING')::text AS pending,
+        COUNT(*) FILTER (WHERE vc.current_sub_status = 'DECISION_APPROVED')::text AS approved,
+        COUNT(*) FILTER (WHERE vc.current_sub_status = 'DECISION_REFUSED')::text AS refused,
+        COUNT(*) FILTER (WHERE vc.current_sub_status = 'DECISION_WITHDRAWN')::text AS withdrawn,
+        COUNT(*) FILTER (WHERE vc.current_sub_status NOT IN ('DECISION_APPROVED', 'DECISION_REFUSED', 'DECISION_WITHDRAWN'))::text AS pending,
         COUNT(*)::text AS total
       ${withWhere(baseFromWithResolvedCountry)}
       GROUP BY ${resolvedCountryNameSql}
