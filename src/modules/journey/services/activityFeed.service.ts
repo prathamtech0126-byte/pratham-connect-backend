@@ -188,7 +188,7 @@ async function fetchActivityLogEvents(
       phase: derivePhase(row.entity_type),
       type: deriveType(row.entity_type, row.action),
       title: deriveTitle(row.entity_type, row.action),
-      description: row.description ?? null,
+      description: row.description?.replace(/\$/g, "₹") ?? null,
       actor: actorId
         ? {
             id: actorId,
