@@ -48,7 +48,8 @@
     "export:rule-data": "ts-node src/scripts/exportRuleData.ts",
     "import:rule-data": "ts-node src/scripts/importRuleData.ts",
     "cleanup:seed": "ts-node src/scripts/cleanupAndSeed.ts",
-    "cache:clear": "ts-node src/scripts/clearRedisCache.ts"
+    "cache:clear": "ts-node src/scripts/clearRedisCache.ts",
+    "delete:clients": "ts-node src/scripts/deleteTestClients.ts"
   },
   "keywords": [],
   "author": "",
