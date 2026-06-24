@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../../../middlewares/auth.middleware";
 import {
+  getActivityFeedController,
   getJourneySummaryController,
   getJourneyTimelineController,
 } from "../controllers/journey.controller";
@@ -17,8 +18,10 @@ const router = Router();
  *
  *   GET  /api/modules/clients/:clientId/journey-timeline
  *   GET  /api/modules/clients/:clientId/journey-summary
+ *   GET  /api/modules/clients/:clientId/activity-feed
  */
 router.get("/:clientId/journey-timeline", requireAuth, getJourneyTimelineController);
 router.get("/:clientId/journey-summary", requireAuth, getJourneySummaryController);
+router.get("/:clientId/activity-feed", requireAuth, getActivityFeedController);
 
 export default router;

@@ -421,6 +421,7 @@ export const getVisaCaseList = async (
       ({
         totalCharges: "0.00",
         initialCharges: "0.00",
+        beforeVisaCharges: "0.00",
         financeCharges: "0.00",
         balanceDue: "0.00",
       } satisfies VisaCaseFinancialSummary);

@@ -116,10 +116,10 @@ export const fetchBackendDashboardAggregates = async (
           FROM (
             SELECT
               COUNT(*)::text AS total_clients,
-              COUNT(*) FILTER (WHERE decision = 'APPROVED')::text AS approved,
-              COUNT(*) FILTER (WHERE decision = 'REFUSED')::text AS refused,
-              COUNT(*) FILTER (WHERE decision = 'WITHDRAWN')::text AS withdrawn,
-              COUNT(*) FILTER (WHERE decision = 'PENDING')::text AS pending,
+              COUNT(*) FILTER (WHERE current_sub_status = 'DECISION_APPROVED')::text AS approved,
+              COUNT(*) FILTER (WHERE current_sub_status = 'DECISION_REFUSED')::text AS refused,
+              COUNT(*) FILTER (WHERE current_sub_status = 'DECISION_WITHDRAWN')::text AS withdrawn,
+              COUNT(*) FILTER (WHERE current_sub_status NOT IN ('DECISION_APPROVED', 'DECISION_REFUSED', 'DECISION_WITHDRAWN'))::text AS pending,
               COUNT(*) FILTER (WHERE current_sub_status = 'FILE_SUBMITTED')::text AS files_submitted
             FROM scoped_cases
           ) t
@@ -139,10 +139,10 @@ export const fetchBackendDashboardAggregates = async (
               assigned_user_id::text AS assigned_user_id,
               assigned_team::text AS assigned_team,
               COUNT(*)::text AS active_cases,
-              COUNT(*) FILTER (WHERE decision = 'APPROVED')::text AS approved,
-              COUNT(*) FILTER (WHERE decision = 'REFUSED')::text AS refused,
-              COUNT(*) FILTER (WHERE decision = 'WITHDRAWN')::text AS withdrawn,
-              COUNT(*) FILTER (WHERE decision = 'PENDING')::text AS pending,
+              COUNT(*) FILTER (WHERE current_sub_status = 'DECISION_APPROVED')::text AS approved,
+              COUNT(*) FILTER (WHERE current_sub_status = 'DECISION_REFUSED')::text AS refused,
+              COUNT(*) FILTER (WHERE current_sub_status = 'DECISION_WITHDRAWN')::text AS withdrawn,
+              COUNT(*) FILTER (WHERE current_sub_status NOT IN ('DECISION_APPROVED', 'DECISION_REFUSED', 'DECISION_WITHDRAWN'))::text AS pending,
               COUNT(*) FILTER (WHERE current_sub_status = 'FILE_SUBMITTED')::text AS files_submitted
             FROM scoped_cases
             WHERE assigned_user_id IS NOT NULL
