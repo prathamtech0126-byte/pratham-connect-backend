@@ -1,3 +1,5 @@
+import { stampTransferredAtOnPatch } from "./leadTransferredAt.service";
+
 type LeadAssignSnapshot = {
   currentTelecallerId?: number | null;
   assignmentStatus?: string | null;
@@ -44,5 +46,5 @@ export function buildCounsellorAssignPatch(
     }
   }
 
-  return patch;
+  return stampTransferredAtOnPatch(patch);
 }

@@ -6,7 +6,7 @@ import { db } from "../../../config/databaseConnection";
 import { leads } from "../../schemas/leads.schema";
 import { getIndianNow } from "../../models/lead.model";
 import { insertLeadRecord } from "../../services/leadInsert.service";
-import { serializePgNaiveTimestampAsIst } from "../../../utils/pgTimestamp";
+import { serializeAsIst } from "../../../utils/istTime";
 import { mapPlatformToLeadType } from "../../models/leadType.model";
 import {
   clearFacebookAuthState,
@@ -971,8 +971,8 @@ export const getFacebookManualDistributionLeadsController = async (req: Request,
         ...result,
         data: result.data.map((row) => ({
           ...row,
-          createdAt: serializePgNaiveTimestampAsIst(row.createdAt) ?? String(row.createdAt),
-          facebookCreatedAt: serializePgNaiveTimestampAsIst(row.facebookCreatedAt) ?? String(row.facebookCreatedAt),
+          createdAt: serializeAsIst(row.createdAt) ?? String(row.createdAt),
+          facebookCreatedAt: serializeAsIst(row.facebookCreatedAt) ?? String(row.facebookCreatedAt),
         })),
       },
     });

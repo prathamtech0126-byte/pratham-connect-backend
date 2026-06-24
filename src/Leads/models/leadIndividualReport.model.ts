@@ -1,10 +1,11 @@
 import { sql } from "drizzle-orm";
 import { db } from "../../config/databaseConnection";
-
-const dateRangeSql = (createdFrom?: Date, createdTo?: Date) => sql`
-  ${createdFrom ? sql`AND created_at >= ${createdFrom}` : sql``}
-  ${createdTo ? sql`AND created_at <= ${createdTo}` : sql``}
-`;
+import {
+  convertedInPeriodSql,
+  createdInPeriodSql,
+  droppedInPeriodSql,
+  transferOutcomeInPeriodSql,
+} from "../services/leadReportPeriodSql.service";
 
 export type TelecallerReportStats = {
   assigned: number;
@@ -94,29 +95,30 @@ export const getTelecallerIndividualReport = async (
 ) => {
   const statsResult = await db.execute(sql`
     SELECT
-      COUNT(*) FILTER (WHERE NOT is_junk)::int AS "assigned",
+      COUNT(*) FILTER (WHERE true ${createdInPeriodSql(createdFrom, createdTo)})::int AS "assigned",
       COUNT(*) FILTER (
         WHERE NOT is_junk
         AND progress_status IN ('contacted', 'follow_up', 'converted')
+        ${createdInPeriodSql(createdFrom, createdTo)}
       )::int AS "contacted",
       COUNT(*) FILTER (
-        WHERE NOT is_junk AND progress_status = 'not_contacted'
+        WHERE NOT is_junk
+        AND progress_status = 'not_contacted'
+        ${createdInPeriodSql(createdFrom, createdTo)}
       )::int AS "notContacted",
+      COUNT(*) FILTER (WHERE ${transferOutcomeInPeriodSql(createdFrom, createdTo)})::int AS "transferred",
+      COUNT(*) FILTER (WHERE ${convertedInPeriodSql(createdFrom, createdTo)})::int AS "converted",
       COUNT(*) FILTER (
-        WHERE NOT is_junk AND assignment_status IN ('transferred', 'dropped')
-      )::int AS "transferred",
-      COUNT(*) FILTER (
-        WHERE NOT is_junk AND assignment_status = 'converted'
-      )::int AS "converted",
-      COUNT(*) FILTER (
-        WHERE NOT is_junk AND progress_status = 'follow_up'
+        WHERE NOT is_junk
+        AND progress_status = 'follow_up'
+        ${createdInPeriodSql(createdFrom, createdTo)}
       )::int AS "pendingFollowUp",
       COUNT(*) FILTER (
-        WHERE is_junk OR progress_status = 'junk'
+        WHERE (is_junk OR progress_status = 'junk')
+        ${createdInPeriodSql(createdFrom, createdTo)}
       )::int AS "junk"
     FROM leads
     WHERE current_telecaller_id = ${telecallerId}
-    ${dateRangeSql(createdFrom, createdTo)}
   `);
 
   const statsRow = mapRows(statsResult)[0] ?? {};
@@ -133,13 +135,15 @@ export const getTelecallerIndividualReport = async (
   const categoryResult = await db.execute(sql`
     SELECT
       COALESCE(NULLIF(TRIM(lead_type), ''), 'Unknown') AS "type",
-      COUNT(*)::int AS "assigned",
-      COUNT(*) FILTER (WHERE assignment_status IN ('transferred', 'dropped'))::int AS "transferred",
-      COUNT(*) FILTER (WHERE assignment_status = 'converted')::int AS "converted",
-      COUNT(*) FILTER (WHERE is_junk OR progress_status = 'junk')::int AS "junk"
+      COUNT(*) FILTER (WHERE true ${createdInPeriodSql(createdFrom, createdTo)})::int AS "assigned",
+      COUNT(*) FILTER (WHERE ${transferOutcomeInPeriodSql(createdFrom, createdTo)})::int AS "transferred",
+      COUNT(*) FILTER (WHERE ${convertedInPeriodSql(createdFrom, createdTo)})::int AS "converted",
+      COUNT(*) FILTER (
+        WHERE (is_junk OR progress_status = 'junk')
+        ${createdInPeriodSql(createdFrom, createdTo)}
+      )::int AS "junk"
     FROM leads
     WHERE current_telecaller_id = ${telecallerId}
-    ${dateRangeSql(createdFrom, createdTo)}
     GROUP BY COALESCE(NULLIF(TRIM(lead_type), ''), 'Unknown')
     ORDER BY "assigned" DESC
   `);
@@ -147,12 +151,11 @@ export const getTelecallerIndividualReport = async (
   const sourceResult = await db.execute(sql`
     SELECT
       COALESCE(NULLIF(TRIM(lead_source), ''), 'Unknown') AS "source",
-      COUNT(*)::int AS "assigned",
-      COUNT(*) FILTER (WHERE assignment_status IN ('transferred', 'dropped'))::int AS "transferred",
-      COUNT(*) FILTER (WHERE assignment_status = 'converted')::int AS "converted"
+      COUNT(*) FILTER (WHERE true ${createdInPeriodSql(createdFrom, createdTo)})::int AS "assigned",
+      COUNT(*) FILTER (WHERE ${transferOutcomeInPeriodSql(createdFrom, createdTo)})::int AS "transferred",
+      COUNT(*) FILTER (WHERE ${convertedInPeriodSql(createdFrom, createdTo)})::int AS "converted"
     FROM leads
     WHERE current_telecaller_id = ${telecallerId}
-    ${dateRangeSql(createdFrom, createdTo)}
     GROUP BY COALESCE(NULLIF(TRIM(lead_source), ''), 'Unknown')
     ORDER BY "assigned" DESC
   `);
@@ -160,13 +163,12 @@ export const getTelecallerIndividualReport = async (
   const counsellorResult = await db.execute(sql`
     SELECT
       current_counsellor_id::int AS "counsellorId",
-      COUNT(*)::int AS "received",
-      COUNT(*) FILTER (WHERE assignment_status = 'converted')::int AS "converted",
-      COUNT(*) FILTER (WHERE assignment_status = 'dropped')::int AS "dropped"
+      COUNT(*) FILTER (WHERE ${transferOutcomeInPeriodSql(createdFrom, createdTo)})::int AS "received",
+      COUNT(*) FILTER (WHERE ${convertedInPeriodSql(createdFrom, createdTo)})::int AS "converted",
+      COUNT(*) FILTER (WHERE ${droppedInPeriodSql(createdFrom, createdTo)})::int AS "dropped"
     FROM leads
     WHERE current_telecaller_id = ${telecallerId}
       AND current_counsellor_id IS NOT NULL
-    ${dateRangeSql(createdFrom, createdTo)}
     GROUP BY current_counsellor_id
     ORDER BY "received" DESC
   `);
@@ -212,31 +214,37 @@ const fetchCounsellorSegment = async (
 
   const statsResult = await db.execute(sql`
     SELECT
-      COUNT(*) FILTER (WHERE NOT is_junk)::int AS "total",
+      COUNT(*) FILTER (
+        WHERE NOT is_junk
+        ${createdInPeriodSql(createdFrom, createdTo)}
+      )::int AS "total",
       COUNT(*) FILTER (
         WHERE NOT is_junk
         AND assignment_status NOT IN ('converted', 'dropped')
         AND progress_status NOT IN ('follow_up', 'converted', 'junk')
+        AND progress_status <> 'not_contacted'
+        ${createdInPeriodSql(createdFrom, createdTo)}
       )::int AS "inProgress",
       COUNT(*) FILTER (
-        WHERE NOT is_junk AND progress_status = 'follow_up'
+        WHERE NOT is_junk
+        AND progress_status = 'follow_up'
+        ${createdInPeriodSql(createdFrom, createdTo)}
       )::int AS "followUp",
+      COUNT(*) FILTER (WHERE ${convertedInPeriodSql(createdFrom, createdTo)})::int AS "converted",
+      COUNT(*) FILTER (WHERE ${droppedInPeriodSql(createdFrom, createdTo)})::int AS "dropped",
       COUNT(*) FILTER (
-        WHERE NOT is_junk AND assignment_status = 'converted'
-      )::int AS "converted",
-      COUNT(*) FILTER (
-        WHERE NOT is_junk AND assignment_status = 'dropped'
-      )::int AS "dropped",
-      COUNT(*) FILTER (
-        WHERE NOT is_junk AND progress_status = 'not_contacted'
+        WHERE NOT is_junk
+        AND progress_status = 'not_contacted'
+        ${createdInPeriodSql(createdFrom, createdTo)}
       )::int AS "notContacted",
       COUNT(*) FILTER (
-        WHERE NOT is_junk AND progress_status = 'contacted'
+        WHERE NOT is_junk
+        AND progress_status = 'contacted'
+        ${createdInPeriodSql(createdFrom, createdTo)}
       )::int AS "contacted"
     FROM leads
     WHERE current_counsellor_id = ${counsellorId}
     ${segmentSql}
-    ${dateRangeSql(createdFrom, createdTo)}
   `);
 
   const statsRow = mapRows(statsResult)[0] ?? {};
@@ -253,13 +261,12 @@ const fetchCounsellorSegment = async (
   const typeResult = await db.execute(sql`
     SELECT
       COALESCE(NULLIF(TRIM(lead_type), ''), 'Unknown') AS "type",
-      COUNT(*)::int AS "assigned",
-      COUNT(*) FILTER (WHERE assignment_status = 'converted')::int AS "converted",
-      COUNT(*) FILTER (WHERE assignment_status = 'dropped')::int AS "dropped"
+      COUNT(*) FILTER (WHERE true ${createdInPeriodSql(createdFrom, createdTo)})::int AS "assigned",
+      COUNT(*) FILTER (WHERE ${convertedInPeriodSql(createdFrom, createdTo)})::int AS "converted",
+      COUNT(*) FILTER (WHERE ${droppedInPeriodSql(createdFrom, createdTo)})::int AS "dropped"
     FROM leads
     WHERE current_counsellor_id = ${counsellorId}
     ${segmentSql}
-    ${dateRangeSql(createdFrom, createdTo)}
     GROUP BY COALESCE(NULLIF(TRIM(lead_type), ''), 'Unknown')
     ORDER BY "assigned" DESC
   `);
@@ -267,13 +274,12 @@ const fetchCounsellorSegment = async (
   const sourceResult = await db.execute(sql`
     SELECT
       COALESCE(NULLIF(TRIM(lead_source), ''), 'Unknown') AS "source",
-      COUNT(*)::int AS "assigned",
-      COUNT(*) FILTER (WHERE assignment_status = 'converted')::int AS "converted",
-      COUNT(*) FILTER (WHERE assignment_status = 'dropped')::int AS "dropped"
+      COUNT(*) FILTER (WHERE true ${createdInPeriodSql(createdFrom, createdTo)})::int AS "assigned",
+      COUNT(*) FILTER (WHERE ${convertedInPeriodSql(createdFrom, createdTo)})::int AS "converted",
+      COUNT(*) FILTER (WHERE ${droppedInPeriodSql(createdFrom, createdTo)})::int AS "dropped"
     FROM leads
     WHERE current_counsellor_id = ${counsellorId}
     ${segmentSql}
-    ${dateRangeSql(createdFrom, createdTo)}
     GROUP BY COALESCE(NULLIF(TRIM(lead_source), ''), 'Unknown')
     ORDER BY "assigned" DESC
   `);
@@ -307,31 +313,36 @@ export const getCounsellorIndividualReport = async (
     db.execute(sql`
       SELECT
         current_telecaller_id::int AS "telecallerId",
-        COUNT(*) FILTER (WHERE NOT is_junk)::int AS "assigned",
+        COUNT(*) FILTER (
+          WHERE NOT is_junk
+          ${createdInPeriodSql(createdFrom, createdTo)}
+        )::int AS "assigned",
         COUNT(*) FILTER (
           WHERE NOT is_junk
           AND assignment_status NOT IN ('converted', 'dropped')
           AND progress_status NOT IN ('follow_up', 'converted', 'junk')
+          AND progress_status <> 'not_contacted'
+          ${createdInPeriodSql(createdFrom, createdTo)}
         )::int AS "inProgress",
         COUNT(*) FILTER (
           WHERE NOT is_junk AND progress_status = 'follow_up'
+          ${createdInPeriodSql(createdFrom, createdTo)}
         )::int AS "followUp",
+        COUNT(*) FILTER (WHERE ${convertedInPeriodSql(createdFrom, createdTo)})::int AS "converted",
+        COUNT(*) FILTER (WHERE ${droppedInPeriodSql(createdFrom, createdTo)})::int AS "dropped",
         COUNT(*) FILTER (
-          WHERE NOT is_junk AND assignment_status = 'converted'
-        )::int AS "converted",
-        COUNT(*) FILTER (
-          WHERE NOT is_junk AND assignment_status = 'dropped'
-        )::int AS "dropped",
-        COUNT(*) FILTER (
-          WHERE NOT is_junk AND progress_status = 'not_contacted'
+          WHERE NOT is_junk
+          AND progress_status = 'not_contacted'
+          ${createdInPeriodSql(createdFrom, createdTo)}
         )::int AS "notContacted",
         COUNT(*) FILTER (
-          WHERE NOT is_junk AND progress_status = 'contacted'
+          WHERE NOT is_junk
+          AND progress_status = 'contacted'
+          ${createdInPeriodSql(createdFrom, createdTo)}
         )::int AS "contacted"
       FROM leads
       WHERE current_counsellor_id = ${counsellorId}
         AND current_telecaller_id IS NOT NULL
-      ${dateRangeSql(createdFrom, createdTo)}
       GROUP BY current_telecaller_id
       ORDER BY "assigned" DESC
     `),
