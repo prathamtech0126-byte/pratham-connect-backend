@@ -24,7 +24,7 @@ import {
 } from "./leaderboard.model";
 import {
   getPendingAmountByCounsellors,
-  getSaleTypeCategoryCounts,
+  getSaleTypeCategoryCountsForReport,
   type DateRange,
 } from "./dashboard.model";
 import {
@@ -183,6 +183,7 @@ export interface CounsellorReportResult {
     category_name: string;
     count: number;
     amount: string;
+    app_count?: number;
   }>;
 }
 
@@ -725,7 +726,7 @@ export const getCounsellorReport = async (
     getPerProductBreakdown(counsellorId, startStr, endStr),
     getCoreProductDistinctClientCount(counsellorId, startStr, endStr),
     getPendingAmountByCounsellors([counsellorId]),
-    getSaleTypeCategoryCounts(saleTypeCategoryDateRange, saleTypeCategoryRoleFilter),
+    getSaleTypeCategoryCountsForReport(saleTypeCategoryDateRange, saleTypeCategoryRoleFilter),
   ]);
 
   // ── sale_type_count: when filter used = payment count (client_payment rows) for that sale type only; when no filter = total enrollments ─
@@ -881,6 +882,7 @@ export const getCounsellorReport = async (
       category_name: c.categoryName,
       count: c.count,
       amount: c.amount,
+      ...(c.appCount !== undefined ? { app_count: c.appCount } : {}),
     })),
   };
 };

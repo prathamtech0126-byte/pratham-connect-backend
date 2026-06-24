@@ -19,6 +19,7 @@ import { simCard } from "../schemas/simCard.schema";
 import { beaconAccount } from "../schemas/beaconAccount.schema";
 import {
   calculateCounsellorRevenue,
+  getCounsellorEnrollmentsForCategory,
 } from "./leaderboard.model";
 import { eq, and, gte, lte, sql, count, inArray, isNotNull } from "drizzle-orm";
 import { saleTypes } from "../schemas/saleType.schema";
@@ -146,6 +147,13 @@ export interface AdminManagerDashboardStats {
     count: number;
     amount: string;
   }>;
+  /** Student stats (TD-date anchored): total = TD in period + application on file; withTD = TD only; appCount = apps submitted in period. */
+  studentStats: {
+    total: number;
+    withTD: number;
+    withoutTD: number;
+    appCount: number;
+  };
   leaderboard: Array<{
     counsellorId: number;
     fullName: string;
@@ -205,6 +213,13 @@ export interface CounsellorDashboardStats {
     count: number;
     amount: string;
   }>;
+  /** Student stats (TD-date anchored): total = TD in period + application on file; withTD = TD only; appCount = apps submitted in period. */
+  studentStats: {
+    total: number;
+    withTD: number;
+    withoutTD: number;
+    appCount: number;
+  };
   // newEnrollment: {
   //   count: number;
   // };
@@ -357,6 +372,7 @@ export const getSaleTypeCategoryCounts = async (
       categoryName: saleTypeCategories.name,
     })
     .from(saleTypeCategories)
+    .where(sql`LOWER(${saleTypeCategories.name}) != 'student'`)
     .orderBy(saleTypeCategories.id);
 
   const out: Array<{ categoryId: number | null; categoryName: string; count: number; amount: string }> =
@@ -378,6 +394,81 @@ export const getSaleTypeCategoryCounts = async (
   }
 
   return out;
+};
+
+/**
+ * Like getSaleTypeCategoryCounts but used in the counsellor REPORT context:
+ * - Visitor + Spouse: same as the standard function
+ * - Student: counted ONLY when the student has a paid tuition deposit (TD)
+ *   so the count reflects "students who are actually taking our services"
+ */
+export const getSaleTypeCategoryCountsForReport = async (
+  dateRange: DateRange,
+  roleFilter?: RoleBasedFilter
+): Promise<Array<{ categoryId: number | null; categoryName: string; count: number; amount: string; appCount?: number }>> => {
+  // Step 1: get non-student category counts (Visitor + Spouse) via the existing function
+  const nonStudentCounts = await getSaleTypeCategoryCounts(dateRange, roleFilter);
+
+  // Step 2: count students with paid TD + applications in period
+  const studentStats = await getStudentStats(dateRange, roleFilter);
+
+  // Step 3: look up the Student category row
+  const [studentCat] = await db
+    .select({ id: saleTypeCategories.id, name: saleTypeCategories.name })
+    .from(saleTypeCategories)
+    .where(sql`LOWER(${saleTypeCategories.name}) = 'student'`)
+    .limit(1);
+
+  if (!studentCat) return nonStudentCounts;
+
+  // Step 4: sum core payment amounts for TD students in period
+  const startDateStr = toLocalDateString(dateRange.start);
+  const endDateStr   = toLocalDateString(dateRange.end);
+
+  let counsellorClause = "";
+  const params: (string | number)[] = [startDateStr, endDateStr];
+  if (roleFilter?.userRole === "counsellor" && roleFilter.counsellorId) {
+    params.push(roleFilter.counsellorId);
+    counsellorClause = `AND COALESCE(cp.handled_by, ci.counsellor_id) = $${params.length}`;
+  }
+
+  const amtQuery = `
+    SELECT COALESCE(SUM(cp.amount::numeric), 0) AS amt
+    FROM client_payment cp
+    INNER JOIN client_information ci ON ci.id = cp.client_id
+    WHERE ci.archived = false
+      AND ci.date >= $1::date AND ci.date <= $2::date
+      AND cp.stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
+      AND cp.payment_date >= $1::date AND cp.payment_date <= $2::date
+      ${counsellorClause}
+      AND EXISTS (
+        SELECT 1 FROM client_payment cp2
+        INNER JOIN sale_type st2 ON st2.id = cp2.sale_type_id
+        INNER JOIN sale_type_category stc2 ON stc2.id = st2.category_id
+        WHERE cp2.client_id = ci.id AND cp2.stage IN ('INITIAL','BEFORE_VISA','AFTER_VISA')
+          AND LOWER(stc2.name) = 'student'
+      )
+      AND EXISTS (
+        SELECT 1 FROM client_product_payment cpp
+        INNER JOIN tution_fees tf ON tf.id = cpp.entity_id
+        WHERE cpp.client_id = ci.id AND cpp.product_name = 'TUTION_FEES'
+          AND cpp.entity_type = 'tutionFees_id' AND tf.tution_fees_status = 'paid'
+      )
+  `;
+
+  const { rows: amtRows } = await pool.query<{ amt: string }>(amtQuery, params);
+  const studentAmount = parseFloat(amtRows[0]?.amt ?? "0");
+
+  return [
+    ...nonStudentCounts,
+    {
+      categoryId: Number(studentCat.id),
+      categoryName: studentCat.name,
+      count: studentStats.withTD,
+      amount: studentAmount.toFixed(2),
+      appCount: studentStats.appCount,
+    },
+  ];
 };
 
 const parseLocalDate = (dateStr: string): Date => {
@@ -601,6 +692,15 @@ export const getCoreServiceCount = async (
       SELECT client_id FROM client_payment
       WHERE stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
     )`,
+    // Exclude student clients (Visitor + Spouse only for Core Sale)
+    sql`${clientInformation.clientId} NOT IN (
+      SELECT cp_s.client_id
+      FROM client_payment cp_s
+      INNER JOIN sale_type st_s ON st_s.id = cp_s.sale_type_id
+      INNER JOIN sale_type_category stc_s ON stc_s.id = st_s.category_id
+      WHERE cp_s.stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
+        AND LOWER(stc_s.name) = 'student'
+    )`,
   ];
   if (filter?.userRole === "counsellor" && filter.counsellorId) {
     conditions.push(
@@ -624,7 +724,102 @@ export const getCoreServiceCount = async (
 
 
 /* ==============================
-   PENDING AMOUNT (OUTSTANDING)
+   STUDENT STATS (TD-date anchored, like core sale)
+   withTD = distinct clients with paid TD where tf.date is in period.
+   total = clients with paid TD in period who have a student application on file
+           (application_date may be months earlier — period is TD date only).
+   appCount = distinct clients with student_application.application_date in period.
+   withoutTD = appCount minus clients who also have TD paid in period.
+   Excludes All Finance, core payments, enrollment date, created_at.
+============================== */
+const getStudentStats = async (
+  dateRange: DateRange,
+  filter?: RoleBasedFilter
+): Promise<{ total: number; withTD: number; withoutTD: number; appCount: number }> => {
+  const startDateStr = toLocalDateString(dateRange.start);
+  const endDateStr = toLocalDateString(dateRange.end);
+
+  const params: (string | number)[] = [startDateStr, endDateStr];
+  let counsellorClause = "";
+  let tdCounsellorClause = "";
+  if (filter?.userRole === "counsellor" && filter.counsellorId) {
+    params.push(filter.counsellorId);
+    const paramIdx = params.length;
+    counsellorClause = `AND sa.counsellor_id = $${paramIdx}`;
+    tdCounsellorClause = `AND COALESCE(cpp.handled_by, ci.counsellor_id) = $${paramIdx}`;
+  }
+
+  const query = `
+    WITH td_count_cte AS (
+      SELECT COUNT(*) AS cnt
+      FROM tution_fees tf
+      INNER JOIN client_product_payment cpp ON cpp.entity_id = tf.id AND cpp.entity_type = 'tutionFees_id'
+      INNER JOIN client_information ci ON ci.id = cpp.client_id
+      WHERE tf.tution_fees_status = 'paid'
+        AND tf.date IS NOT NULL
+        AND tf.date >= $1::date
+        AND tf.date <= $2::date
+        AND ci.archived = false
+        ${tdCounsellorClause}
+    ),
+    -- student_core: client has a student_application AND has a paid TD in client_product_payment in the period
+    student_core AS (
+      SELECT DISTINCT sa.client_id
+      FROM student_application sa
+      INNER JOIN client_information ci ON ci.id = sa.client_id
+      WHERE ci.archived = false
+        ${counsellorClause}
+        AND EXISTS (
+          SELECT 1
+          FROM client_product_payment cpp
+          INNER JOIN tution_fees tf ON tf.id = cpp.entity_id
+          WHERE cpp.client_id = sa.client_id
+            AND cpp.entity_type = 'tutionFees_id'
+            AND tf.tution_fees_status = 'paid'
+            AND tf.date IS NOT NULL
+            AND tf.date >= $1::date
+            AND tf.date <= $2::date
+        )
+    ),
+    app_students AS (
+      SELECT client_id
+      FROM (
+        SELECT sa.client_id, MIN(sa.application_date) AS first_app_date
+        FROM student_application sa
+        INNER JOIN client_information ci ON ci.id = sa.client_id
+        WHERE ci.archived = false
+          AND sa.application_date IS NOT NULL
+          ${counsellorClause}
+        GROUP BY sa.client_id
+      ) first_apps
+      WHERE first_app_date >= $1::date
+        AND first_app_date <= $2::date
+    )
+    SELECT
+      (SELECT cnt FROM td_count_cte)::int AS td_count,
+      (SELECT COUNT(*) FROM student_core)::int AS total_count,
+      (SELECT COUNT(*) FROM app_students)::int AS app_count,
+      (SELECT COUNT(*)
+       FROM app_students a
+       WHERE NOT EXISTS (
+         SELECT 1 FROM student_core sc WHERE sc.client_id = a.client_id
+       ))::int AS app_without_td_count
+  `;
+
+  const { rows } = await pool.query<{
+    td_count: number;
+    total_count: number;
+    app_count: number;
+    app_without_td_count: number;
+  }>(query, params);
+  const withTD = Number(rows[0]?.td_count ?? 0);
+  const total = Number(rows[0]?.total_count ?? 0);
+  const appCount = Number(rows[0]?.app_count ?? 0);
+  const withoutTD = Number(rows[0]?.app_without_td_count ?? 0);
+  return { total, withTD, withoutTD, appCount };
+};
+
+/* =======================   PENDING AMOUNT (OUTSTANDING)
 ============================== */
 const getPendingAmount = async (
   dateRange: DateRange,
@@ -1199,7 +1394,7 @@ const getEntityBasedOtherProductCountAndAmount = async (
     runForEntity("insurance_id",     insurance,     insurance.id,     insurance.insuranceDate),
     runForEntity("forexCard_id",     forexCard,     forexCard.id,     forexCard.cardDate),
     runForEntity("forexFees_id",     forexFees,     forexFees.id,     forexFees.feeDate),
-    runForEntity("tutionFees_id",    tutionFees,    tutionFees.id,    tutionFees.feeDate),
+    // tutionFees_id excluded — TD is tracked separately in studentStats, not in Other Product
     runForEntity("creditCard_id",    creditCard,    creditCard.id,    creditCard.cardDate),
     runForEntity("simCard_id",       simCard,       simCard.id,       simCard.simCardGivingDate),
     runForEntity("beaconAccount_id", beaconAccount, beaconAccount.id, beaconAccount.openingDate),
@@ -1333,7 +1528,7 @@ const getOtherProductBreakdown = async (
     insurance_id: "Insurance",
     forexCard_id: "Forex Card",
     forexFees_id: "Forex Fees",
-    tutionFees_id: "Tution Fees",
+    // tutionFees_id excluded from Other Product breakdown
     creditCard_id: "Credit Card",
     simCard_id: "SIM Card",
     beaconAccount_id: "Beacon Account",
@@ -1387,7 +1582,7 @@ const getOtherProductBreakdown = async (
     runForEntity("insurance_id",     insurance,     insurance.id,     insurance.insuranceDate),
     runForEntity("forexCard_id",     forexCard,     forexCard.id,     forexCard.cardDate),
     runForEntity("forexFees_id",     forexFees,     forexFees.id,     forexFees.feeDate),
-    runForEntity("tutionFees_id",    tutionFees,    tutionFees.id,    tutionFees.feeDate),
+    // tutionFees_id excluded — TD tracked in studentStats, not Other Product
     runForEntity("creditCard_id",    creditCard,    creditCard.id,    creditCard.cardDate),
     runForEntity("simCard_id",       simCard,       simCard.id,       simCard.simCardGivingDate),
     runForEntity("beaconAccount_id", beaconAccount, beaconAccount.id, beaconAccount.openingDate),
@@ -1435,6 +1630,14 @@ export const getCoreSaleAmount = async (
     AND ${clientPayments.paymentDate} IS NOT NULL
     AND ${clientPayments.paymentDate} >= ${startDateStr}
     AND ${clientPayments.paymentDate} <= ${endDateStr}
+    AND ${clientInformation.clientId} NOT IN (
+      SELECT cp_s.client_id
+      FROM client_payment cp_s
+      INNER JOIN sale_type st_s ON st_s.id = cp_s.sale_type_id
+      INNER JOIN sale_type_category stc_s ON stc_s.id = st_s.category_id
+      WHERE cp_s.stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
+        AND LOWER(stc_s.name) = 'student'
+    )
   )`;
 
   let query = db
@@ -1658,24 +1861,39 @@ const getLeaderboardDataForDashboard = async (
     designation: string | null;
   };
 
-  const buildStatsForCounsellor = async (c: CounsellorRow) => {
-    const [enrollmentResult] = await db
-      .select({ count: count() })
-      .from(clientInformation)
-      .where(
-        and(
-          eq(clientInformation.counsellorId, c.id),
-          eq(clientInformation.archived, false),
-          gte(clientInformation.enrollmentDate, startDateStr),
-          lte(clientInformation.enrollmentDate, endDateStr),
-          sql`${clientInformation.clientId} IN (
-              SELECT client_id FROM client_payment
-              WHERE stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
-            )`
-        )
-      );
+  const month = dateRange.start.getMonth() + 1;
+  const year = dateRange.start.getFullYear();
+  const targetRows = await db
+    .select({
+      counsellor_id: leaderBoard.counsellor_id,
+      target: leaderBoard.target,
+      id: leaderBoard.id,
+      category_name: leaderBoard.category_name,
+    })
+    .from(leaderBoard)
+    .where(
+      and(
+        sql`EXTRACT(YEAR FROM ${leaderBoard.createdAt}) = ${year}`,
+        sql`EXTRACT(MONTH FROM ${leaderBoard.createdAt}) = ${month}`
+      )
+    );
 
-    const enrollments = Number(enrollmentResult?.count ?? 0);
+  const targetByCounsellor = new Map(
+    targetRows.map((r) => [
+      r.counsellor_id,
+      { target: r.target, id: r.id, categoryName: (r.category_name ?? "general").toLowerCase() },
+    ])
+  );
+
+  const buildStatsForCounsellor = async (c: CounsellorRow) => {
+    const assigned = targetByCounsellor.get(c.id);
+    const effectiveCategory = assigned?.categoryName ?? "general";
+    const { enrollments } = await getCounsellorEnrollmentsForCategory(
+      c.id,
+      effectiveCategory,
+      startDateStr,
+      endDateStr
+    );
     const revenue = await calculateCounsellorRevenue(
       c.id,
       startDateStr,
@@ -1693,9 +1911,9 @@ const getLeaderboardDataForDashboard = async (
       designation: c.designation,
       enrollments,
       revenue: parseFloat(revenue.toFixed(2)),
-      target: 0,
+      target: assigned?.target ?? 0,
       achievedTarget: enrollments,
-      targetId: null as number | null,
+      targetId: assigned?.id ?? null,
       rank: 0,
     };
   };
@@ -1719,36 +1937,7 @@ const getLeaderboardDataForDashboard = async (
     return b.revenue - a.revenue;
   });
 
-  const ranked = stats.map((s, i) => ({ ...s, rank: i + 1 }));
-
-  const month = dateRange.start.getMonth() + 1;
-  const year = dateRange.start.getFullYear();
-  const targetRows = await db
-    .select({
-      counsellor_id: leaderBoard.counsellor_id,
-      target: leaderBoard.target,
-      id: leaderBoard.id,
-    })
-    .from(leaderBoard)
-    .where(
-      and(
-        sql`EXTRACT(YEAR FROM ${leaderBoard.createdAt}) = ${year}`,
-        sql`EXTRACT(MONTH FROM ${leaderBoard.createdAt}) = ${month}`
-      )
-    );
-
-  const targetByCounsellor = new Map(
-    targetRows.map((r) => [r.counsellor_id, { target: r.target, id: r.id }])
-  );
-
-  return ranked.map((r) => {
-    const t = targetByCounsellor.get(r.counsellorId);
-    return {
-      ...r,
-      target: t?.target ?? 0,
-      targetId: t?.id ?? null,
-    };
-  });
+  return stats.map((s, i) => ({ ...s, rank: i + 1 }));
 };
 
 /* ==============================
@@ -2431,6 +2620,7 @@ export const getDashboardStats = async (
       totalPendingAmount,
       totalClientsCount,
       saleTypeCategoryCounts,
+      studentStats,
       // newEnrollmentCount,
       leaderboardData,
       individualPerformance,
@@ -2443,6 +2633,7 @@ export const getDashboardStats = async (
       getPendingAmount(allTimeDateRange, roleFilter),
       getTotalClients(summaryDateRange, roleFilter),
       getSaleTypeCategoryCounts(summaryDateRange, roleFilter),
+      getStudentStats(summaryDateRange, roleFilter),
       // getNewEnrollments(filter, summaryDateRange, roleFilter),
       getLeaderboardDataForDashboard(summaryDateRange),
       getIndividualCounsellorPerformance(userId, filter, dateRange),
@@ -2467,6 +2658,7 @@ export const getDashboardStats = async (
         count: totalClientsCount,
       },
       saleTypeCategoryCounts,
+      studentStats,
         // newEnrollment: {
         //   count: newEnrollmentCount.count,
         // },
@@ -2509,12 +2701,13 @@ export const getDashboardStats = async (
   const endTimestamp = summaryDateRange.end.toISOString();
 
   // Use efficient global queries for counts/amounts displayed on cards
-  const [globalCoreSaleCount, globalCoreSaleAmount, globalCoreProduct, globalOtherProduct, coreSalePaymentOnlyCount] = await Promise.all([
+  const [globalCoreSaleCount, globalCoreSaleAmount, globalCoreProduct, globalOtherProduct, coreSalePaymentOnlyCount, studentStats] = await Promise.all([
     getCoreServiceCount(summaryDateRange, roleFilter),
     getCoreSaleAmount(summaryDateRange, roleFilter),
     getCoreProductMetrics(summaryDateRange, roleFilter, filter),
     getOtherProductMetrics(summaryDateRange, roleFilter, filter),
     getCorePaymentCountNotEnrolledInPeriod(summaryDateRange, roleFilter),
+    getStudentStats(summaryDateRange, roleFilter),
   ]);
 
   const aggregateCards = {
@@ -2558,6 +2751,7 @@ export const getDashboardStats = async (
       amount: totalRevenue.toFixed(2),
     },
     saleTypeCategoryCounts,
+    studentStats,
     leaderboard: leaderboardData,
     chartData,
   };

@@ -1,6 +1,6 @@
 import { db } from "../../config/databaseConnection";
 import { leads } from "../schemas/leads.schema";
-import { serializeLeadTimestampsForApi } from "../../utils/pgTimestamp";
+import { serializeLeadTimestampsForApi } from "../../utils/istTime";
 import {
   upsertFacebookLeadMeta,
   type FacebookLeadMetaInput,

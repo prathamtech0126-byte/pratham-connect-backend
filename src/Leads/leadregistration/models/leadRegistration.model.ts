@@ -6,6 +6,7 @@ import { leadLanguageExamScores } from "../schemas/leadLanguageExamScores.schema
 import { leadFamilyMembers } from "../schemas/leadFamilyMembers.schema";
 import { eq } from "drizzle-orm";
 import { createLeadCreatedActivity } from "../../services/leadActivityEvents.service";
+import { parseFrontendDate } from "../../../utils/date";
 
 function formatName(value: string) {
   return value
@@ -150,7 +151,9 @@ export async function upsertInboundLead(
 
   const profileData = {
     gender: payload.gender ?? null,
-    dateOfBirth: payload.date_of_birth ?? null,
+    dateOfBirth: payload.date_of_birth
+      ? parseFrontendDate(payload.date_of_birth) ?? null
+      : null,
     alternatePhone: payload.alternate_phone ?? null,
     hasPassport: payload.has_passport ?? false,
     passportNumber: payload.passport_number ?? null,

@@ -9,7 +9,8 @@ import { registerUser,login,logout,refreshAccessToken,getCurrentUser,getAllUsers
     getAllTelecallersController,
     getManagersWithCounsellorsController,
     changePasswordController,
-    markTourPageSeenController
+    markTourPageSeenController,
+    getUserDisplayNamesController,
 } from "../controllers/user.controller";
 import { requireAuth,requireRole } from "../middlewares/auth.middleware";
 import { preventDuplicateRequests } from "../middlewares/requestDeduplication.middleware";
@@ -42,6 +43,20 @@ router.post("/login", loginRateLimit, login);
 router.post("/refresh", refreshRateLimit, refreshAccessToken);
 router.post("/logout", requireAuth,logout);
 router.get("/me", requireAuth, getCurrentUser);
+router.get(
+  "/display-names",
+  requireAuth,
+  requireRole(
+    "developer",
+    "admin",
+    "superadmin",
+    "manager",
+    "counsellor",
+    "telecaller",
+    "marketing_head"
+  ),
+  getUserDisplayNamesController
+);
 router.put("/change-password", requireAuth, preventDuplicateRequests, changePasswordController);
 router.patch("/tour-seen", requireAuth, markTourPageSeenController);
 

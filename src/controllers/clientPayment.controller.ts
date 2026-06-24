@@ -15,6 +15,8 @@ import { users } from "../schemas/users.schema";
 import { eq, inArray } from "drizzle-orm";
 import { logActivity } from "../services/activityLog.service";
 import { redisDel, redisDelByPrefix, redisGetJson, redisSetJson } from "../config/redis";
+import { syncVisaCaseIfEligible } from "../modules/sync/modulesSync.service";
+import { invalidateModulesCachesOnWrite } from "../modules/cache/invalidate";
 
 const CLIENT_PAYMENTS_CACHE_TTL_SECONDS = 45;
 
@@ -192,11 +194,31 @@ export const saveClientPaymentController = async (
 
     const counsellorId = client.counsellorId;
 
+    let visaCaseSync: { visaCaseCreated: boolean } | null = null;
+    if (result.action !== "NO_CHANGE") {
+      const saleTypeId = Number(result.payment.saleTypeId);
+      if (Number.isFinite(saleTypeId) && saleTypeId > 0) {
+        const visaCaseCreated = await syncVisaCaseIfEligible({
+          legacyClientId: clientId,
+          legacySaleTypeId: saleTypeId,
+          counsellorId,
+        });
+        visaCaseSync = { visaCaseCreated };
+      }
+    }
+
     // Invalidate caches for this client's payments and dashboard
     try {
       await redisDel(`client-payments:${clientId}`);
+      await redisDel([
+        `clients:complete:${clientId}`,
+        `clients:full:${clientId}`,
+      ]);
       await redisDelByPrefix("dashboard:");
       await redisDelByPrefix("reports:");
+      await invalidateModulesCachesOnWrite({
+        reason: "main-crm:payment",
+      });
     } catch {
       // ignore
     }
@@ -305,6 +327,7 @@ export const saveClientPaymentController = async (
       success: true,
       action: result.action,
       data: result.payment,
+      visaCaseSync,
     });
   } catch (error: any) {
     res.status(400).json({
@@ -439,6 +462,9 @@ export const deleteClientPaymentController = async (
     try {
       await redisDelByPrefix("dashboard:");
       await redisDelByPrefix("reports:");
+      await invalidateModulesCachesOnWrite({
+        reason: "main-crm:payment",
+      });
     } catch (e) {
       console.error("Redis invalidate dashboard after payment delete failed:", e);
     }

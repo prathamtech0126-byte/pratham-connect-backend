@@ -1,12 +1,14 @@
 import bcrypt from "bcrypt";
 import { db } from "../config/databaseConnection";
 import { users } from "./../schemas/users.schema";
+import { teams } from "./../schemas/team.schema";
 import { clientInformation } from "./../schemas/clientInformation.schema";
 import { leaderBoard } from "./../schemas/leaderBoard.schema";
 import { managerTargets } from "./../schemas/managerTargets.schema";
 import { activityLog } from "./../schemas/activityLog.schema";
 import { eq, ne, and, count, inArray, or, asc } from "drizzle-orm";
 import { ROLES, Role, isRole } from "../types/role";
+import { ensureSystemRoles, replaceUserPrimaryRoleLink } from "../utils/rbacSync";
 
 /**
  * Postgres unique_violation (23505) → clear API message for email, emp_id, personal_phone.
@@ -41,6 +43,8 @@ interface CreateUserInput {
   email: string;
   password: string;
   role?: Role;
+  roleId?: number | null;
+  teamId?: number | null;
   empId?: string | null;
   managerId?: number; // BIGINT
   officePhone?: string;
@@ -54,6 +58,8 @@ interface UpdateUserInput {
   email?: string;
   password?: string;
   role?: Role;
+  roleId?: number | null;
+  teamId?: number | null;
   empId?: string | null;
   managerId?: number | null;
   officePhone?: string;
@@ -180,30 +186,58 @@ export const createUser = async (
   }
 
   try {
-    const [user] = await db
-      .insert(users)
-      .values({
-        fullName: data.fullName,
-        email: email,
-        emp_id: data.empId || null, // Use || to convert empty strings to null
-        passwordHash,
-        role: finalRole,
-        managerId: roleRequiresManager ? data.managerId : null,
-        officePhone,
-        personalPhone,
-        designation,
-        isSupervisor: finalRole === "manager" ? (data.isSupervisor ?? false) : false,
-      })
-      .returning({
-        id: users.id,
-        fullName: users.fullName,
-        email: users.email,
-        role: users.role,
-        managerId: users.managerId,
-        isSupervisor: users.isSupervisor,
-      });
+    return await db.transaction(async (tx) => {
+      await ensureSystemRoles(tx);
+      const [user] = await tx
+        .insert(users)
+        .values({
+          fullName: data.fullName,
+          email: email,
+          emp_id: data.empId || null, // Use || to convert empty strings to null
+          passwordHash,
+          role: finalRole,
+          teamId: data.teamId ?? null,
+          managerId: roleRequiresManager ? data.managerId : null,
+          officePhone,
+          personalPhone,
+          designation,
+          isSupervisor: finalRole === "manager" ? (data.isSupervisor ?? false) : false,
+        })
+        .returning({
+          id: users.id,
+          fullName: users.fullName,
+          email: users.email,
+          role: users.role,
+          managerId: users.managerId,
+          isSupervisor: users.isSupervisor,
+        });
 
-    return user;
+      if (!user) {
+        throw new Error("Failed to create user");
+      }
+
+      await replaceUserPrimaryRoleLink(tx, user.id, user.role as Role);
+
+      const [row] = await tx
+        .select({
+          id: users.id,
+          fullName: users.fullName,
+          email: users.email,
+          role: users.role,
+          roleId: users.roleId,
+          teamId: users.teamId,
+          managerId: users.managerId,
+          isSupervisor: users.isSupervisor,
+        })
+        .from(users)
+        .where(eq(users.id, user.id))
+        .limit(1);
+
+      if (!row) {
+        throw new Error("Failed to load user after role sync");
+      }
+      return row;
+    });
   } catch (err) {
     throwFriendlyUniqueViolation(err);
   }
@@ -221,6 +255,9 @@ export const getAllUsers = async () => {
       fullName: users.fullName,
       email: users.email,
       role: users.role,
+      roleId: users.roleId,
+      teamId: users.teamId,
+      teamName: teams.name,
       officePhone: users.officePhone,
       personalPhone: users.personalPhone,
       managerId: users.managerId,
@@ -230,6 +267,7 @@ export const getAllUsers = async () => {
       createdAt: users.createdAt,
     })
     .from(users)
+    .leftJoin(teams, eq(users.teamId, teams.teamId))
     .where(ne(users.role, "admin"));
 };
 
@@ -242,11 +280,15 @@ export const getAllUsersWithManagerDetails = async () => {
       fullName: users.fullName,
       email: users.email,
       role: users.role,
+      roleId: users.roleId,
+      teamId: users.teamId,
+      teamName: teams.name,
       managerId: users.managerId,
       designation: users.designation,
       isSupervisor: users.isSupervisor,
     })
     .from(users)
+    .leftJoin(teams, eq(users.teamId, teams.teamId))
     .where(
       or(
         eq(users.role, "admin"),
@@ -287,11 +329,15 @@ export const getAllUsersWithManagerDetailsExcludeAdmin = async () => {
       fullName: users.fullName,
       email: users.email,
       role: users.role,
+      roleId: users.roleId,
+      teamId: users.teamId,
+      teamName: teams.name,
       managerId: users.managerId,
       designation: users.designation,
       isSupervisor: users.isSupervisor,
     })
     .from(users)
+    .leftJoin(teams, eq(users.teamId, teams.teamId))
     .where(
       and(
         ne(users.role, "admin"),
@@ -345,11 +391,15 @@ export const getManagerTeamWithManagerDetails = async (managerId: number) => {
       fullName: users.fullName,
       email: users.email,
       role: users.role,
+      roleId: users.roleId,
+      teamId: users.teamId,
+      teamName: teams.name,
       managerId: users.managerId,
       designation: users.designation,
       isSupervisor: users.isSupervisor,
     })
     .from(users)
+    .leftJoin(teams, eq(users.teamId, teams.teamId))
     .where(
       or(
         eq(users.id, managerId),
@@ -501,36 +551,65 @@ export const updateUserByAdmin = async (
   }
 
   try {
-    const [updatedUser] = await db
-      .update(users)
-      .set({
-        fullName: data.fullName,
-        email: data.email,
-        passwordHash,
-        role: finalRole,
-        emp_id:
-          normalizedEmpIdValue !== undefined
-            ? normalizedEmpIdValue
-            : existingUser.empId,
-        managerId: roleRequiresManager ? finalManagerId : null,
-        officePhone: data.officePhone,
-        personalPhone: data.personalPhone,
-        designation: data.designation,
-        isSupervisor: finalIsSupervisor ?? false,
-        status: data.status,
-      })
-      .where(eq(users.id, userId))
-      .returning({
-        id: users.id,
-        fullName: users.fullName,
-        email: users.email,
-        role: users.role,
-        managerId: users.managerId,
-        isSupervisor: users.isSupervisor,
-        status: users.status,
-      });
+    return await db.transaction(async (tx) => {
+      await ensureSystemRoles(tx);
+      const [updatedUser] = await tx
+        .update(users)
+        .set({
+          fullName: data.fullName,
+          email: data.email,
+          passwordHash,
+          role: finalRole,
+          emp_id:
+            normalizedEmpIdValue !== undefined
+              ? normalizedEmpIdValue
+              : existingUser.empId,
+          teamId: data.teamId,
+          managerId: roleRequiresManager ? finalManagerId : null,
+          officePhone: data.officePhone,
+          personalPhone: data.personalPhone,
+          designation: data.designation,
+          isSupervisor: finalIsSupervisor ?? false,
+          status: data.status,
+        })
+        .where(eq(users.id, userId))
+        .returning({
+          id: users.id,
+          fullName: users.fullName,
+          email: users.email,
+          role: users.role,
+          managerId: users.managerId,
+          isSupervisor: users.isSupervisor,
+          status: users.status,
+        });
 
-    return updatedUser;
+      if (!updatedUser) {
+        throw new Error("User not found");
+      }
+
+      await replaceUserPrimaryRoleLink(tx, userId, updatedUser.role as Role);
+
+      const [row] = await tx
+        .select({
+          id: users.id,
+          fullName: users.fullName,
+          email: users.email,
+          role: users.role,
+          roleId: users.roleId,
+          teamId: users.teamId,
+          managerId: users.managerId,
+          isSupervisor: users.isSupervisor,
+          status: users.status,
+        })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+
+      if (!row) {
+        throw new Error("User not found after update");
+      }
+      return row;
+    });
   } catch (err: any) {
     throwFriendlyUniqueViolation(err);
   }
@@ -606,9 +685,14 @@ export const getAllManagers = async () => {
       id: users.id,
       fullName: users.fullName,
       email: users.email,
+      role: users.role,
+      roleId: users.roleId,
+      teamId: users.teamId,
+      teamName: teams.name,
       isSupervisor: users.isSupervisor,
     })
     .from(users)
+    .leftJoin(teams, eq(users.teamId, teams.teamId))
     .where(eq(users.role, "manager"));
 };
 
@@ -622,13 +706,29 @@ export const getAllCounsellors = async () => {
       id: users.id,
       fullName: users.fullName,
       email: users.email,
+      role: users.role,
+      roleId: users.roleId,
+      teamId: users.teamId,
+      teamName: teams.name,
       managerId: users.managerId,
+      status: users.status,
+  
       // clientCount: count(clientInformation.clientId),
     })
     .from(users)
     .leftJoin(clientInformation, eq(users.id, clientInformation.counsellorId))
+    .leftJoin(teams, eq(users.teamId, teams.teamId))
     .where(eq(users.role, "counsellor"))
-    .groupBy(users.id, users.fullName, users.email, users.managerId);
+    .groupBy(
+      users.id,
+      users.fullName,
+      users.email,
+      users.role,
+      users.roleId,
+      users.teamId,
+      teams.name,
+      users.managerId
+    );
 
   return counsellorsWithClientCount;
 };
@@ -664,6 +764,25 @@ export const getCounsellorById = async (counsellorId: number) => {
     return null;
   }
   return counsellor[0];
+};
+
+/** Resolve display names for a set of user IDs (any role). */
+export const getUserDisplayNamesByIds = async (
+  userIds: number[]
+): Promise<Record<number, string>> => {
+  const uniqueIds = [...new Set(userIds.filter((id) => Number.isFinite(id) && id > 0))];
+  if (uniqueIds.length === 0) return {};
+
+  const rows = await db
+    .select({ id: users.id, fullName: users.fullName })
+    .from(users)
+    .where(inArray(users.id, uniqueIds));
+
+  const out: Record<number, string> = {};
+  for (const row of rows) {
+    out[row.id] = row.fullName;
+  }
+  return out;
 };
 
 /* ================================
@@ -709,10 +828,14 @@ export const getCounsellorsByManagerId = async (managerId: number) => {
       clientCount: count(clientInformation.clientId),
       isSupervisor: users.isSupervisor,
       role: users.role,
+      roleId: users.roleId,
+      teamId: users.teamId,
+      teamName: teams.name,
       createdAt: users.createdAt,
     })
     .from(users)
     .leftJoin(clientInformation, eq(users.id, clientInformation.counsellorId))
+    .leftJoin(teams, eq(users.teamId, teams.teamId))
     .where(whereCondition)
     .groupBy(
       users.id,
@@ -725,6 +848,9 @@ export const getCounsellorsByManagerId = async (managerId: number) => {
       users.designation,
       users.isSupervisor,
       users.role,
+      users.roleId,
+      users.teamId,
+      teams.name,
       users.createdAt
     );
 
@@ -751,12 +877,17 @@ export const getManagersWithCounsellors = async () => {
       fullName: users.fullName,
       email: users.email,
       empId: users.emp_id,
+      role: users.role,
+      roleId: users.roleId,
+      teamId: users.teamId,
+      teamName: teams.name,
       officePhone: users.officePhone,
       personalPhone: users.personalPhone,
       designation: users.designation,
       createdAt: users.createdAt,
     })
     .from(users)
+    .leftJoin(teams, eq(users.teamId, teams.teamId))
     .where(eq(users.role, "manager"));
 
   // For each manager, get their counsellors
@@ -768,6 +899,10 @@ export const getManagersWithCounsellors = async () => {
           fullName: users.fullName,
           email: users.email,
           empId: users.emp_id,
+          role: users.role,
+          roleId: users.roleId,
+          teamId: users.teamId,
+          teamName: teams.name,
           managerId: users.managerId,
           officePhone: users.officePhone,
           personalPhone: users.personalPhone,
@@ -775,6 +910,7 @@ export const getManagersWithCounsellors = async () => {
           createdAt: users.createdAt,
         })
         .from(users)
+        .leftJoin(teams, eq(users.teamId, teams.teamId))
         .where(and(eq(users.role, "counsellor"), eq(users.managerId, manager.id)));
 
       return {

@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { saveClient, getClientFullDetailsById, getClientsByCounsellor, getAllCounsellorIds, getAllClientsForAdmin, getAllClientsForManager, getArchivedClientsByCounsellor, getAllArchivedClientsForAdmin, getAllArchivedClientsForManager, updateClientArchiveStatus, getAllClients, updateClientCounsellor, getClientsByEnrollmentDateRange, type ClientTransferType } from "../models/client.model";
+import { saveClient, getClientFullDetailsById, getClientsByCounsellor, getAllCounsellorIds, getAllClientsForAdmin, getAllClientsForManager, getArchivedClientsByCounsellor, getAllArchivedClientsForAdmin, getAllArchivedClientsForManager, updateClientArchiveStatus, getAllClients, updateClientCounsellor, getClientsByEnrollmentDateRange, updateClientBasicDetails, type ClientTransferType } from "../models/client.model";
 import { getProductPaymentsByClientId } from "../models/clientProductPayments.model";
 import { emitToCounsellor, emitToAdmin, emitDashboardUpdate, emitToCounsellors } from "../config/socket";
 import { getDashboardStats, getDateRange, type DashboardFilter } from "../models/dashboard.model";
@@ -12,6 +12,10 @@ import { users } from "../schemas/users.schema";
 import { eq, and } from "drizzle-orm";
 import { getCounsellorById } from "../models/user.model";
 import { redisDel, redisDelByPrefix, redisGetJson, redisSetJson } from "../config/redis";
+import { enrichClientDetailsWithModulesPassport } from "../modules/clients/services/clientPassport.service";
+import { filterClientDetailsForViewer, canUserUpdateClientBasicDetails } from "../modules/clients/services/clientAccess.service";
+import { syncClientAfterMainSave } from "../modules/sync/modulesSync.service";
+import { invalidateModulesCachesOnWrite } from "../modules/cache/invalidate";
 
 const CLIENT_CACHE_TTL_SECONDS = 45;
 
@@ -26,88 +30,13 @@ const clientCacheKeys = {
   complete: (clientId: number) => `clients:complete:${clientId}`,
 };
 
-/**
- * Filter payments in client detail data based on viewer's relationship to the client.
- * Also stamps each payment with `isEditable` and adds a top-level `paymentPermissions` object.
- *
- * Rules:
- * - Admin / Manager
- *     → all payments visible, all editable, canAddPayment & canEditTotalPayment = true
- * - Currently shared-to counsellor (transferStatus=true, transferedToCounsellorId===viewerId)
- *     → all payments visible, ALL existing payments isEditable=false (read-only)
- *     → canAddPayment=true  (new payments counted as theirs via handledBy)
- *     → canEditTotalPayment=true
- * - Original owner (counsellorId===viewerId) while client IS shared (transferStatus=true)
- *     → all payments visible
- *     → isEditable=true only for payments where handledBy===viewerId (their own)
- *     → canAddPayment=false, canEditTotalPayment=false (shared-to manages these)
- * - Original owner while client is NOT shared
- *     → all payments visible, all editable
- *     → canAddPayment=true, canEditTotalPayment=true
- * - Previously-shared or unrelated counsellor
- *     → only their own payments (handledBy===viewerId), isEditable=true
- *     → canAddPayment=false, canEditTotalPayment=false
- */
-const filterPaymentsByViewer = (
-  data: any,
+const applyClientDetailsView = async (
+  data: Record<string, unknown>,
   viewerId: number | undefined,
   viewerRole: string | undefined
-): any => {
-  if (!data) return data;
-
-  const isAdminOrManager = viewerRole === "admin" || viewerRole === "manager" || viewerRole === "developer" || viewerRole === "superadmin";
-
-  // Admin and manager — full access
-  if (!viewerId || isAdminOrManager) {
-    return {
-      ...data,
-      payments: (data.payments || []).map((p: any) => ({ ...p, isEditable: true })),
-      paymentPermissions: { canAddPayment: true, canEditTotalPayment: true },
-    };
-  }
-
-  const isOriginalOwner = Number(data.client?.counsellorId) === viewerId;
-  const isTransferred = data.client?.transferStatus === true;
-  const isCurrentSharedTo =
-    isTransferred && Number(data.client?.transferedToCounsellorId) === viewerId;
-
-  // Currently shared-to counsellor — can only edit payments they personally created
-  if (isCurrentSharedTo) {
-    return {
-      ...data,
-      payments: (data.payments || []).map((p: any) => ({ ...p, isEditable: Number(p.handledBy) === viewerId })),
-      paymentPermissions: { canAddPayment: true, canEditTotalPayment: true },
-    };
-  }
-
-  // Original owner — whether or not the client is shared
-  if (isOriginalOwner) {
-    if (isTransferred) {
-      // Client is currently shared — owner can only edit their own past payments
-      // but can still add new payments and edit totalPayment
-      return {
-        ...data,
-        payments: (data.payments || []).map((p: any) => ({
-          ...p,
-          isEditable: Number(p.handledBy) === viewerId,
-        })),
-        paymentPermissions: { canAddPayment: true, canEditTotalPayment: true },
-      };
-    }
-    // Client is not shared — owner has full control
-    return {
-      ...data,
-      payments: (data.payments || []).map((p: any) => ({ ...p, isEditable: true })),
-      paymentPermissions: { canAddPayment: true, canEditTotalPayment: true },
-    };
-  }
-
-  // Fallback — unrecognised relationship: no write access, no payments shown
-  return {
-    ...data,
-    payments: [],
-    paymentPermissions: { canAddPayment: false, canEditTotalPayment: false },
-  };
+) => {
+  const enriched = await enrichClientDetailsWithModulesPassport(data);
+  return filterClientDetailsForViewer(enriched, viewerId, viewerRole);
 };
 
 const invalidateClientCaches = async (opts: {
@@ -141,6 +70,7 @@ const invalidateClientCaches = async (opts: {
   await redisDelByPrefix("dashboard:");
   await redisDelByPrefix("leaderboard:");
   await redisDelByPrefix("reports:");
+  await invalidateModulesCachesOnWrite({ reason: "main-crm:client" });
 };
 
 /* ==============================
@@ -199,6 +129,16 @@ export const saveClientController = async (req: Request, res: Response) => {
 
     console.log("req.body client", req.body);
     const client = await saveClient(req.body, req.user.id);
+
+    let modulesSync = null;
+    if (client.action !== "NO_CHANGE" && client.client?.clientId) {
+      const legacyId = Number(client.client.clientId);
+      const counsellorId = Number(client.client.counsellorId);
+      modulesSync = await syncClientAfterMainSave({
+        legacyClientId: legacyId,
+        counsellorId,
+      });
+    }
 
     // Invalidate client caches so next reads are fresh
     try {
@@ -348,6 +288,7 @@ export const saveClientController = async (req: Request, res: Response) => {
     res.status(200).json({
       success: true,
       data: client,
+      modulesSync,
     });
   } catch (error: any) {
     res.status(400).json({
@@ -361,33 +302,51 @@ export const getClientFullDetailsController = async (req: Request, res: Response
   try {
     const clientId = Number(req.params.clientId);
 
-    if (!clientId) {
-      return res.status(400).json({ message: "Client ID is required" });
+    if (!Number.isFinite(clientId) || clientId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid clientId is required",
+      });
     }
 
-    // Cache: full details by clientId (raw, unfiltered — filter applied per-viewer below)
     const cacheKey = clientCacheKeys.full(clientId);
-    const cached = await redisGetJson<any>(cacheKey);
+    const cached = await redisGetJson<Record<string, unknown>>(cacheKey);
     if (cached) {
-      const filteredCached = filterPaymentsByViewer(cached, req.user?.id, req.user?.role as string | undefined);
+      const filteredCached = await applyClientDetailsView(
+        cached,
+        req.user?.id,
+        req.user?.role as string | undefined
+      );
+      if (!filteredCached) {
+        return res.status(403).json({ success: false, message: "Forbidden" });
+      }
       return res.status(200).json({ success: true, data: filteredCached, cached: true });
     }
 
     const data = await getClientFullDetailsById(clientId);
 
     if (!data) {
-      return res.status(404).json({ message: "Client not found" });
+      return res.status(404).json({ success: false, message: "Client not found" });
     }
 
-    // Cache raw data so any viewer role can use the same cache entry
     await redisSetJson(cacheKey, data, CLIENT_CACHE_TTL_SECONDS);
-    const filteredData = filterPaymentsByViewer(data, req.user?.id, req.user?.role as string | undefined);
+    const filteredData = await applyClientDetailsView(
+      data,
+      req.user?.id,
+      req.user?.role as string | undefined
+    );
+    if (!filteredData) {
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
     return res.status(200).json({
       success: true,
       data: filteredData,
     });
-  } catch (error) {
-    res.status(500).json({ message: "Internal server error" });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to fetch client details",
+    });
   }
 };
 
@@ -692,9 +651,16 @@ export const getClientCompleteDetailsController = async (req: Request, res: Resp
     }
 
     const cacheKey = clientCacheKeys.complete(clientId);
-    const cached = await redisGetJson<any>(cacheKey);
+    const cached = await redisGetJson<Record<string, unknown>>(cacheKey);
     if (cached) {
-      const filteredCached = filterPaymentsByViewer(cached, req.user?.id, req.user?.role as string | undefined);
+      const filteredCached = await applyClientDetailsView(
+        cached,
+        req.user?.id,
+        req.user?.role as string | undefined
+      );
+      if (!filteredCached) {
+        return res.status(403).json({ success: false, message: "Forbidden" });
+      }
       return res.status(200).json({ success: true, data: filteredCached, cached: true });
     }
 
@@ -717,11 +683,19 @@ export const getClientCompleteDetailsController = async (req: Request, res: Resp
       leadType: clientData.leadType,
       payments: clientData.payments,
       productPayments: clientData.productPayments,
+      studentApplications: clientData.studentApplications ?? [],
     };
 
-    // Cache raw (unfiltered) data; filter applied per-viewer below
+    // Cache raw (unfiltered) data; passport enriched from modules DB per request
     await redisSetJson(cacheKey, completeDetails, CLIENT_CACHE_TTL_SECONDS);
-    const filteredDetails = filterPaymentsByViewer(completeDetails, req.user?.id, req.user?.role as string | undefined);
+    const filteredDetails = await applyClientDetailsView(
+      completeDetails,
+      req.user?.id,
+      req.user?.role as string | undefined
+    );
+    if (!filteredDetails) {
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
     res.status(200).json({
       success: true,
       data: filteredDetails,
@@ -730,6 +704,137 @@ export const getClientCompleteDetailsController = async (req: Request, res: Resp
     res.status(500).json({
       success: false,
       message: error.message || "Failed to fetch client details",
+    });
+  }
+};
+
+/* ==============================
+   UPDATE CLIENT BASIC DETAILS (backend ops)
+============================== */
+export const updateClientBasicDetailsController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    if (!req.user?.id || !req.user?.role) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
+    const clientId = Number(req.params.clientId);
+    if (!Number.isFinite(clientId) || clientId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid clientId is required",
+      });
+    }
+
+    const allowed = await canUserUpdateClientBasicDetails(
+      clientId,
+      req.user.id,
+      req.user.role
+    );
+    if (!allowed) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden",
+      });
+    }
+
+    const body = req.body || {};
+    const leadTypeRaw = body.leadTypeId ?? body.lead_type_id;
+    const payload = {
+      fullName: body.fullName ?? body.full_name,
+      enrollmentDate: body.enrollmentDate ?? body.enrollment_date ?? body.date,
+      passportDetails: body.passportDetails ?? body.passport_details,
+      leadTypeId:
+        leadTypeRaw !== undefined && leadTypeRaw !== null && leadTypeRaw !== ""
+          ? Number(leadTypeRaw)
+          : undefined,
+    };
+
+    const result = await updateClientBasicDetails(clientId, payload);
+
+    let modulesSync = null;
+    if (result.action !== "NO_CHANGE" && result.client?.clientId) {
+      const legacyId = Number(result.client.clientId);
+      const counsellorId = Number(result.client.counsellorId);
+      modulesSync = await syncClientAfterMainSave({
+        legacyClientId: legacyId,
+        counsellorId,
+      });
+    }
+
+    try {
+      const counsellorIds = new Set<number>();
+      const ownerId = Number(result.client?.counsellorId);
+      if (Number.isFinite(ownerId) && ownerId > 0) {
+        counsellorIds.add(ownerId);
+      }
+
+      const [transferRow] = await db
+        .select({
+          transferedToCounsellorId: clientInformation.transferedToCounsellorId,
+        })
+        .from(clientInformation)
+        .where(eq(clientInformation.clientId, clientId))
+        .limit(1);
+      const sharedId = Number(transferRow?.transferedToCounsellorId);
+      if (Number.isFinite(sharedId) && sharedId > 0) {
+        counsellorIds.add(sharedId);
+      }
+
+      await invalidateClientCaches({
+        clientId,
+        counsellorIds: [...counsellorIds],
+      });
+    } catch {
+      // ignore cache issues
+    }
+
+    if (result.action !== "NO_CHANGE") {
+      try {
+        await logActivity(req, {
+          entityType: "client",
+          entityId: clientId,
+          clientId,
+          action: "UPDATE",
+          oldValue: result.oldValue,
+          newValue: result.client,
+          description: `Client basic details updated: ${result.client.fullName}`,
+          performedBy: req.user.id,
+        });
+      } catch (activityError) {
+        console.error(
+          "Activity log error in updateClientBasicDetailsController:",
+          activityError
+        );
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      action: result.action,
+      data: result.client,
+      modulesSync,
+    });
+  } catch (error: any) {
+    const message = error?.message || "Failed to update client basic details";
+    const status =
+      message === "Client not found"
+        ? 404
+        : message.startsWith("At least one field") ||
+            message.includes("cannot be empty") ||
+            message.includes("Invalid ") ||
+            message.includes("already exists")
+          ? 400
+          : 500;
+
+    return res.status(status).json({
+      success: false,
+      message,
     });
   }
 };

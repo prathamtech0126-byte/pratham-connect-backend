@@ -157,6 +157,7 @@ import leadTypeRoutes from "./Leads/routes/leadType.routes";
 import clientRoute from "./routes/client.routes";
 import clientPaymentRoutes from "./routes/clientPayment.routes";
 import clientProductPaymentRoutes from "./routes/clientProductPayment.routes";
+import studentApplicationRoutes from "./routes/studentApplication.routes";
 import dashboardRoutes from "./routes/dashboard.routes";
 import activityLogRoutes from "./routes/activityLog.routes";
 import leaderboardRoutes from "./routes/leaderboard.routes";
@@ -166,6 +167,7 @@ import messageRoutes from "./routes/message.routes";
 import googleSheetRoutes from "./routes/googleSheet.routes";
 import allFinanceRoutes from "./routes/allFinance.routes";
 import teamListRoutes from "./routes/teamList.routes"; // ✅ ADD THIS LINE
+import roleModuleRoutes from "./role/role.routes";
 import checklistRoutes from "./routes/checklist.routes";
 import leadRoutes from "./Leads/routes/lead.routes";
 import telecallerTargets  from "./routes/telecallerTarget.routes";
@@ -181,6 +183,9 @@ import { requireCsrf } from "./middlewares/csrf.middleware";
 import otherProductsRoutes from "./routes/otherProducts.routes";
 import ruleConfigurationRoutes from "./routes/ruleConfiguration.routes";
 import notificationRoutes from "./notification/routes/notification.routes";
+import modulePaymentRoutes from "./modules/payments/routes/payment.routes";
+import modulesRoutes from "./modules/routes/modules.routes";
+import { registerSwagger } from "./docs/swagger/registerSwagger";
 
 
 
@@ -248,7 +253,7 @@ app.use(
       callback(new Error("CORS policy: origin not allowed"));
     },
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "PATCH","OPTIONS"],
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: [
       "Content-Type",
       "Authorization",
@@ -262,7 +267,22 @@ app.use(
 
 // Baseline hardening
 app.disable("x-powered-by");
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+        imgSrc: ["'self'", "data:", "https:"],
+        connectSrc: ["'self'"],
+        // Helmet defaults include upgrade-insecure-requests, which breaks Swagger UI on HTTP dev/LAN.
+        ...(isProduction ? {} : { upgradeInsecureRequests: null }),
+      },
+    },
+    ...(isProduction ? {} : { strictTransportSecurity: false }),
+  })
+);
 app.use(compression());
 
 // Facebook webhook needs raw body for signature verification.
@@ -294,6 +314,9 @@ app.get("/", (_req, res) => {
 // Serve uploaded ticket images statically
 app.use("/uploads", express.static("uploads"));
 
+// OpenAPI docs (exempt from CSRF — read-only UI + spec JSON)
+registerSwagger(app);
+
 app.use(requireCsrf);
 
 // lightweight health check
@@ -304,6 +327,7 @@ app.use("/api/lead-types", leadTypeRoutes);
 app.use("/api/clients", clientRoute);
 app.use("/api/client-payments", clientPaymentRoutes);
 app.use("/api/client-product-payments", clientProductPaymentRoutes);
+app.use("/api/student-applications", studentApplicationRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/activity-logs", activityLogRoutes);
 app.use("/api/leaderboard", leaderboardRoutes);
@@ -313,6 +337,7 @@ app.use("/api/messages", messageRoutes);
 app.use("/api/google-sheets", googleSheetRoutes);
 app.use("/api/all-finance", allFinanceRoutes);
 app.use("/api/team", teamListRoutes); // ✅ ADD THIS LINE
+app.use("/api/role", roleModuleRoutes);
 app.use("/api/v1", checklistRoutes);
 app.use("/api/leads", leadRoutes);
 app.use("/api/lead-registration", leadRegistrationRoutes);
@@ -326,7 +351,8 @@ app.use("/api/incentives", incentiveReportRoutes);
 app.use("/api/other-products", otherProductsRoutes);
 app.use("/api/rule-configurations", ruleConfigurationRoutes);
 app.use("/api/notifications", notificationRoutes);
-
+app.use("/api/module-payments", modulePaymentRoutes);
+app.use("/api/modules", modulesRoutes);
 
 // 404
 app.use((_req, res) => {

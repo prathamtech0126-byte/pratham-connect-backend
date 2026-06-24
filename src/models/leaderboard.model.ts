@@ -4,6 +4,9 @@ import { clientInformation } from "../schemas/clientInformation.schema";
 import { clientPayments } from "../schemas/clientPayment.schema";
 import { clientProductPayments } from "../schemas/clientProductPayments.schema";
 import { leaderBoard } from "../schemas/leaderBoard.schema";
+import { saleTypes } from "../schemas/saleType.schema";
+import { saleTypeCategories } from "../schemas/saleTypeCategory.schema";
+import { studentApplications } from "../schemas/studentApplication.schema";
 import { simCard } from "../schemas/simCard.schema";
 import { airTicket } from "../schemas/airTicket.schema";
 import { ielts } from "../schemas/ielts.schema";
@@ -17,7 +20,7 @@ import { creditCard } from "../schemas/creditCard.schema";
 import { visaExtension } from "../schemas/visaExtension.schema";
 import { newSell } from "../schemas/newSell.schema";
 import { allFinance } from "../schemas/allFinance.schema";
-import { eq, and, sql, count, desc, gte, lte, or, inArray } from "drizzle-orm";
+import { eq, and, sql, count, desc, gte, lte, lt, or, inArray } from "drizzle-orm";
 
 /** Active counsellors only; inactive (`users.status = false`) excluded from leaderboard. */
 const activeCounsellorWhere = and(
@@ -297,6 +300,161 @@ export const getCounsellorEnrollmentCountByEnrollmentDate = async (
   return Number(result?.count ?? 0);
 };
 
+/** All active sale type categories from the DB (used to build leaderboard tabs). */
+export const getSaleTypeCategoriesForLeaderboard = async (): Promise<Array<{ id: number; name: string }>> => {
+  const rows = await db
+    .select({ id: saleTypeCategories.id, name: saleTypeCategories.name })
+    .from(saleTypeCategories)
+    .orderBy(saleTypeCategories.id);
+  return rows.map((r) => ({ id: Number(r.id), name: r.name }));
+};
+
+/**
+ * Unique clients with a student application where the counsellor is the application counsellor
+ * and the client's enrollment_date falls in the period.
+ */
+export const getCounsellorStudentAppCount = async (
+  counsellorId: number,
+  startDateStr: string,
+  endDateStr: string
+): Promise<number> => {
+  // Count clients whose FIRST application (by this counsellor) falls in the period.
+  // A second application for the same client in a later month should not re-count them.
+  const { rows } = await (db as any).$client.query(`
+    SELECT COUNT(*)::int AS cnt
+    FROM (
+      SELECT sa.client_id, MIN(sa.application_date) AS first_app_date
+      FROM student_application sa
+      INNER JOIN client_information ci ON ci.id = sa.client_id
+      WHERE sa.counsellor_id = $1
+        AND ci.archived = false
+        AND sa.application_date IS NOT NULL
+      GROUP BY sa.client_id
+    ) first_apps
+    WHERE first_app_date >= $2::date
+      AND first_app_date <= $3::date
+  `, [counsellorId, startDateStr, endDateStr]);
+  return Number(rows[0]?.cnt ?? 0);
+};
+
+/**
+ * Unique clients with a paid tuition deposit (TUTION_FEES) where the TD date falls in the period.
+ * Used for general-target student counting and final-student achievement.
+ */
+export const getCounsellorFinalStudentCount = async (
+  counsellorId: number,
+  startDateStr: string,
+  endDateStr: string
+): Promise<number> => {
+  const { rows } = await (db as any).$client.query(`
+    SELECT COUNT(DISTINCT cpp.client_id)::int AS cnt
+    FROM client_product_payment cpp
+    INNER JOIN tution_fees tf ON tf.id = cpp.entity_id
+    INNER JOIN client_information ci ON ci.id = cpp.client_id
+    WHERE cpp.entity_type = 'tutionFees_id'
+      AND tf.tution_fees_status = 'paid'
+      AND tf.date IS NOT NULL
+      AND tf.date >= $2::date
+      AND tf.date <= $3::date
+      AND ci.archived = false
+      AND COALESCE(cpp.handled_by, ci.counsellor_id) = $1
+  `, [counsellorId, startDateStr, endDateStr]);
+  return Number(rows[0]?.cnt ?? 0);
+};
+
+/**
+ * Count unique clients enrolled in period for a specific sale type category (e.g. 'visitor', 'spouse').
+ * Attributed by COALESCE(handledBy, counsellor_id) on the client_payment.
+ */
+export const getCounsellorCategoryEnrollmentCount = async (
+  counsellorId: number,
+  categoryName: string,
+  startDateStr: string,
+  endDateStr: string
+): Promise<number> => {
+  const { rows } = await (db as any).$client.query(`
+    SELECT COUNT(DISTINCT ci.id)::int AS cnt
+    FROM client_information ci
+    WHERE ci.archived = false
+      AND ci.date >= $1::date
+      AND ci.date <= $2::date
+      AND EXISTS (
+        SELECT 1
+        FROM client_payment cp
+        INNER JOIN sale_type st ON st.id = cp.sale_type_id
+        INNER JOIN sale_type_category stc ON stc.id = st.category_id
+        WHERE cp.client_id = ci.id
+          AND cp.stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
+          AND LOWER(stc.name) = LOWER($3)
+          AND COALESCE(cp.handled_by, ci.counsellor_id) = $4
+      )
+  `, [startDateStr, endDateStr, categoryName, counsellorId]);
+  return Number(rows[0]?.cnt ?? 0);
+};
+
+/**
+ * General enrollment count: non-student core-sale clients (visitor/spouse by enrollment date)
+ * + students counted when paid tuition deposit falls in the period (not application date).
+ */
+export const getCounsellorGeneralCount = async (
+  counsellorId: number,
+  startDateStr: string,
+  endDateStr: string
+): Promise<number> => {
+  const { rows } = await (db as any).$client.query(`
+    SELECT COUNT(DISTINCT ci.id)::int AS cnt
+    FROM client_information ci
+    WHERE ci.archived = false
+      AND ci.date >= $1::date AND ci.date <= $2::date
+      AND EXISTS (
+        SELECT 1 FROM client_payment cp
+        INNER JOIN sale_type st ON st.id = cp.sale_type_id
+        INNER JOIN sale_type_category stc ON stc.id = st.category_id
+        WHERE cp.client_id = ci.id
+          AND cp.stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
+          AND LOWER(stc.name) != 'student'
+          AND COALESCE(cp.handled_by, ci.counsellor_id) = $3
+      )
+  `, [startDateStr, endDateStr, counsellorId]);
+  const nonStudentCount = Number(rows[0]?.cnt ?? 0);
+  const studentTdCount = await getCounsellorFinalStudentCount(
+    counsellorId,
+    startDateStr,
+    endDateStr
+  );
+  return nonStudentCount + studentTdCount;
+};
+
+/** Enrollment count for a counsellor using the leaderboard category rules. */
+export const getCounsellorEnrollmentsForCategory = async (
+  counsellorId: number,
+  categoryName: string,
+  startDateStr: string,
+  endDateStr: string
+): Promise<{ enrollments: number; studentAppCount: number; finalStudentCount: number }> => {
+  const catLower = categoryName.toLowerCase();
+  let enrollments: number;
+  let studentAppCount = 0;
+  let finalStudentCount = 0;
+
+  if (catLower === "student") {
+    studentAppCount = await getCounsellorStudentAppCount(counsellorId, startDateStr, endDateStr);
+    finalStudentCount = await getCounsellorFinalStudentCount(counsellorId, startDateStr, endDateStr);
+    enrollments = studentAppCount;
+  } else if (catLower === "general") {
+    enrollments = await getCounsellorGeneralCount(counsellorId, startDateStr, endDateStr);
+  } else {
+    enrollments = await getCounsellorCategoryEnrollmentCount(
+      counsellorId,
+      categoryName,
+      startDateStr,
+      endDateStr
+    );
+  }
+
+  return { enrollments, studentAppCount, finalStudentCount };
+};
+
 /** Core Sale amount for one counsellor: client_payment (INITIAL/BEFORE_VISA/AFTER_VISA) where payment falls in the period.
  *  If payment is in current month it counts in current month, even if client was enrolled earlier (no enrollment_date filter). */
 export const getCounsellorCoreSaleAmount = async (
@@ -537,7 +695,8 @@ export const getLeaderboard = async (
   year: number,
   userId?: number,
   userRole?: LeaderboardUserRole,
-  dateRange?: LeaderboardDateRange
+  dateRange?: LeaderboardDateRange,
+  categoryName: string = "general"
 ) => {
   // Validate month and year (used for target lookup and when dateRange not provided)
   if (month < 1 || month > 12) {
@@ -576,57 +735,64 @@ export const getLeaderboard = async (
     .from(users)
     .where(activeCounsellorWhere);
 
-  // Calculate enrollments and revenue for each counsellor
-  // Enrollment count = same as dashboard: by ENROLLMENT DATE in period, one client = one count (not payment date)
-  const counsellorStats = await Promise.all(
-    allCounsellors.map(async (counsellor) => {
-      const [enrollmentResult] = await db
-        .select({ count: count() })
-        .from(clientInformation)
-        .where(
-          and(
-            eq(clientInformation.counsellorId, counsellor.id),
-            eq(clientInformation.archived, false),
-            gte(clientInformation.enrollmentDate, startDateStr),
-            lte(clientInformation.enrollmentDate, endDateStr),
-            sql`${clientInformation.clientId} IN (
-              SELECT client_id FROM client_payment
-              WHERE stage IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
-            )`
-          )
-        );
+  const catLower = categoryName.toLowerCase();
+  const useAssignedMode = catLower === "assigned";
 
-      const enrollments = enrollmentResult?.count ?? 0;
-
-      // Per-counsellor breakdown: Core Sale, Core Product, Other Product (same definitions as dashboard)
-      const [coreSaleAmount, coreProductMetrics, otherProductMetrics] = await Promise.all([
-        getCounsellorCoreSaleAmount(
-          counsellor.id,
-          startDateStr,
-          endDateStr,
-          startTimestamp,
-          endTimestamp
-        ),
-        getCounsellorCoreProductMetrics(counsellor.id, startDateStr, endDateStr),
-        getCounsellorOtherProductMetrics(counsellor.id, startDateStr, endDateStr),
-      ]);
-
-      // Revenue = Core Sale + Core Product + Other Product (formula so revenue matches sum of breakdown)
-      const revenue =
-        coreSaleAmount + coreProductMetrics.amount + otherProductMetrics.amount;
-
-      // Get target from leaderboard table (if exists)
-      const [targetRecord] = await db
+  const targetRows = useAssignedMode
+    ? await db
         .select()
         .from(leaderBoard)
         .where(
           and(
-            eq(leaderBoard.counsellor_id, counsellor.id),
             sql`EXTRACT(YEAR FROM ${leaderBoard.createdAt}) = ${year}`,
             sql`EXTRACT(MONTH FROM ${leaderBoard.createdAt}) = ${month}`
           )
         )
-        .limit(1);
+    : [];
+  const targetByCounsellor = new Map(
+    targetRows.map((r) => [Number(r.counsellor_id), r])
+  );
+
+  // Calculate enrollments and revenue for each counsellor
+  const counsellorStats = await Promise.all(
+    allCounsellors.map(async (counsellor) => {
+      const assignedTarget = targetByCounsellor.get(counsellor.id);
+      const effectiveCategory = useAssignedMode
+        ? (assignedTarget?.category_name ?? "general").toLowerCase()
+        : catLower;
+
+      const { enrollments, studentAppCount, finalStudentCount } =
+        await getCounsellorEnrollmentsForCategory(
+          counsellor.id,
+          effectiveCategory,
+          startDateStr,
+          endDateStr
+        );
+
+      // Revenue (always computed same way regardless of category)
+      const [coreSaleAmount, coreProductMetrics, otherProductMetrics] = await Promise.all([
+        getCounsellorCoreSaleAmount(counsellor.id, startDateStr, endDateStr, startTimestamp, endTimestamp),
+        getCounsellorCoreProductMetrics(counsellor.id, startDateStr, endDateStr),
+        getCounsellorOtherProductMetrics(counsellor.id, startDateStr, endDateStr),
+      ]);
+      const revenue = coreSaleAmount + coreProductMetrics.amount + otherProductMetrics.amount;
+
+      let targetRecord = useAssignedMode
+        ? assignedTarget
+        : (
+            await db
+              .select()
+              .from(leaderBoard)
+              .where(
+                and(
+                  eq(leaderBoard.counsellor_id, counsellor.id),
+                  eq(leaderBoard.category_name, categoryName),
+                  sql`EXTRACT(YEAR FROM ${leaderBoard.createdAt}) = ${year}`,
+                  sql`EXTRACT(MONTH FROM ${leaderBoard.createdAt}) = ${month}`
+                )
+              )
+              .limit(1)
+          )[0];
 
       return {
         counsellorId: counsellor.id,
@@ -636,22 +802,18 @@ export const getLeaderboard = async (
         managerId: counsellor.managerId,
         designation: counsellor.designation,
         enrollments,
+        studentAppCount,
+        finalStudentCount,
         revenue: parseFloat(revenue.toFixed(2)),
         target: targetRecord?.target || 0,
-        achievedTarget: enrollments, // Achieved target = enrollments
+        achievedTarget: enrollments,
         targetId: targetRecord?.id || null,
-        coreSale: {
-          count: enrollments,
-          amount: parseFloat(coreSaleAmount.toFixed(2)),
-        },
-        coreProduct: {
-          count: coreProductMetrics.count,
-          amount: parseFloat(coreProductMetrics.amount.toFixed(2)),
-        },
-        otherProduct: {
-          count: otherProductMetrics.count,
-          amount: parseFloat(otherProductMetrics.amount.toFixed(2)),
-        },
+        applicationTarget: targetRecord?.application_target ?? null,
+        finalStudentTarget: targetRecord?.final_student_target ?? null,
+        categoryName: effectiveCategory,
+        coreSale: { count: enrollments, amount: parseFloat(coreSaleAmount.toFixed(2)) },
+        coreProduct: { count: coreProductMetrics.count, amount: parseFloat(coreProductMetrics.amount.toFixed(2)) },
+        otherProduct: { count: otherProductMetrics.count, amount: parseFloat(otherProductMetrics.amount.toFixed(2)) },
       };
     })
   );
@@ -670,12 +832,11 @@ export const getLeaderboard = async (
     rank: index + 1,
   }));
 
-  // Persist achieved_target and rank only when using month/year (not when dashboard passes a filter date range)
+  // Persist achieved_target and rank ONLY for counsellors who already have a target row (never auto-insert)
   if (!dateRange) {
-    const monthStartForDb = new Date(year, month - 1, 1);
     for (const stat of rankedStats) {
       const [existing] = await db
-        .select()
+        .select({ id: leaderBoard.id })
         .from(leaderBoard)
         .where(
           and(
@@ -689,21 +850,10 @@ export const getLeaderboard = async (
       if (existing) {
         await db
           .update(leaderBoard)
-          .set({
-            achieved_target: stat.enrollments,
-            rank: stat.rank,
-          })
+          .set({ achieved_target: stat.enrollments, rank: stat.rank })
           .where(eq(leaderBoard.id, existing.id));
-      } else {
-        await db.insert(leaderBoard).values({
-          manager_id: stat.managerId ?? null,
-          counsellor_id: stat.counsellorId,
-          target: 0,
-          achieved_target: stat.enrollments,
-          rank: stat.rank,
-          createdAt: monthStartForDb,
-        });
       }
+      // Do NOT insert — only admins/managers set targets explicitly via setTarget()
     }
   }
 
@@ -926,10 +1076,13 @@ export const setTarget = async (
   managerId: number,
   target: number,
   month: number,
-  year: number
+  year: number,
+  categoryName: string = "general",
+  applicationTarget?: number | null,
+  finalStudentTarget?: number | null
 ) => {
   // Validate inputs
-  if (!counsellorId || !managerId || !target || target < 0) {
+  if (!counsellorId || !managerId || target < 0) {
     throw new Error("Invalid input parameters");
   }
 
@@ -996,75 +1149,91 @@ export const setTarget = async (
     )
     .limit(1);
 
-  // Achieved = distinct clients with INITIAL/BEFORE_VISA/AFTER_VISA payment in this month (not enrollment date)
-  const [enrollmentResult] = await db
-    .select({
-      count: sql<number>`COUNT(DISTINCT ${clientPayments.clientId})`,
-    })
-    .from(clientPayments)
-    .innerJoin(
-      clientInformation,
-      eq(clientPayments.clientId, clientInformation.clientId)
-    )
-    .where(
-      sql`(
-        ${attributedCounsellorByClientPaymentSql} = ${counsellorId}
-        AND ${clientInformation.archived} = false
-        AND ${clientPayments.stage} IN ('INITIAL', 'BEFORE_VISA', 'AFTER_VISA')
-        AND (
-          (${clientPayments.paymentDate} IS NOT NULL
-            AND ${clientPayments.paymentDate} >= ${startDateStr}
-            AND ${clientPayments.paymentDate} <= ${endDateStr})
-          OR
-          (${clientPayments.paymentDate} IS NULL
-            AND ${clientPayments.createdAt} >= ${startTimestamp}
-            AND ${clientPayments.createdAt} <= ${endTimestamp})
-        )
-      )`
-    ) as any;
+  if (
+    existingTarget &&
+    (existingTarget.category_name ?? "general").toLowerCase() !== categoryName.toLowerCase()
+  ) {
+    const cat = (existingTarget.category_name ?? "general").toLowerCase();
+    const existingCategory = cat.charAt(0).toUpperCase() + cat.slice(1);
+    throw new Error(
+      `Target already set for this counsellor in ${existingCategory} category for ${month}/${year}`
+    );
+  }
 
-  const achievedTarget = enrollmentResult?.count || 0;
+  // Achieved = category-specific count
+  let achievedTarget = 0;
+  const catLower = categoryName.toLowerCase();
+  if (catLower === "student") {
+    achievedTarget = await getCounsellorStudentAppCount(counsellorId, startDateStr, endDateStr);
+  } else if (catLower === "general") {
+    achievedTarget = await getCounsellorGeneralCount(counsellorId, startDateStr, endDateStr);
+  } else {
+    achievedTarget = await getCounsellorCategoryEnrollmentCount(counsellorId, categoryName, startDateStr, endDateStr);
+  }
 
-  // Calculate rank (will be updated when leaderboard is fetched)
-  // For now, set a temporary rank
   const tempRank = 0;
+  // Effective target value: for student category use applicationTarget as main target
+  const effectiveTarget = catLower === "student" ? (applicationTarget ?? target) : target;
 
   if (existingTarget) {
-    // Update existing target
     const [updated] = await db
       .update(leaderBoard)
       .set({
         manager_id: managerId,
-        target: target,
+        target: effectiveTarget,
         achieved_target: achievedTarget,
         rank: tempRank,
+        application_target: catLower === "student" ? (applicationTarget ?? target) : null,
+        final_student_target: catLower === "student" ? (finalStudentTarget ?? null) : null,
       })
       .where(eq(leaderBoard.id, existingTarget.id))
       .returning();
 
-    return {
-      action: "UPDATED",
-      target: updated,
-    };
+    return { action: "UPDATED", target: updated };
   } else {
-    // Create new target (set createdAt to 1st of month so EXTRACT(month/year) finds it)
     const [created] = await db
       .insert(leaderBoard)
       .values({
         manager_id: managerId,
         counsellor_id: counsellorId,
-        target: target,
+        target: effectiveTarget,
         achieved_target: achievedTarget,
         rank: tempRank,
+        category_name: categoryName,
+        application_target: catLower === "student" ? (applicationTarget ?? target) : null,
+        final_student_target: catLower === "student" ? (finalStudentTarget ?? null) : null,
         createdAt: new Date(year, month - 1, 1),
       })
       .returning();
 
-    return {
-      action: "CREATED",
-      target: created,
-    };
+    return { action: "CREATED", target: created };
   }
+};
+
+/** Returns all counsellor+category targets for the given month/year.
+ *  Month is derived from created_at (same EXTRACT logic as setTarget). */
+export const getMonthTargets = async (
+  month: number,
+  year: number
+): Promise<Array<{ counsellorId: number; targetId: number; categoryName: string }>> => {
+  const rows = await db
+    .select({
+      counsellorId: leaderBoard.counsellor_id,
+      targetId: leaderBoard.id,
+      categoryName: leaderBoard.category_name,
+    })
+    .from(leaderBoard)
+    .where(
+      and(
+        sql`EXTRACT(YEAR FROM ${leaderBoard.createdAt}) = ${year}`,
+        sql`EXTRACT(MONTH FROM ${leaderBoard.createdAt}) = ${month}`
+      )
+    );
+  return rows.map((r) => ({
+    counsellorId: Number(r.counsellorId),
+    targetId: Number(r.targetId),
+    categoryName: (r.categoryName ?? "general").toLowerCase(),
+  }));
 };
 
 /* ==============================

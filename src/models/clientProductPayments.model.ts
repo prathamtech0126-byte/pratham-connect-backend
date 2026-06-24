@@ -21,6 +21,55 @@ import { allFinance } from "../schemas/allFinance.schema";
 import { users } from "../schemas/users.schema";
 import { eq, inArray, and, ne, sql, desc, asc } from "drizzle-orm";
 import { parseFrontendDate } from "../utils/date";
+import { maybeFinalizeLeadConversionAfterTuitionDeposit } from "../Leads/services/leadStudentConversion.service";
+
+export const TUITION_DEPOSIT_EXISTS_MSG =
+  "This student already has a tuition deposit on file. Only one tuition deposit is allowed per student (via product or application).";
+
+/** Returns the client's existing TUTION_FEES product payment, if any. */
+export const getClientTuitionDepositRecord = async (
+  clientId: number,
+  excludeProductPaymentId?: number
+): Promise<{ productPaymentId: number; studentApplicationId: number | null } | null> => {
+  const rows = await db
+    .select({
+      productPaymentId: clientProductPayments.productPaymentId,
+      studentApplicationId: tutionFees.studentApplicationId,
+    })
+    .from(clientProductPayments)
+    .innerJoin(tutionFees, eq(clientProductPayments.entityId, tutionFees.id))
+    .where(
+      and(
+        eq(clientProductPayments.clientId, clientId),
+        eq(clientProductPayments.productName, "TUTION_FEES"),
+        eq(clientProductPayments.entityType, "tutionFees_id")
+      )
+    );
+
+  for (const row of rows) {
+    if (
+      excludeProductPaymentId != null &&
+      row.productPaymentId === excludeProductPaymentId
+    ) {
+      continue;
+    }
+    return {
+      productPaymentId: row.productPaymentId,
+      studentApplicationId: row.studentApplicationId,
+    };
+  }
+  return null;
+};
+
+export const assertCanAddClientTuitionDeposit = async (
+  clientId: number,
+  excludeProductPaymentId?: number
+): Promise<void> => {
+  const existing = await getClientTuitionDepositRecord(clientId, excludeProductPaymentId);
+  if (existing) {
+    throw new Error(TUITION_DEPOSIT_EXISTS_MSG);
+  }
+};
 
 // Helper function to safely fetch entities with error handling
 const fetchEntities = async <T extends { id: number } | { financeId: number }>(
@@ -280,7 +329,22 @@ interface TutionFeesData {
   tutionFeesStatus: "paid" | "pending";
   feeDate?: string;
   remarks?: string;
+  studentApplicationId?: number;
 }
+
+const tryFinalizeLeadAfterTuitionDeposit = async (
+  clientId: number,
+  productName: ProductType,
+  entityData?: unknown
+) => {
+  if (productName !== "TUTION_FEES") return;
+  const data = entityData as TutionFeesData | undefined;
+  if (!data || data.tutionFeesStatus !== "paid") return;
+  await maybeFinalizeLeadConversionAfterTuitionDeposit(
+    clientId,
+    data.feeDate ? (parseFrontendDate(data.feeDate) ?? data.feeDate) : undefined
+  );
+};
 
 interface InsuranceData {
   amount: number | string;
@@ -544,6 +608,7 @@ const createEntityRecord = async (
           tutionFeesStatus: data.tutionFeesStatus as any,
           feeDate: parseFrontendDate(data.feeDate) ?? null,
           remarks: data.remarks ?? null,
+          studentApplicationId: data.studentApplicationId ?? null,
         })
         .returning();
       return record.id;
@@ -1243,12 +1308,18 @@ export const saveClientProductPayment = async (
       .where(eq(clientProductPayments.productPaymentId, productPaymentId))
       .returning();
 
+    await tryFinalizeLeadAfterTuitionDeposit(clientId, productName, entityData);
+
     return { action: "UPDATED", record: updated };
   }
 
   // ---------------------------
   // CREATE
   // ---------------------------
+  if (entityType === "tutionFees_id") {
+    await assertCanAddClientTuitionDeposit(clientId);
+  }
+
   let entityId: number | null = null;
 
   if (entityType !== "master_only") {
@@ -1308,13 +1379,18 @@ export const saveClientProductPayment = async (
     })
     .returning();
 
+  await tryFinalizeLeadAfterTuitionDeposit(clientId, productName, entityData);
+
   return { action: "CREATED", record };
 };
 
 type ClientProductPaymentRow = typeof clientProductPayments.$inferSelect;
 
 /** Same shape as rows in `GET /api/client/:id/complete` → `productPayments` (with `entity`). */
-export type ProductPaymentWithEntity = ClientProductPaymentRow & { entity: unknown };
+export type ProductPaymentWithEntity = ClientProductPaymentRow & {
+  entity: unknown;
+  handledByUser?: { id: number; name: string } | null;
+};
 
 async function attachEntitiesToProductPayments(
   payments: ClientProductPaymentRow[]
@@ -1403,9 +1479,32 @@ async function attachEntitiesToProductPayments(
     }
   }
 
+  const handlerIds = [
+    ...new Set(
+      payments
+        .map((p) => p.handledBy)
+        .filter((id): id is number => typeof id === "number" && id > 0)
+    ),
+  ];
+  const handlerMap = new Map<number, { id: number; name: string }>();
+  if (handlerIds.length > 0) {
+    const handlers = await db
+      .select({ id: users.id, fullName: users.fullName })
+      .from(users)
+      .where(inArray(users.id, handlerIds));
+    handlers.forEach((h) => {
+      handlerMap.set(h.id, { id: h.id, name: h.fullName });
+    });
+  }
+
+  const attachHandler = (row: ProductPaymentWithEntity): ProductPaymentWithEntity => ({
+    ...row,
+    handledByUser: row.handledBy ? handlerMap.get(row.handledBy) ?? null : null,
+  });
+
   return payments.map((p) => {
     if (p.entityType === "master_only") {
-      return { ...p, entity: null };
+      return attachHandler({ ...p, entity: null });
     }
 
     if (p.entityId) {
@@ -1426,10 +1525,10 @@ async function attachEntitiesToProductPayments(
         entity = { ...entity, approver: approver || null };
       }
 
-      return { ...p, entity: entity || null };
+      return attachHandler({ ...p, entity: entity || null });
     }
 
-    return { ...p, entity: null };
+    return attachHandler({ ...p, entity: null });
   });
 }
 

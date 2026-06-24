@@ -4,9 +4,11 @@ import {
   text,
   timestamp,
   bigserial,
+  bigint,
   pgEnum,
   index,
 } from "drizzle-orm/pg-core";
+import { studentApplications } from "./studentApplication.schema";
 
 export const tutionFeesStatusEnum = pgEnum("tution_fees_status_enum", [
   "paid",
@@ -24,6 +26,11 @@ export const tutionFees = pgTable(
 
     remarks: text("remark"),
 
+    studentApplicationId: bigint("student_application_id", { mode: "number" }).references(
+      () => studentApplications.applicationId,
+      { onDelete: "set null" },
+    ),
+
     createdAt: timestamp("created_at").defaultNow(),
   },
   (table) => ({
@@ -34,6 +41,10 @@ export const tutionFees = pgTable(
     feeDateIdx: index("idx_tution_fees_date").on(table.feeDate),
 
     createdAtIdx: index("idx_tution_fees_created_at").on(table.createdAt),
+
+    studentApplicationIdx: index("idx_tution_fees_student_application").on(
+      table.studentApplicationId,
+    ),
   })
 );
 

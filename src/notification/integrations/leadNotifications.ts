@@ -21,10 +21,10 @@ import {
   notifyUsers,
 } from "../services/notification.service";
 import {
-  pgNaiveIst,
-  pgNaiveIstWallClockToInstant,
-  serializePgNaiveTimestampAsIst,
-} from "../../utils/pgTimestamp";
+  utcToIndianWallClock,
+  indianWallClockToInstant,
+  serializeAsIst,
+} from "../../utils/istTime";
 import { db } from "../../config/databaseConnection";
 import { notifications } from "../schemas/notifications.schema";
 import { eq } from "drizzle-orm";
@@ -67,7 +67,7 @@ function resolveLeadOwnerId(lead: LeadLike): number | null {
 
 function getReminderMinutesForBody(followupWall: Date): number {
   const configuredMinutes = Math.max(1, getFollowupReminderMinutesBefore());
-  const followupInstant = pgNaiveIstWallClockToInstant(followupWall);
+  const followupInstant = indianWallClockToInstant(followupWall);
   const diffMs = followupInstant.getTime() - Date.now();
   const remainingMinutes = Math.max(1, Math.ceil(diffMs / 60000));
   return Math.min(configuredMinutes, remainingMinutes);
@@ -211,7 +211,7 @@ export async function flushLeadAssignmentBatch(userId: number): Promise<void> {
 export async function scheduleLeadFollowupReminder(
   lead: LeadLike,
   followupAt: Date,
-  options?: { alreadyPgNaive?: boolean }
+  options?: { alreadyIndianWallClock?: boolean }
 ): Promise<void> {
   const ownerId = resolveLeadOwnerId(lead);
   if (!ownerId) return;
@@ -219,11 +219,11 @@ export async function scheduleLeadFollowupReminder(
   await cancelPendingLeadFollowupNotifications(lead.id);
 
   // Match DB `next_followup_at` wall clock (IST) for delivery timing and display.
-  const followupWall = options?.alreadyPgNaive ? followupAt : pgNaiveIst(followupAt);
+  const followupWall = options?.alreadyIndianWallClock ? followupAt : utcToIndianWallClock(followupAt);
   const whenLabel = formatFollowupTime(followupWall);
   const leadName = lead.fullName ?? `lead #${lead.id}`;
   const minutesBefore = getReminderMinutesForBody(followupWall);
-  const followupAtIso = serializePgNaiveTimestampAsIst(followupWall);
+  const followupAtIso = serializeAsIst(followupWall);
   const baseMeta = {
     leadName: lead.fullName,
     followupAt: followupAtIso,
@@ -273,7 +273,7 @@ async function scheduleLeadFollowupOverdueAlerts(
 ): Promise<void> {
   const overdueMeta = {
     leadName: lead.fullName,
-    followupAt: serializePgNaiveTimestampAsIst(followupAt),
+    followupAt: serializeAsIst(followupAt),
   };
 
   await notifyUsers({
@@ -342,7 +342,7 @@ export async function notifyLeadFollowupOverdue(
     dedupeKey: followupOverdueDedupeKey(lead.id, ownerId, followupAt, phase),
     meta: {
       leadName: lead.fullName,
-      followupAt: serializePgNaiveTimestampAsIst(followupAt),
+      followupAt: serializeAsIst(followupAt),
       phase,
     },
   });

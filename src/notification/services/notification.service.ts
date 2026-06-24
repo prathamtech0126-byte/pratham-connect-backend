@@ -12,9 +12,9 @@ import type {
   NotifyInput,
 } from "../types/notification.types";
 import {
-  formatPgNaiveTimestampForDisplay,
-  pgNaiveIstWallClockToInstant,
-} from "../../utils/pgTimestamp";
+  formatIndianTimeForDisplay,
+  indianWallClockToInstant,
+} from "../../utils/istTime";
 import { getRegistryEntry } from "./notificationEventRegistry";
 
 const FOLLOWUP_REMINDER_MINUTES = parseInt(
@@ -122,7 +122,7 @@ export async function processDueNotifications(): Promise<number> {
 
 /** Compute deliverAt from naive IST follow-up wall clock + offset (ms can be negative). */
 function deliverAtFromPgNaiveFollowup(followupNaive: Date, offsetMs: number): Date {
-  const instant = pgNaiveIstWallClockToInstant(followupNaive);
+  const instant = indianWallClockToInstant(followupNaive);
   const at = new Date(instant.getTime() + offsetMs);
   return at.getTime() <= Date.now() ? new Date() : at;
 }
@@ -159,5 +159,5 @@ export function getFollowupRepeatOverdueDeliverAt(followupAt: Date): Date {
 
 /** Format follow-up time for notification body text (IST wall clock from naive PG Date). */
 export function formatFollowupTime(d: Date): string {
-  return formatPgNaiveTimestampForDisplay(d);
+  return formatIndianTimeForDisplay(d);
 }

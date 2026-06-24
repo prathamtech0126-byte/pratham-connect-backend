@@ -3,6 +3,8 @@ import {
   getLeaderboardController,
   getLeaderboardSummaryController,
   getLeaderboardCounsellorsController,
+  getLeaderboardCategoriesController,
+  getMonthTargetsController,
   setTargetController,
   updateTargetController,
   deleteTargetController,
@@ -47,6 +49,28 @@ router.get(
   requireAuth,
   requireRole("developer","admin", "manager"),
   getLeaderboardCounsellorsController
+);
+
+/**
+ * Get sale type categories for leaderboard tabs
+ * GET /api/leaderboard/categories
+ */
+router.get(
+  "/categories",
+  requireAuth,
+  requireRole("developer","admin", "manager", "counsellor"),
+  getLeaderboardCategoriesController
+);
+
+/**
+ * Get existing targets for a month (all categories) — used to disable already-targeted counsellors in dropdown
+ * GET /api/leaderboard/month-targets?month=1&year=2026
+ */
+router.get(
+  "/month-targets",
+  requireAuth,
+  requireRole("developer","admin", "manager", "counsellor"),
+  getMonthTargetsController
 );
 
 /**
