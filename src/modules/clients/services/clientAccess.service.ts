@@ -18,6 +18,7 @@ const ADMIN_WRITE_ROLES = new Set([
   "admin",
   "developer",
   "superadmin",
+  "manager",
 ]);
 
 const toNumber = (value: unknown): number | null => {
