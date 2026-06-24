@@ -36,7 +36,7 @@ import {
 } from "../facebook_controllers/metaConversions.controller";
 
 const router = Router();
-const allowAutomationRoles = requireRole("superadmin", "admin", "developer", "manager");
+const allowAutomationRoles = requireRole("superadmin", "admin", "developer", "marketing_head");
 
 /**
  * @openapi

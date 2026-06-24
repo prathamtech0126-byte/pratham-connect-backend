@@ -5,16 +5,19 @@ import {
   addLeadActivityController,
   assignLeadController,
   bulkAssignLeadsController,
+  bulkStrategyAssignLeadsController,
   createLeadController,
   downloadLeadImportTemplateController,
   getLeadByIdController,
   getLeadReportController,
   getLeadsController,
+  getBulkLeadNotesController,
   getTelecallerLeadSummaryController,
   getTelecallerIndividualReportController,
   getCounsellorIndividualReportController,
   getTelecallerDashboardStatsController,
   getTelecallerLeaderboardController,
+  getAdminLeadReportStatsController,
   importLeadsCsvController,
   markLeadFollowupController,
   markLeadJunkController,
@@ -22,8 +25,13 @@ import {
   convertLeadToClientController,
   dropLeadByCounsellorController,
   updateLeadActivityStatusController,
+  updateLeadActivityMessageController,
   updateLeadController,
   searchLeadReferenceClientsController,
+  searchLeadReferenceTeamController,
+  listLeadReferenceTeamDirectoryController,
+  listLeadReferenceCounsellorsController,
+  listLeadTransferAssigneesController,
 } from "../controllers/lead.controller";
 import { csvUploadMiddleware } from "../../middlewares/csvUpload.middleware";
 
@@ -537,6 +545,20 @@ const router = Router();
  *         description: Forbidden
  */
 router.get("/", requireAuth, getLeadsController);
+router.post(
+  "/bulk-notes",
+  requireAuth,
+  requireRole(
+    "telecaller",
+    "counsellor",
+    "manager",
+    "admin",
+    "developer",
+    "superadmin",
+    "marketing_head"
+  ),
+  getBulkLeadNotesController
+);
 router.get(
   "/reference/clients",
   requireAuth,
@@ -550,6 +572,62 @@ router.get(
     "marketing_head"
   ),
   searchLeadReferenceClientsController
+);
+router.get(
+  "/reference/team",
+  requireAuth,
+  requireRole(
+    "telecaller",
+    "counsellor",
+    "manager",
+    "admin",
+    "developer",
+    "superadmin",
+    "marketing_head"
+  ),
+  searchLeadReferenceTeamController
+);
+router.get(
+  "/reference/team-directory",
+  requireAuth,
+  requireRole(
+    "telecaller",
+    "counsellor",
+    "manager",
+    "admin",
+    "developer",
+    "superadmin",
+    "marketing_head"
+  ),
+  listLeadReferenceTeamDirectoryController
+);
+router.get(
+  "/reference/counsellors",
+  requireAuth,
+  requireRole(
+    "telecaller",
+    "counsellor",
+    "manager",
+    "admin",
+    "developer",
+    "superadmin",
+    "marketing_head"
+  ),
+  listLeadReferenceCounsellorsController
+);
+router.get(
+  "/transfer-assignees",
+  requireAuth,
+  requireRole(
+    "telecaller",
+    "counsellor",
+    "manager",
+    "admin",
+    "developer",
+    "superadmin",
+    "marketing_head"
+  ),
+  listLeadTransferAssigneesController
 );
 router.get("/reports", requireAuth, getLeadReportController);
 router.get("/leaderboard/telecallers", requireAuth, getTelecallerLeaderboardController);
@@ -566,6 +644,12 @@ router.get(
   getCounsellorIndividualReportController
 );
 router.get("/telecaller-dashboard-stats", requireAuth, getTelecallerDashboardStatsController);
+router.get(
+  "/admin-report-stats",
+  requireAuth,
+  requireRole("manager", "admin", "developer", "superadmin"),
+  getAdminLeadReportStatsController
+);
 
 router.get(
   "/import/template",
@@ -588,6 +672,14 @@ router.post(
   requireRole("developer", "admin", "manager", "superadmin"),
   preventDuplicateRequests,
   bulkAssignLeadsController
+);
+
+router.post(
+  "/bulk-assign-strategy",
+  requireAuth,
+  requireRole("developer", "admin", "manager", "superadmin"),
+  preventDuplicateRequests,
+  bulkStrategyAssignLeadsController
 );
 
 router.get("/:id", requireAuth, getLeadByIdController);
@@ -669,6 +761,13 @@ router.put(
   requireAuth,
   requireRole("developer", "admin", "manager", "telecaller", "counsellor"),
   updateLeadActivityStatusController
+);
+
+router.patch(
+  "/:id/activities/:activityId",
+  requireAuth,
+  requireRole("developer", "admin", "manager", "telecaller", "counsellor"),
+  updateLeadActivityMessageController
 );
 
 export default router;

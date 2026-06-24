@@ -8,7 +8,10 @@ import { users } from "../../../schemas/users.schema";
 import { saleTypes } from "../../../schemas/saleType.schema";
 import { activityLog } from "../../../schemas/activityLog.schema";
 import { publishLeadChange } from "../../services/leadRealtime.service";
+import { notifyLeadAssignedCounsellor } from "../../../notification/integrations/leadNotifications";
 import { createActivityLog } from "../../../services/activityLog.service";
+import { serializeActivityLogTimestampAsIst } from "../../../utils/istTime";
+import { normalizeDateOfBirthForDb } from "../../../utils/date";
 import {
   eq,
   and,
@@ -94,7 +97,15 @@ export async function getFrontDeskActivityLogsForViewer(userId: number, viewerRo
       .where(where),
   ]);
 
-  return { rows, total: Number(total), page, limit };
+  return {
+    rows: rows.map((row) => ({
+      ...row,
+      createdAt: serializeActivityLogTimestampAsIst(row.createdAt),
+    })),
+    total: Number(total),
+    page,
+    limit,
+  };
 }
 
 // ─── Dashboard Stats ───────────────────────────────────────────────────────────
@@ -342,6 +353,16 @@ export async function assignLeadToCounsellor(leadId: number, counsellorId: numbe
     await publishLeadChange("lead:assigned", updatedLead as Record<string, unknown>, {
       notifyCounsellorId: counsellorId,
     });
+    notifyLeadAssignedCounsellor(
+      {
+        id: updatedLead.id,
+        fullName: updatedLead.fullName,
+        assignmentStatus: updatedLead.assignmentStatus,
+        currentCounsellorId: counsellorId,
+      },
+      counsellorId,
+      { actorUserId: assignedByUserId, transferred: false }
+    ).catch((e: unknown) => console.error("[notification] front desk assign:", e));
   }
 
   await logFrontDeskActivity({
@@ -422,7 +443,9 @@ export async function updateLeadDetails(leadId: number, input: UpdateLeadDetails
     const profileData: Record<string, unknown> = { updatedAt: new Date() };
     const p = input.profile;
     if (p.gender !== undefined) profileData.gender = p.gender;
-    if (p.dateOfBirth !== undefined) profileData.dateOfBirth = p.dateOfBirth;
+    if (p.dateOfBirth !== undefined) {
+      profileData.dateOfBirth = normalizeDateOfBirthForDb(p.dateOfBirth);
+    }
     if (p.alternatePhone !== undefined) profileData.alternatePhone = p.alternatePhone;
     if (p.hasPassport !== undefined) profileData.hasPassport = p.hasPassport;
     if (p.languageExamGiven !== undefined) profileData.languageExamGiven = p.languageExamGiven;

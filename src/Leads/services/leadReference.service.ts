@@ -1,6 +1,7 @@
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, and, or, ilike, asc } from "drizzle-orm";
 import { db } from "../../config/databaseConnection";
 import { leadReferences } from "../schemas/leadReferences.schema";
+import { users } from "../../schemas/users.schema";
 import {
   isClientReferenceSource,
   isInternalReferenceSource,
@@ -30,11 +31,105 @@ export type LeadReferenceApiShape = {
   counsellorName?: string | null;
 };
 
+/** Roles selectable as internal reference when creating a lead. */
+const INTERNAL_REFERENCE_MEMBER_ROLES = [
+  "telecaller",
+  "counsellor",
+  "manager",
+  "marketing_head",
+  "director",
+] as const;
+
+export async function searchLeadReferenceTeamMembers(search: string, limit = 25) {
+  const term = search.trim();
+  if (term.length < 3) return [];
+
+  const pattern = `%${term}%`;
+  const rows = await db
+    .select({
+      id: users.id,
+      fullName: users.fullName,
+      role: users.role,
+    })
+    .from(users)
+    .where(
+      and(
+        inArray(users.role, [...INTERNAL_REFERENCE_MEMBER_ROLES]),
+        eq(users.status, true),
+        or(ilike(users.fullName, pattern), ilike(users.email, pattern))
+      )
+    )
+    .orderBy(asc(users.fullName))
+    .limit(limit);
+
+  return rows.map((row) => ({
+    id: Number(row.id),
+    fullName: row.fullName,
+    memberRole: row.role,
+  }));
+}
+
+/** All active internal-reference team members (for client-side search on Add Lead). */
+export async function listLeadReferenceTeamDirectory() {
+  const rows = await db
+    .select({
+      id: users.id,
+      fullName: users.fullName,
+      role: users.role,
+    })
+    .from(users)
+    .where(
+      and(
+        inArray(users.role, [...INTERNAL_REFERENCE_MEMBER_ROLES]),
+        eq(users.status, true)
+      )
+    )
+    .orderBy(asc(users.fullName));
+
+  return rows.map((row) => ({
+    id: Number(row.id),
+    fullName: row.fullName,
+    memberRole: row.role,
+  }));
+}
+
+/** Counsellors + managers for manual client-reference picker. */
+export async function listLeadReferenceCounsellors() {
+  return listLeadTransferAssignees();
+}
+
+/** Counsellors and managers for telecaller transfer / assign picker. */
+export async function listLeadTransferAssignees() {
+  const rows = await db
+    .select({
+      id: users.id,
+      fullName: users.fullName,
+      role: users.role,
+    })
+    .from(users)
+    .where(
+      and(
+        inArray(users.role, ["counsellor", "manager"]),
+        eq(users.status, true)
+      )
+    )
+    .orderBy(asc(users.fullName));
+
+  return rows.map((row) => ({
+    id: Number(row.id),
+    fullName: row.fullName,
+    role: row.role,
+  }));
+}
+
 function humanizeRole(role: string | null | undefined): string | null {
   if (!role) return null;
   const r = role.trim().toLowerCase();
   if (r === "telecaller") return "Telecaller";
   if (r === "counsellor" || r === "counselor") return "Counsellor";
+  if (r === "manager") return "Manager";
+  if (r === "marketing_head") return "Marketing Head";
+  if (r === "director") return "Director";
   if (r === "self") return "Self";
   return role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
