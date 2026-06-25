@@ -3,6 +3,7 @@ import type { ReportDateRange } from "../utils/reportDateRange";
 
 export type BackendDashboardQuery = ReportDateRange & {
   branchCode?: string;
+  category?: string;
 };
 
 type SqlFilter = {
@@ -27,6 +28,11 @@ const buildEnrollmentFilter = (
   if (filters.branchCode) {
     parts.push(`c.branch_code = $${idx++}`);
     params.push(filters.branchCode);
+  }
+
+  if (filters.category) {
+    parts.push(`vcat.slug = $${idx++}`);
+    params.push(filters.category);
   }
 
   return {
@@ -69,8 +75,18 @@ export type BackendDashboardAggregates = {
 export const fetchBackendDashboardAggregates = async (
   filters: BackendDashboardQuery
 ): Promise<BackendDashboardAggregates> => {
+  // buildEnrollmentFilter includes category (which references vcat.slug).
+  // byCategory query has vcat in scope via baseFromWithCategory — safe to use directly.
   const { clause, params } = buildEnrollmentFilter(filters);
   const withCategoryWhere = `${baseFromWithCategory}\n    ${clause}`;
+
+  // For the scopedCasesCte we need to add the sale_type + visa_categories joins
+  // only when a category filter is active (those tables aren't in the base CTE).
+  const categoryJoin = filters.category
+    ? `INNER JOIN sales s ON s.id = vc.sale_id
+      INNER JOIN sale_type st ON st.id = s.sale_type_id
+      LEFT JOIN visa_categories vcat ON vcat.id = st.visa_category_id`
+    : "";
 
   const scopedCasesCte = `
     WITH scoped_cases AS (
@@ -82,6 +98,7 @@ export const fetchBackendDashboardAggregates = async (
         vc.assigned_team
       FROM visa_cases vc
       INNER JOIN clients c ON c.id = vc.client_id
+      ${categoryJoin}
       ${clause}
     )
   `;

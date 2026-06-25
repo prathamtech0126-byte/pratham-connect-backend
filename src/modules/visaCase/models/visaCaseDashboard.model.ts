@@ -13,6 +13,8 @@ export type DashboardDateFilter = {
   trendAllTime?: boolean;
   /** When false, skip enrollment trend query (backend report uses dedicated API). */
   includeEnrollmentTrend?: boolean;
+  /** Filter financial lookups to a specific visa category slug (visitor | spouse | student). */
+  category?: string;
 };
 
 export type EnrollmentTrendQueryFilter = {
@@ -163,6 +165,15 @@ export const fetchScopedVisaCaseFinancialLookups = async (
 ): Promise<ScopedVisaCaseFinancialLookup[]> => {
   const { clause, params } = dateFilterSql(filters, 1);
 
+  // When a category filter is present, extend params and add vcat join + condition.
+  let categoryJoin = "";
+  let categoryClause = "";
+  if (filters.category) {
+    categoryJoin = `LEFT JOIN visa_categories vcat ON vcat.id = st.visa_category_id`;
+    categoryClause = `AND vcat.slug = $${params.length + 1}`;
+    params.push(filters.category);
+  }
+
   const { rows } = await getPoolSecond().query<{
     client_id: string;
     legacy_client_id: string | null;
@@ -177,7 +188,9 @@ export const fetchScopedVisaCaseFinancialLookups = async (
     INNER JOIN clients c ON c.id = vc.client_id
     INNER JOIN sales s ON s.id = vc.sale_id
     INNER JOIN sale_type st ON st.id = s.sale_type_id
+    ${categoryJoin}
     ${clause ? `\n    ${clause}` : ""}
+    ${categoryClause}
     `,
     params
   );
@@ -198,16 +211,37 @@ export const fetchScopedVisaCaseFinancialLookups = async (
 export const fetchDashboardAggregates = async (
   filters: DashboardDateFilter
 ) => {
-  const { clause, params } = dateFilterSql(filters, 1);
+  const { clause, params: baseParams } = dateFilterSql(filters, 1);
   const includeEnrollmentTrend = filters.includeEnrollmentTrend !== false;
+
+  // When a category filter is present, join visa_categories and add the slug condition.
+  const categoryJoin = filters.category
+    ? `INNER JOIN sales s ON s.id = vc.sale_id
+    INNER JOIN sale_type st ON st.id = s.sale_type_id
+    LEFT JOIN visa_categories vcat ON vcat.id = st.visa_category_id`
+    : "";
+  // baseFromWithResolvedCountry already has sales/sale_type; only add vcat join.
+  const categoryJoinForCountry = filters.category
+    ? `LEFT JOIN visa_categories vcat ON vcat.id = st.visa_category_id`
+    : "";
+
+  const params = filters.category ? [...baseParams, filters.category] : baseParams;
+  const categoryCondition = filters.category
+    ? `vcat.slug = $${baseParams.length + 1}`
+    : "";
+  const fullClause = clause && categoryCondition
+    ? `${clause} AND ${categoryCondition}`
+    : clause || (categoryCondition ? `WHERE ${categoryCondition}` : "");
 
   const baseFrom = `
     FROM visa_cases vc
     INNER JOIN clients c ON c.id = vc.client_id
+    ${categoryJoin}
   `;
+  const baseFromWithCountry = `${baseFromWithResolvedCountry}    ${categoryJoinForCountry}`;
 
   const withWhere = (fromClause: string) =>
-    `${fromClause}${clause ? `\n    ${clause}` : ""}`;
+    `${fromClause}${fullClause ? `\n    ${fullClause}` : ""}`;
 
   const [
     totalsResult,
@@ -253,7 +287,7 @@ export const fetchDashboardAggregates = async (
     getPoolSecond().query<{ country_name: string; count: string }>(
       `
       SELECT ${resolvedCountryNameSql} AS country_name, COUNT(*)::text AS count
-      ${withWhere(baseFromWithResolvedCountry)}
+      ${withWhere(baseFromWithCountry)}
       GROUP BY ${resolvedCountryNameSql}
       ORDER BY count DESC, country_name
       `,
@@ -334,7 +368,7 @@ export const fetchDashboardAggregates = async (
         COUNT(*) FILTER (WHERE vc.current_sub_status = 'DECISION_WITHDRAWN')::text AS withdrawn,
         COUNT(*) FILTER (WHERE vc.current_sub_status NOT IN ('DECISION_APPROVED', 'DECISION_REFUSED', 'DECISION_WITHDRAWN'))::text AS pending,
         COUNT(*)::text AS total
-      ${withWhere(baseFromWithResolvedCountry)}
+      ${withWhere(baseFromWithCountry)}
       GROUP BY ${resolvedCountryNameSql}
       ORDER BY total DESC, country_name
       `,
@@ -365,7 +399,7 @@ export const fetchDashboardAggregates = async (
         FROM visa_case_assignments a
         GROUP BY a.visa_case_id
       ) first_assign ON first_assign.visa_case_id = vc.id
-      ${clause ? `\n      ${clause}` : ""}
+      ${fullClause ? `\n      ${fullClause}` : ""}
       `,
       params
     ),

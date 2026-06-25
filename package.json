@@ -49,7 +49,9 @@
     "import:rule-data": "ts-node src/scripts/importRuleData.ts",
     "cleanup:seed": "ts-node src/scripts/cleanupAndSeed.ts",
     "cache:clear": "ts-node src/scripts/clearRedisCache.ts",
-    "delete:clients": "ts-node src/scripts/deleteTestClients.ts"
+    "delete:clients": "ts-node src/scripts/deleteTestClients.ts",
+    "migrate:specific-clients": "ts-node src/scripts/migrateSpecificClients.ts",
+    "migrate:specific-clients:sales-cases": "ts-node src/scripts/migrateSpecificClientsSalesAndCases.ts"
   },
   "keywords": [],
   "author": "",
