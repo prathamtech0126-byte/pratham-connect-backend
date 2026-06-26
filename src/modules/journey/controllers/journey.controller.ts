@@ -111,8 +111,10 @@ export async function getJourneyTimelineController(
       clientId: client.clientUuid,
       legacyClientId: client.legacyClientId,
       counsellorId: client.counsellorId,
-      events: result.data,
-      total: result.data.length,
+      enrollmentDate: result.data.enrollmentDate,
+      createdAt: result.data.createdAt,
+      events: result.data.events,
+      total: result.data.events.length,
       ...toApiCacheMeta(result),
     });
   } catch (error) {

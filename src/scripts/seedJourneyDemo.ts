@@ -283,10 +283,10 @@ async function main(): Promise<void> {
   const timeline = await getClientJourneyTimeline(moduleClientId);
   const summary = await getClientJourneySummary(moduleClientId);
 
-  const phases = [...new Set(timeline.map((e) => e.phase))];
-  const sources = [...new Set(timeline.map((e) => e.source))];
+  const phases = [...new Set(timeline.events.map((e) => e.phase))];
+  const sources = [...new Set(timeline.events.map((e) => e.source))];
 
-  console.log(`   ✓ timeline events: ${timeline.length}`);
+  console.log(`   ✓ timeline events: ${timeline.events.length}`);
   console.log(`   ✓ phases: ${phases.join(" → ")}`);
   console.log(`   ✓ sources: ${sources.join(", ")}`);
   console.log(`   ✓ summary stage: ${summary.currentJourneyStage}`);

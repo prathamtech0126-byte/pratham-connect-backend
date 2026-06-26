@@ -15,7 +15,11 @@ import { db } from "../config/databaseConnection";
 import { clientInformation } from "../schemas/clientInformation.schema";
 import { clientProductPayments } from "../schemas/clientProductPayments.schema";
 import { users } from "../schemas/users.schema";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
+import {
+  canUserEditExistingClientPayment,
+  canUserModifyClient,
+} from "../modules/clients/services/clientAccess.service";
 import { logActivity } from "../services/activityLog.service";
 import { notifyPartialPaymentApproval } from "../notification/integrations/paymentNotifications";
 import { parseFrontendDate } from "../utils/date";
@@ -60,52 +64,6 @@ function normalizeProductPaymentForActivityLog(record: any): Record<string, unkn
     ...(fundingDateVal != null ? { fundingDate: toDateStr(fundingDateVal) ?? fundingDateVal } : {}),
   };
 }
-
-const canUserTouchClient = async (
-  clientId: number,
-  userId: number,
-  role: string
-): Promise<boolean> => {
-  if (role === "admin") return true;
-
-  const [client] = await db
-    .select({
-      counsellorId: clientInformation.counsellorId,
-      transferStatus: clientInformation.transferStatus,
-      transferedToCounsellorId: clientInformation.transferedToCounsellorId,
-    })
-    .from(clientInformation)
-    .where(eq(clientInformation.clientId, clientId))
-    .limit(1);
-
-  if (!client) return false;
-
-  if (role === "counsellor") {
-    return (
-      client.counsellorId === userId ||
-      (client.transferStatus === true &&
-        client.transferedToCounsellorId === userId)
-    );
-  }
-
-  if (role === "manager") {
-    const candidateCounsellorIds = [
-      client.counsellorId,
-      client.transferStatus ? client.transferedToCounsellorId : null,
-    ].filter((id): id is number => Number.isFinite(id));
-
-    if (candidateCounsellorIds.length === 0) return false;
-
-    const counsellors = await db
-      .select({ id: users.id, managerId: users.managerId })
-      .from(users)
-      .where(inArray(users.id, candidateCounsellorIds));
-
-    return counsellors.some((c) => c.managerId === userId);
-  }
-
-  return false;
-};
 
 // export const createClientProductPaymentController = async (
 //   req: Request,
@@ -182,6 +140,8 @@ export const saveClientProductPaymentController = async (
     }
 
     let targetClientId = Number(req.body.clientId);
+    let existingHandledBy: number | null = null;
+    let existingPaymentHandledBy: number | null | undefined;
 
     // Fetch old value if updating (before save)
     let oldValue: Record<string, unknown> | null = null;
@@ -197,6 +157,13 @@ export const saveClientProductPaymentController = async (
           oldValue = normalizeProductPaymentForActivityLog(oldProductPayment);
           if (!Number.isFinite(targetClientId)) {
             targetClientId = Number(oldProductPayment.clientId);
+          }
+          existingPaymentHandledBy = oldProductPayment.handledBy;
+          if (
+            Number.isFinite(Number(oldProductPayment.handledBy)) &&
+            Number(oldProductPayment.handledBy) > 0
+          ) {
+            existingHandledBy = Number(oldProductPayment.handledBy);
           }
           // Fetch entity data BEFORE save so we capture true previous state (amount, remarks, etc.)
           if (oldProductPayment.entityId && oldProductPayment.entityType) {
@@ -218,7 +185,7 @@ export const saveClientProductPaymentController = async (
       });
     }
 
-    const hasAccess = await canUserTouchClient(
+    const hasAccess = await canUserModifyClient(
       targetClientId,
       req.user.id,
       req.user.role
@@ -231,8 +198,37 @@ export const saveClientProductPaymentController = async (
       });
     }
 
+    if (req.body.productPaymentId) {
+      const canEditPayment = await canUserEditExistingClientPayment(
+        targetClientId,
+        existingPaymentHandledBy,
+        req.user.id,
+        req.user.role
+      );
+      if (!canEditPayment) {
+        return res.status(403).json({
+          success: false,
+          message: "You can only edit payments that you created",
+        });
+      }
+    }
+
+    const isAdminOrDeveloper =
+      req.user.role === "admin" || req.user.role === "developer";
+    const isUpdate = Boolean(req.body.productPaymentId);
+    const bodyHandledBy = Number(req.body.handledBy);
+    const bodyHandledByValid =
+      Number.isFinite(bodyHandledBy) && bodyHandledBy > 0;
+    const effectiveHandledBy = isAdminOrDeveloper
+      ? bodyHandledByValid
+        ? bodyHandledBy
+        : existingHandledBy ?? req.user.id
+      : isUpdate
+        ? existingHandledBy ?? req.user.id
+        : req.user.id;
+
     console.log("req.body client product payment", req.body);
-    const result = await saveClientProductPayment(req.body, req.user.id);
+    const result = await saveClientProductPayment(req.body, effectiveHandledBy);
 
     const clientId = Number(result.record.clientId);
 
@@ -519,7 +515,10 @@ export const deleteClientProductPaymentController = async (
     }
 
     const [existingPayment] = await db
-      .select({ clientId: clientProductPayments.clientId })
+      .select({
+        clientId: clientProductPayments.clientId,
+        handledBy: clientProductPayments.handledBy,
+      })
       .from(clientProductPayments)
       .where(eq(clientProductPayments.productPaymentId, productPaymentId))
       .limit(1);
@@ -531,7 +530,7 @@ export const deleteClientProductPaymentController = async (
       });
     }
 
-    const hasAccess = await canUserTouchClient(
+    const hasAccess = await canUserModifyClient(
       Number(existingPayment.clientId),
       req.user.id,
       req.user.role
@@ -541,6 +540,19 @@ export const deleteClientProductPaymentController = async (
         success: false,
         message:
           "You do not have permission to delete product payment for this client",
+      });
+    }
+
+    const canDeletePayment = await canUserEditExistingClientPayment(
+      Number(existingPayment.clientId),
+      existingPayment.handledBy,
+      req.user.id,
+      req.user.role
+    );
+    if (!canDeletePayment) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only delete payments that you created",
       });
     }
 

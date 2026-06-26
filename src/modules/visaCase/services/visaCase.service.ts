@@ -46,6 +46,7 @@ import {
   emitVisaCaseCreatedEvent,
   emitVisaCaseTeamRoutedEvent,
 } from "../../journey/services/journeyEvent.service";
+import { parseFrontendDate } from "../../../utils/date";
 import {
   buildVisaCaseFinancialKey,
   getFinancialSummariesForVisaCases,
@@ -639,7 +640,30 @@ export const updateVisaCaseSponsorship = async (
 export type UpdateStatusInput = {
   subStatus: VisaProcessingSubStatus;
   notes?: string;
+  /** Embassy file submission date (YYYY-MM-DD or DD-MM-YYYY). Used when subStatus is FILE_SUBMITTED. */
+  submissionDate?: string | null;
+  /** Embassy outcome date / approval date (YYYY-MM-DD or DD-MM-YYYY). Required for final decision sub-statuses when not already set. */
+  decisionDate?: string | null;
 };
+
+const normalizeOptionalStatusDate = (
+  value: string | null | undefined,
+  field: string
+): string | undefined => {
+  if (value === undefined) return undefined;
+  if (value === null || String(value).trim() === "") return undefined;
+  const parsed = parseFrontendDate(value);
+  if (!parsed) {
+    throw new Error(`${field} must be a valid date (YYYY-MM-DD or DD-MM-YYYY)`);
+  }
+  return parsed;
+};
+
+const FINAL_DECISION_SUB_STATUSES = new Set<VisaProcessingSubStatus>([
+  "DECISION_APPROVED",
+  "DECISION_REFUSED",
+  "DECISION_WITHDRAWN",
+]);
 
 export type CreateVisaCaseDocumentRequestInput = {
   /** Modules DB client UUID */
@@ -1088,10 +1112,22 @@ export const updateVisaCaseStatus = async (
     throw new Error(transition.message);
   }
 
-  const submissionDate =
-    input.subStatus === "FILE_SUBMITTED"
-      ? new Date().toISOString().slice(0, 10)
-      : existing.visaCase.submissionDate;
+  const parsedSubmissionDate = normalizeOptionalStatusDate(
+    input.submissionDate,
+    "submissionDate"
+  );
+  const parsedDecisionDate = normalizeOptionalStatusDate(
+    input.decisionDate,
+    "decisionDate"
+  );
+
+  let submissionDate = existing.visaCase.submissionDate;
+  if (input.subStatus === "FILE_SUBMITTED") {
+    submissionDate =
+      parsedSubmissionDate ?? new Date().toISOString().slice(0, 10);
+  } else if (parsedSubmissionDate) {
+    submissionDate = parsedSubmissionDate;
+  }
 
   const decisionBySubStatus: Partial<
     Record<VisaProcessingSubStatus, UpdateDecisionInput["decision"]>
@@ -1104,11 +1140,25 @@ export const updateVisaCaseStatus = async (
 
   const decisionOutcome = decisionBySubStatus[input.subStatus];
 
+  let decisionDate = existing.visaCase.decisionDate;
+  if (decisionOutcome && FINAL_DECISION_SUB_STATUSES.has(input.subStatus)) {
+    if (parsedDecisionDate) {
+      decisionDate = parsedDecisionDate;
+    } else if (!decisionDate) {
+      throw new Error(
+        "decisionDate is required when setting a final decision outcome (approved, refused, or withdrawn)"
+      );
+    }
+  } else if (parsedDecisionDate) {
+    decisionDate = parsedDecisionDate;
+  }
+
   const updated = await updateVisaCase(visaCaseId, {
     currentStage: transition.nextStage,
     currentSubStatus: transition.nextSubStatus,
     assignedTeam: transition.assignedTeam,
     submissionDate: submissionDate ?? undefined,
+    decisionDate: decisionDate ?? undefined,
     ...(decisionOutcome ? { decision: decisionOutcome } : {}),
   });
 

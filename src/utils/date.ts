@@ -105,3 +105,47 @@ export function normalizeDbDate(
   }
   return parseFrontendDate(trimmed);
 }
+
+/** True when a timestamp is UTC midnight (typical for date-only DB values). */
+export function isUtcMidnightTimestamp(
+  value: string | Date | null | undefined
+): boolean {
+  if (value == null) return false;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  return (
+    date.getUTCHours() === 0 &&
+    date.getUTCMinutes() === 0 &&
+    date.getUTCSeconds() === 0 &&
+    date.getUTCMilliseconds() === 0
+  );
+}
+
+/**
+ * Enrollment `occurred_at` is often stored as a date-only value (midnight UTC),
+ * which displays as 05:30 AM in IST. Prefer `createdAt` when the stored time
+ * has no meaningful clock component.
+ */
+export function resolveEnrollmentOccurredAt(input: {
+  occurredAt: string | Date;
+  enrollmentDate?: string | null;
+  createdAt?: string | null;
+}): string {
+  const occurred =
+    input.occurredAt instanceof Date
+      ? input.occurredAt
+      : new Date(input.occurredAt);
+  const createdAtIso = input.createdAt
+    ? new Date(input.createdAt).toISOString()
+    : null;
+
+  if (createdAtIso && isUtcMidnightTimestamp(occurred)) {
+    return createdAtIso;
+  }
+
+  if (!input.enrollmentDate && createdAtIso) {
+    return createdAtIso;
+  }
+
+  return occurred.toISOString();
+}
