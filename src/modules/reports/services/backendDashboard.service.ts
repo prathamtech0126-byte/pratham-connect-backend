@@ -33,6 +33,7 @@ export type BackendDashboardInput = {
   fromDate?: string;
   toDate?: string;
   branchCode?: string;
+  category?: "visitor" | "spouse" | "student";
 };
 
 const parseCount = (value: string | undefined): number =>
@@ -114,6 +115,7 @@ export const getBackendDashboard = async (
   const query: BackendDashboardQuery = {
     ...period,
     branchCode: input.branchCode,
+    category: input.category,
   };
 
   const [raw, financialLookups] = await Promise.all([
@@ -122,6 +124,7 @@ export const getBackendDashboard = async (
       fromDate: period.fromDate,
       toDate: period.toDate,
       branchCode: input.branchCode,
+      category: input.category,
     }),
   ]);
   const financial = await aggregateDashboardFinancials(financialLookups);

@@ -5,14 +5,53 @@ import { getDashboardStatsController } from "../controllers/dashboard.controller
 const router = Router();
 
 /**
- * GET /api/dashboard/stats
- * Query params:
- * - filter: "today" | "weekly" | "monthly" | "yearly" | "custom" (default: "today")
- * - beforeDate: YYYY-MM-DD (required for custom filter)
- * - afterDate: YYYY-MM-DD (required for custom filter)
- *
- * Access: admin, manager, counsellor, telecaller
- * Returns different data structure based on user role
+ * @openapi
+ * /api/dashboard/stats:
+ *   get:
+ *     tags: [Dashboard]
+ *     summary: Get dashboard statistics (role-scoped)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: filter
+ *         schema:
+ *           type: string
+ *           enum: [today, weekly, monthly, yearly, custom]
+ *           default: today
+ *       - in: query
+ *         name: beforeDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *           example: "2026-05-01"
+ *         description: Required when filter=custom (alias startDate also accepted)
+ *       - in: query
+ *         name: afterDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *           example: "2026-05-31"
+ *         description: Required when filter=custom (alias endDate also accepted)
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Alias for beforeDate
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Alias for afterDate
+ *     responses:
+ *       200:
+ *         description: Dashboard stats (shape varies by role)
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden — admin/manager/counsellor/telecaller/developer only
  */
 router.get(
   "/stats",

@@ -47,6 +47,17 @@ export const getBackendReportController = async (
     const toDate = req.query.toDate as string | undefined;
     const branchCode = req.query.branchCode as string | undefined;
 
+    const categoryParam = req.query.category as string | undefined;
+    const VALID_CATEGORIES = ["visitor", "spouse", "student"] as const;
+    type ValidCategory = (typeof VALID_CATEGORIES)[number];
+    if (categoryParam && !(VALID_CATEGORIES as readonly string[]).includes(categoryParam)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid category. Must be one of: ${VALID_CATEGORIES.join(", ")}`,
+      });
+    }
+    const category = categoryParam as ValidCategory | undefined;
+
     if (filterParam === "custom") {
       if (!fromDate || !toDate) {
         return res.status(400).json({
@@ -73,6 +84,7 @@ export const getBackendReportController = async (
       fromDate,
       toDate,
       branchCode,
+      category,
     });
 
     return res.status(200).json({ success: true, data: result.data, ...toApiCacheMeta(result) });

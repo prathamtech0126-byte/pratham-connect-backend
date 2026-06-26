@@ -47,6 +47,8 @@ export interface CounsellorPerformanceItem {
   pending_amount: string;
   /** Total number of payments (client_payment rows) for this counsellor in the filter period across all sale types. */
   sale_type_count: number;
+  /** Whether the counsellor's user account is active (users.status). */
+  is_active: boolean;
 }
 
 export interface ReportResult {
@@ -451,6 +453,7 @@ export const getCounsellorPerformanceReport = async (
       id: users.id,
       fullName: users.fullName,
       email: users.email,
+      status: users.status,
     })
     .from(users)
     .where(inArray(users.id, counsellorIds));
@@ -496,6 +499,7 @@ export const getCounsellorPerformanceReport = async (
       archived_count: archivedMap.get(c.id) ?? 0,
       pending_amount: "0.00",
       sale_type_count: saleTypeCount,
+      is_active: c.status,
     });
   }
   return result;

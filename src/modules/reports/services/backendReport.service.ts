@@ -28,6 +28,7 @@ export type BackendReportInput = {
   fromDate?: string;
   toDate?: string;
   branchCode?: string;
+  category?: "visitor" | "spouse" | "student";
 };
 
 const parseCount = (value: string | undefined): number =>
@@ -210,6 +211,7 @@ export const getBackendReport = async (
     fromDate: period.fromDate,
     toDate: period.toDate,
     branchCode: input.branchCode,
+    category: input.category,
     includeEnrollmentTrend: false,
   };
 

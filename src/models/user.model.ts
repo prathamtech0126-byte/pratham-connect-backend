@@ -8,7 +8,6 @@ import { managerTargets } from "./../schemas/managerTargets.schema";
 import { activityLog } from "./../schemas/activityLog.schema";
 import { eq, ne, and, count, inArray, or, asc } from "drizzle-orm";
 import { ROLES, Role, isRole } from "../types/role";
-import { ensureSystemRoles, replaceUserPrimaryRoleLink } from "../utils/rbacSync";
 
 /**
  * Postgres unique_violation (23505) → clear API message for email, emp_id, personal_phone.
@@ -186,58 +185,37 @@ export const createUser = async (
   }
 
   try {
-    return await db.transaction(async (tx) => {
-      await ensureSystemRoles(tx);
-      const [user] = await tx
-        .insert(users)
-        .values({
-          fullName: data.fullName,
-          email: email,
-          emp_id: data.empId || null, // Use || to convert empty strings to null
-          passwordHash,
-          role: finalRole,
-          teamId: data.teamId ?? null,
-          managerId: roleRequiresManager ? data.managerId : null,
-          officePhone,
-          personalPhone,
-          designation,
-          isSupervisor: finalRole === "manager" ? (data.isSupervisor ?? false) : false,
-        })
-        .returning({
-          id: users.id,
-          fullName: users.fullName,
-          email: users.email,
-          role: users.role,
-          managerId: users.managerId,
-          isSupervisor: users.isSupervisor,
-        });
+    const [user] = await db
+      .insert(users)
+      .values({
+        fullName: data.fullName,
+        email: email,
+        emp_id: data.empId || null, // Use || to convert empty strings to null
+        passwordHash,
+        role: finalRole,
+        teamId: data.teamId ?? null,
+        managerId: roleRequiresManager ? data.managerId : null,
+        officePhone,
+        personalPhone,
+        designation,
+        isSupervisor: finalRole === "manager" ? (data.isSupervisor ?? false) : false,
+      })
+      .returning({
+        id: users.id,
+        fullName: users.fullName,
+        email: users.email,
+        role: users.role,
+        roleId: users.roleId,
+        teamId: users.teamId,
+        managerId: users.managerId,
+        isSupervisor: users.isSupervisor,
+      });
 
-      if (!user) {
-        throw new Error("Failed to create user");
-      }
+    if (!user) {
+      throw new Error("Failed to create user");
+    }
 
-      await replaceUserPrimaryRoleLink(tx, user.id, user.role as Role);
-
-      const [row] = await tx
-        .select({
-          id: users.id,
-          fullName: users.fullName,
-          email: users.email,
-          role: users.role,
-          roleId: users.roleId,
-          teamId: users.teamId,
-          managerId: users.managerId,
-          isSupervisor: users.isSupervisor,
-        })
-        .from(users)
-        .where(eq(users.id, user.id))
-        .limit(1);
-
-      if (!row) {
-        throw new Error("Failed to load user after role sync");
-      }
-      return row;
-    });
+    return user;
   } catch (err) {
     throwFriendlyUniqueViolation(err);
   }
@@ -551,65 +529,43 @@ export const updateUserByAdmin = async (
   }
 
   try {
-    return await db.transaction(async (tx) => {
-      await ensureSystemRoles(tx);
-      const [updatedUser] = await tx
-        .update(users)
-        .set({
-          fullName: data.fullName,
-          email: data.email,
-          passwordHash,
-          role: finalRole,
-          emp_id:
-            normalizedEmpIdValue !== undefined
-              ? normalizedEmpIdValue
-              : existingUser.empId,
-          teamId: data.teamId,
-          managerId: roleRequiresManager ? finalManagerId : null,
-          officePhone: data.officePhone,
-          personalPhone: data.personalPhone,
-          designation: data.designation,
-          isSupervisor: finalIsSupervisor ?? false,
-          status: data.status,
-        })
-        .where(eq(users.id, userId))
-        .returning({
-          id: users.id,
-          fullName: users.fullName,
-          email: users.email,
-          role: users.role,
-          managerId: users.managerId,
-          isSupervisor: users.isSupervisor,
-          status: users.status,
-        });
+    const [updatedUser] = await db
+      .update(users)
+      .set({
+        fullName: data.fullName,
+        email: data.email,
+        passwordHash,
+        role: finalRole,
+        emp_id:
+          normalizedEmpIdValue !== undefined
+            ? normalizedEmpIdValue
+            : existingUser.empId,
+        teamId: data.teamId,
+        managerId: roleRequiresManager ? finalManagerId : null,
+        officePhone: data.officePhone,
+        personalPhone: data.personalPhone,
+        designation: data.designation,
+        isSupervisor: finalIsSupervisor ?? false,
+        status: data.status,
+      })
+      .where(eq(users.id, userId))
+      .returning({
+        id: users.id,
+        fullName: users.fullName,
+        email: users.email,
+        role: users.role,
+        roleId: users.roleId,
+        teamId: users.teamId,
+        managerId: users.managerId,
+        isSupervisor: users.isSupervisor,
+        status: users.status,
+      });
 
-      if (!updatedUser) {
-        throw new Error("User not found");
-      }
+    if (!updatedUser) {
+      throw new Error("User not found");
+    }
 
-      await replaceUserPrimaryRoleLink(tx, userId, updatedUser.role as Role);
-
-      const [row] = await tx
-        .select({
-          id: users.id,
-          fullName: users.fullName,
-          email: users.email,
-          role: users.role,
-          roleId: users.roleId,
-          teamId: users.teamId,
-          managerId: users.managerId,
-          isSupervisor: users.isSupervisor,
-          status: users.status,
-        })
-        .from(users)
-        .where(eq(users.id, userId))
-        .limit(1);
-
-      if (!row) {
-        throw new Error("User not found after update");
-      }
-      return row;
-    });
+    return updatedUser;
   } catch (err: any) {
     throwFriendlyUniqueViolation(err);
   }

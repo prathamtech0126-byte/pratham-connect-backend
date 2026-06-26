@@ -5,77 +5,292 @@ import { getCounsellorReportController } from "../controllers/counsellorReport.c
 
 const router = Router();
 
-// Get report (role-based access)
-// - Admin: All reports
-// - Manager: Only reports for their team
-// - Counsellor: Only their own reports
-//
-// Query parameters:
-// - filter: "today" | "weekly" | "monthly" | "yearly" | "custom" (default: "monthly")
-// - beforeDate: YYYY-MM-DD (required for custom filter)
-// - afterDate: YYYY-MM-DD (required for custom filter)
-// - GET /api/reports?filter=today
-// - GET /api/reports?filter=custom&beforeDate=2026-01-01&afterDate=2026-01-31
-// - GET /api/reports?filter=weekly
-// - GET /api/reports?filter=monthly
-// - GET /api/reports?filter=yearly
-// - GET /api/reports?filter=today&saleTypeId=1
-// - GET /api/reports?filter=monthly&saleTypeId=2
-// - GET /api/reports?filter=weekly&saleTypeId=3
-// - GET /api/reports?filter=yearly&saleTypeId=4
-// - GET /api/reports?filter=custom&startDate=2026-01-01&endDate=2026-01-31&saleTypeId=1
-
+/**
+ * @openapi
+ * /api/reports:
+ *   get:
+ *     tags: [Reports]
+ *     summary: Get team/counsellor report (role-scoped)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: filter
+ *         schema:
+ *           type: string
+ *           enum: [today, weekly, monthly, yearly, custom]
+ *           default: monthly
+ *       - in: query
+ *         name: beforeDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *           example: "2026-05-01"
+ *         description: Required when filter=custom (alias startDate also accepted)
+ *       - in: query
+ *         name: afterDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *           example: "2026-05-31"
+ *         description: Required when filter=custom (alias endDate also accepted)
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Alias for beforeDate
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Alias for afterDate
+ *       - in: query
+ *         name: managerId
+ *         schema:
+ *           type: integer
+ *         description: Admin only — scope to a specific manager
+ *       - in: query
+ *         name: counsellorId
+ *         schema:
+ *           type: integer
+ *         description: Manager only — scope to a specific counsellor
+ *       - in: query
+ *         name: saleTypeId
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Report data
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden — admin/manager/developer only
+ * /api/reports/sale-dashboard:
+ *   get:
+ *     tags: [Reports]
+ *     summary: Get sales dashboard report (cards + categories + charts)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: filter
+ *         schema:
+ *           type: string
+ *           enum: [today, weekly, monthly, yearly, custom]
+ *           default: monthly
+ *       - in: query
+ *         name: beforeDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *           example: "2026-05-01"
+ *         description: Required when filter=custom (alias startDate also accepted)
+ *       - in: query
+ *         name: afterDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *           example: "2026-05-31"
+ *         description: Required when filter=custom (alias endDate also accepted)
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Alias for beforeDate
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Alias for afterDate
+ *       - in: query
+ *         name: managerId
+ *         schema:
+ *           type: integer
+ *         description: Admin only — scope to a specific manager
+ *       - in: query
+ *         name: counsellorId
+ *         schema:
+ *           type: integer
+ *         description: Manager/developer only — scope to a specific counsellor
+ *     responses:
+ *       200:
+ *         description: Sales dashboard data
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/reports/sale-graph-report:
+ *   get:
+ *     tags: [Reports]
+ *     summary: Get 3-month sales metric series for graph
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: filter
+ *         schema:
+ *           type: string
+ *           enum: [today, weekly, monthly, yearly, custom]
+ *           default: monthly
+ *       - in: query
+ *         name: metric
+ *         schema:
+ *           type: string
+ *           enum: [client, core_sale, core_product, other_product, overall_revenue]
+ *           default: core_sale
+ *       - in: query
+ *         name: beforeDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Required when filter=custom (alias startDate also accepted)
+ *       - in: query
+ *         name: afterDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Required when filter=custom (alias endDate also accepted)
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Alias for beforeDate
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Alias for afterDate
+ *       - in: query
+ *         name: managerId
+ *         schema:
+ *           type: integer
+ *         description: Admin only — scope to a specific manager
+ *       - in: query
+ *         name: counsellorId
+ *         schema:
+ *           type: integer
+ *         description: Manager only — scope to a specific counsellor
+ *     responses:
+ *       200:
+ *         description: Metric series data
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/reports/counsellor/{counsellorId}:
+ *   get:
+ *     tags: [Reports]
+ *     summary: Get individual counsellor report
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: counsellorId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Counsellor ID or "me"
+ *       - in: query
+ *         name: filter
+ *         schema:
+ *           type: string
+ *           enum: [today, weekly, monthly, yearly, custom]
+ *           default: monthly
+ *       - in: query
+ *         name: beforeDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Required when filter=custom (alias startDate also accepted)
+ *       - in: query
+ *         name: afterDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Required when filter=custom (alias endDate also accepted)
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Alias for beforeDate
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Alias for afterDate
+ *       - in: query
+ *         name: saleTypeId
+ *         schema:
+ *           type: integer
+ *         description: Alias saleType also accepted
+ *     responses:
+ *       200:
+ *         description: Counsellor report
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/reports/payments-list:
+ *   get:
+ *     tags: [Reports]
+ *     summary: Get payments list report
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: filter
+ *         schema:
+ *           type: string
+ *           enum: [today, yesterday, today_and_yesterday, last_7_days, last_14_days, last_30_days, this_week, last_week, this_month, last_month, maximum, monthly, yearly, custom]
+ *           default: today
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *           example: "2026-05-01"
+ *         description: Required when filter=custom
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *           example: "2026-05-31"
+ *         description: Required when filter=custom
+ *       - in: query
+ *         name: counsellorId
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Payments list
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden — developer only
+ */
 router.get("/", requireAuth, requireRole("developer","admin", "manager"), getReportController);
-
-// Sales report dashboard data (cards + categories + charts)
-// - GET /api/reports/sale-dashboard?filter=monthly
-// - GET /api/reports/sale-dashboard?filter=custom&startDate=2026-01-01&endDate=2026-01-31
-// - Admin can scope by managerId, manager can scope by counsellorId
 router.get(
   "/sale-dashboard",
   requireAuth,
   requireRole("developer","admin", "manager"),
   getSaleReportDashboardController
 );
-
-// Sales metric series for 3-month graph (fixed monthly comparison)
-// - GET /api/reports/sale-graph-report?metric=core_sale
-// - Admin can scope by managerId, manager can scope by counsellorId
-// - metric: client | core_sale | core_product | other_product | overall_revenue
 router.get(
   "/sale-graph-report",
   requireAuth,
   requireRole("developer","admin", "manager"),
   getSaleMetricSeriesController
 );
-
-// Individual counsellor report
-// - Admin: any counsellor
-// - Manager (isSupervisor=true): any counsellor
-// - Manager (isSupervisor=false): only own team counsellors
-// - Counsellor: own report only (use "me" or own id)
-//
-// - GET /api/reports/counsellor/5?filter=monthly
-// - GET /api/reports/counsellor/me?filter=today          (counsellor role only)
-// - GET /api/reports/counsellor/12?filter=custom&startDate=2026-01-01&endDate=2026-01-31
 router.get("/counsellor/:counsellorId", requireAuth, requireRole("developer","admin", "manager", "counsellor"), getCounsellorReportController);
-
-// Payments list report
-// - GET /api/reports/payments-list?filter=today
-// - GET /api/reports/payments-list?filter=yesterday
-// - GET /api/reports/payments-list?filter=today_and_yesterday
-// - GET /api/reports/payments-list?filter=last_7_days
-// - GET /api/reports/payments-list?filter=last_14_days
-// - GET /api/reports/payments-list?filter=last_30_days
-// - GET /api/reports/payments-list?filter=this_week
-// - GET /api/reports/payments-list?filter=last_week
-// - GET /api/reports/payments-list?filter=this_month
-// - GET /api/reports/payments-list?filter=last_month
-// - GET /api/reports/payments-list?filter=maximum
-// - GET /api/reports/payments-list?filter=monthly
-// - GET /api/reports/payments-list?filter=yearly
-// - GET /api/reports/payments-list?filter=custom&startDate=2026-01-01&endDate=2026-01-31
-// - GET /api/reports/payments-list?filter=today&counsellorId=5
 router.get("/payments-list", requireAuth, requireRole("developer"), getPaymentsListController);
 
 export default router;

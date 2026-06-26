@@ -150,6 +150,7 @@ export const registerUser = async (req: Request, res: Response) => {
 ================================ */
 
 export const login = async (req: Request, res: Response) => {
+  try {
   const { email, password } = req.body;
   const emailNormalized = email ? String(email).toLowerCase().trim() : email;
 
@@ -299,6 +300,10 @@ export const login = async (req: Request, res: Response) => {
     accessToken,
     csrfToken,
   });
+  } catch (err: any) {
+    console.error("❌ Login error:", err.message ?? err);
+    return res.status(500).json({ message: "Internal server error", detail: err.message });
+  }
 };
 
 /* ================================

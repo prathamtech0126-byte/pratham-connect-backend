@@ -48,7 +48,7 @@ export interface TimelineEvent {
   actor: TimelineActor | null;
   visaCaseId: string | null;
   metadata: Record<string, unknown>;
-  source: "journey_event" | "visa_assignment" | "visa_status_event" | "client_transfer";
+  source: "journey_event" | "visa_assignment" | "visa_status_event" | "client_transfer" | "activity_log";
 }
 
 export interface JourneySummary {

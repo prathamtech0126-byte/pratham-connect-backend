@@ -25,7 +25,7 @@ export function toNotificationPayload(row: NotificationRow): NotificationPayload
     category: row.category,
     priority: row.priority,
     title: row.title,
-    body: row.body,
+    body: row.body?.replace(/\$/g, "₹") ?? null,
     entityType: row.entityType,
     entityId: row.entityId,
     actionUrl: row.actionUrl,

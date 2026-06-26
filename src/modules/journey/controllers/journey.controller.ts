@@ -10,6 +10,7 @@ import {
   getCachedClientJourneySummary,
   getCachedClientJourneyTimeline,
 } from "../cache/journey.cache.service";
+import { getClientActivityFeed } from "../services/activityFeed.service";
 
 function requireModulesDb(res: Response): boolean {
   if (!isModulesDbConfigured()) {
@@ -113,6 +114,55 @@ export async function getJourneyTimelineController(
       events: result.data,
       total: result.data.length,
       ...toApiCacheMeta(result),
+    });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "Internal error";
+    res.status(500).json({ error: msg });
+  }
+}
+
+/**
+ * GET /api/modules/clients/:clientId/activity-feed
+ *
+ * Unified audit feed: journey events + visa status/assignment events +
+ * legacy activity_log (client edits, payments, product payments, finance).
+ *
+ * Query params:
+ *   page     — 1-based page number (default 1)
+ *   pageSize — items per page, 1–100 (default 20)
+ */
+export async function getActivityFeedController(
+  req: Request,
+  res: Response
+): Promise<void> {
+  if (!requireModulesDb(res)) return;
+
+  try {
+    const client = await resolveAndAuthorizeClient(req, res);
+    if (!client) return;
+
+    const page = Math.max(1, parseInt((req.query.page as string) ?? "1", 10) || 1);
+    const pageSize = Math.min(
+      100,
+      Math.max(1, parseInt((req.query.pageSize as string) ?? "20", 10) || 20)
+    );
+
+    const actorIdRaw = parseInt((req.query.actorId as string) ?? "", 10);
+    const actorId = Number.isFinite(actorIdRaw) ? actorIdRaw : undefined;
+    const phase = (req.query.phase as string) || undefined;
+
+    const result = await getClientActivityFeed(
+      client.clientUuid,
+      client.legacyClientId,
+      page,
+      pageSize,
+      { actorId, phase }
+    );
+
+    res.json({
+      clientId: client.clientUuid,
+      legacyClientId: client.legacyClientId,
+      ...result,
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Internal error";

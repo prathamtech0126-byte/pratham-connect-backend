@@ -39,6 +39,243 @@ const refreshRateLimit = rateLimit({
   legacyHeaders: false,
 });
 
+/**
+ * @openapi
+ * /api/users/login:
+ *   post:
+ *     tags: [Users]
+ *     summary: Log in and receive access token
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, password]
+ *             properties:
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Logged in — access token returned, refresh token in httpOnly cookie
+ *       401:
+ *         description: Invalid credentials
+ *       429:
+ *         description: Too many login attempts
+ * /api/users/refresh:
+ *   post:
+ *     tags: [Users]
+ *     summary: Refresh access token using httpOnly refresh-token cookie
+ *     security: []
+ *     responses:
+ *       200:
+ *         description: New access token
+ *       401:
+ *         description: Invalid or expired refresh token
+ * /api/users/logout:
+ *   post:
+ *     tags: [Users]
+ *     summary: Log out (revokes refresh token)
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Logged out
+ *       401:
+ *         description: Unauthorized
+ * /api/users/me:
+ *   get:
+ *     tags: [Users]
+ *     summary: Get current authenticated user
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Current user
+ *       401:
+ *         description: Unauthorized
+ * /api/users/change-password:
+ *   put:
+ *     tags: [Users]
+ *     summary: Change own password
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Password changed
+ *       401:
+ *         description: Unauthorized
+ * /api/users/tour-seen:
+ *   patch:
+ *     tags: [Users]
+ *     summary: Mark onboarding tour as seen
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Tour marked as seen
+ *       401:
+ *         description: Unauthorized
+ * /api/users/register:
+ *   post:
+ *     tags: [Users]
+ *     summary: Register a new user
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       201:
+ *         description: User registered
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden — admin/developer only
+ * /api/users/users:
+ *   get:
+ *     tags: [Users]
+ *     summary: Get all users
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of users
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden — admin/developer only
+ * /api/users/users/details:
+ *   get:
+ *     tags: [Users]
+ *     summary: Get all user details (includes extended profile)
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User details
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden — admin/manager/developer only
+ * /api/users/users-update/{userId}:
+ *   put:
+ *     tags: [Users]
+ *     summary: Update a user
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Updated
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/users/users-delete/{userId}:
+ *   delete:
+ *     tags: [Users]
+ *     summary: Delete a user
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Deleted
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/users/managers:
+ *   get:
+ *     tags: [Users]
+ *     summary: Get managers dropdown list
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of managers
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden — admin/developer only
+ * /api/users/counsellors:
+ *   get:
+ *     tags: [Users]
+ *     summary: Get counsellors list
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of counsellors
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/users/managers/{managerId}/counsellors:
+ *   get:
+ *     tags: [Users]
+ *     summary: Get counsellors for a specific manager
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: managerId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Counsellors under the manager
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/users/managers-with-counsellors:
+ *   get:
+ *     tags: [Users]
+ *     summary: Get hierarchical view — all managers with their counsellors
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Managers with nested counsellors
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/users/telecallers:
+ *   get:
+ *     tags: [Users]
+ *     summary: Get telecallers dropdown list
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of telecallers
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ * /api/users/health:
+ *   get:
+ *     tags: [Users]
+ *     summary: Health check alias under /api/users
+ *     security: []
+ *     responses:
+ *       200:
+ *         description: OK
+ */
 router.post("/login", loginRateLimit, login);
 router.post("/refresh", refreshRateLimit, refreshAccessToken);
 router.post("/logout", requireAuth,logout);

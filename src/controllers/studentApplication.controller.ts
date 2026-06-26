@@ -26,7 +26,7 @@ const canUserTouchClient = async (
   userId: number,
   role: string,
 ): Promise<boolean> => {
-  if (role === "admin" || role === "developer") return true;
+  if (role === "admin" || role === "developer" || role === "manager") return true;
 
   const [client] = await db
     .select({

@@ -13,7 +13,7 @@ export async function notifyPaymentPendingApproval(params: {
   if (approverIds.length === 0) return;
 
   const amountLabel =
-    params.amount != null ? `$${params.amount}` : "payment";
+    params.amount != null ? `₹${params.amount}` : "payment";
 
   await notifyUsers({
     type: "payment_pending_approval",
@@ -46,7 +46,7 @@ export async function notifyPaymentApproved(params: {
     type: "payment_approved",
     userIds: [params.counsellorId],
     title: "Payment approved",
-    body: `All Finance payment for ${params.clientName ?? "client"} (${params.amount != null ? `$${params.amount}` : "amount"}) was approved.`,
+    body: `All Finance payment for ${params.clientName ?? "client"} (${params.amount != null ? `₹${params.amount}` : "amount"}) was approved.`,
     entityType: "client",
     entityId: params.clientId,
     actionUrl: params.clientId ? `/clients/${params.clientId}` : undefined,
@@ -99,7 +99,7 @@ export async function notifyPartialPaymentApproval(params: {
     type: "payment_partial",
     userIds,
     title: "Partial payment approval required",
-    body: `${params.counsellorName} submitted a partial payment of $${params.amount} for ${params.clientName}.`,
+    body: `${params.counsellorName} submitted a partial payment of ₹${params.amount} for ${params.clientName}.`,
     priority: "high",
     entityType: "client",
     entityId: params.clientId,

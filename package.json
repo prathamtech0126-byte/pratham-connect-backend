@@ -9,6 +9,8 @@
     "start": "node dist/server.js",
     "seed:admin": "ts-node src/scripts/seedAdmin.ts",
     "seed:rbac": "ts-node src/scripts/seedRbac.ts",
+    "migrate:rbac-tables": "ts-node src/scripts/applyMigrationRbac.ts",
+    "migrate:rbac": "npm run migrate:rbac-tables && npm run seed:rbac",
     "db:push": "drizzle-kit push",
     "db:push:modules": "drizzle-kit push --config=drizzle.modules.config.ts",
     "migrate:module-roles": "ts-node src/scripts/migrateModuleRoles.ts",
@@ -49,7 +51,10 @@
     "export:rule-data": "ts-node src/scripts/exportRuleData.ts",
     "import:rule-data": "ts-node src/scripts/importRuleData.ts",
     "cleanup:seed": "ts-node src/scripts/cleanupAndSeed.ts",
-    "cache:clear": "ts-node src/scripts/clearRedisCache.ts"
+    "cache:clear": "ts-node src/scripts/clearRedisCache.ts",
+    "delete:clients": "ts-node src/scripts/deleteTestClients.ts",
+    "migrate:specific-clients": "ts-node src/scripts/migrateSpecificClients.ts",
+    "migrate:specific-clients:sales-cases": "ts-node src/scripts/migrateSpecificClientsSalesAndCases.ts"
   },
   "keywords": [],
   "author": "",
