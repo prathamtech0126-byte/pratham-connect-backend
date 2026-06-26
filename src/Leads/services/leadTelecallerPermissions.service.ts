@@ -80,6 +80,31 @@ export const assertTelecallerCanCompleteFollowUp = async (
   }
 };
 
+/** Assigned counsellor may complete any pending follow-up on this lead (including from a prior counsellor). */
+export function canCounsellorCompleteFollowUp(
+  lead: LeadTransferRow,
+  activity: FollowUpActivityRow,
+  viewerUserId?: number | null,
+  viewerRole?: string | null
+): boolean {
+  if (viewerRole !== COUNSELLOR_ROLE) return false;
+  if (activity.activityType !== "followup" || activity.status !== "pending") return false;
+  if (lead.currentCounsellorId == null || viewerUserId == null) return false;
+  return Number(lead.currentCounsellorId) === Number(viewerUserId);
+}
+
+export const assertCounsellorCanCompleteFollowUp = (
+  lead: LeadTransferRow,
+  activity: FollowUpActivityRow,
+  viewerUserId?: number | null,
+  viewerRole?: string | null
+): void => {
+  if (viewerRole !== COUNSELLOR_ROLE) return;
+  if (!canCounsellorCompleteFollowUp(lead, activity, viewerUserId, viewerRole)) {
+    throw new Error("Only the assigned counsellor can complete follow-ups on this lead.");
+  }
+};
+
 /** Pending follow-up that the current telecaller assignee must complete (telecaller-created only). */
 export const hasPendingTelecallerFollowUpForLead = async (leadId: number): Promise<boolean> => {
   const rows = await db

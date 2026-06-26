@@ -13,7 +13,7 @@ let retentionInterval: ReturnType<typeof setInterval> | null = null;
 let shuttingDown = false;
 let inFlightTicks = 0;
 
-const DELIVERY_SEC = parseInt(process.env.NOTIFICATION_DELIVERY_INTERVAL_SEC || "60", 10);
+const DELIVERY_SEC = parseInt(process.env.NOTIFICATION_DELIVERY_INTERVAL_SEC || "15", 10);
 const OVERDUE_SCAN_SEC = parseInt(process.env.FOLLOWUP_OVERDUE_SCAN_SEC || "300", 10);
 const RETENTION_DAYS = NOTIFICATION_RETENTION_DAYS;
 const SHUTDOWN_WAIT_MS = parseInt(process.env.NOTIFICATION_SHUTDOWN_WAIT_MS || "5000", 10);

@@ -6,6 +6,7 @@ import {
   getFollowupMissedEarlyCutoff,
   getFollowupOverdueRepeatCutoff,
   getUnreadLeadAssignmentBatch,
+  transferLeadFollowupNotifications,
   wasOverdueNotificationDelivered,
   type FollowupOverduePhase,
 } from "../models/notification.model";
@@ -20,11 +21,6 @@ import {
   getFollowupRepeatOverdueDeliverAt,
   notifyUsers,
 } from "../services/notification.service";
-import {
-  utcToIndianWallClock,
-  indianWallClockToInstant,
-  serializeAsIst,
-} from "../../utils/istTime";
 import { db } from "../../config/databaseConnection";
 import { notifications } from "../schemas/notifications.schema";
 import { eq } from "drizzle-orm";
@@ -65,10 +61,9 @@ function resolveLeadOwnerId(lead: LeadLike): number | null {
   return lead.currentCounsellorId ?? lead.currentTelecallerId ?? null;
 }
 
-function getReminderMinutesForBody(followupWall: Date): number {
+function getReminderMinutesForBody(followupAt: Date): number {
   const configuredMinutes = Math.max(1, getFollowupReminderMinutesBefore());
-  const followupInstant = indianWallClockToInstant(followupWall);
-  const diffMs = followupInstant.getTime() - Date.now();
+  const diffMs = followupAt.getTime() - Date.now();
   const remainingMinutes = Math.max(1, Math.ceil(diffMs / 60000));
   return Math.min(configuredMinutes, remainingMinutes);
 }
@@ -211,19 +206,21 @@ export async function flushLeadAssignmentBatch(userId: number): Promise<void> {
 export async function scheduleLeadFollowupReminder(
   lead: LeadLike,
   followupAt: Date,
-  options?: { alreadyIndianWallClock?: boolean }
+  options?: { skipCancel?: boolean }
 ): Promise<void> {
   const ownerId = resolveLeadOwnerId(lead);
   if (!ownerId) return;
 
-  await cancelPendingLeadFollowupNotifications(lead.id);
+  if (!options?.skipCancel) {
+    await cancelPendingLeadFollowupNotifications(lead.id);
+  }
 
-  // Match DB `next_followup_at` wall clock (IST) for delivery timing and display.
-  const followupWall = options?.alreadyIndianWallClock ? followupAt : utcToIndianWallClock(followupAt);
-  const whenLabel = formatFollowupTime(followupWall);
+  // followupAt is stored as UTC timestamptz — use directly for delivery timing and display.
+  const followupInstant = followupAt;
+  const whenLabel = formatFollowupTime(followupInstant);
   const leadName = lead.fullName ?? `lead #${lead.id}`;
-  const minutesBefore = getReminderMinutesForBody(followupWall);
-  const followupAtIso = serializeAsIst(followupWall);
+  const minutesBefore = getReminderMinutesForBody(followupInstant);
+  const followupAtIso = followupInstant.toISOString();
   const baseMeta = {
     leadName: lead.fullName,
     followupAt: followupAtIso,
@@ -238,8 +235,8 @@ export async function scheduleLeadFollowupReminder(
     entityType: "lead",
     entityId: lead.id,
     actionUrl: leadActionUrl(lead.id),
-    scheduledAt: followupWall,
-    deliverAt: getFollowupReminderDeliverAt(followupWall),
+    scheduledAt: followupInstant,
+    deliverAt: getFollowupReminderDeliverAt(followupInstant),
     deliverImmediately: false,
     dedupeKey: `lead_followup:${lead.id}:${ownerId}:before`,
     meta: { ...baseMeta, phase: "before" },
@@ -254,14 +251,14 @@ export async function scheduleLeadFollowupReminder(
     entityType: "lead",
     entityId: lead.id,
     actionUrl: leadActionUrl(lead.id),
-    scheduledAt: followupWall,
-    deliverAt: getFollowupDueDeliverAt(followupWall),
+    scheduledAt: followupInstant,
+    deliverAt: getFollowupDueDeliverAt(followupInstant),
     deliverImmediately: false,
     dedupeKey: `lead_followup:${lead.id}:${ownerId}:due`,
     meta: { ...baseMeta, phase: "due" },
   });
 
-  await scheduleLeadFollowupOverdueAlerts(lead, followupWall, ownerId, whenLabel, leadName);
+  await scheduleLeadFollowupOverdueAlerts(lead, followupInstant, ownerId, whenLabel, leadName);
 }
 
 async function scheduleLeadFollowupOverdueAlerts(
@@ -273,7 +270,7 @@ async function scheduleLeadFollowupOverdueAlerts(
 ): Promise<void> {
   const overdueMeta = {
     leadName: lead.fullName,
-    followupAt: serializeAsIst(followupAt),
+    followupAt: followupAt.toISOString(),
   };
 
   await notifyUsers({
@@ -342,7 +339,7 @@ export async function notifyLeadFollowupOverdue(
     dedupeKey: followupOverdueDedupeKey(lead.id, ownerId, followupAt, phase),
     meta: {
       leadName: lead.fullName,
-      followupAt: serializeAsIst(followupAt),
+      followupAt: followupAt.toISOString(),
       phase,
     },
   });
@@ -453,6 +450,19 @@ export async function notifyLeadJunked(
     actorUserId,
     meta: { leadName: lead.fullName },
   });
+}
+
+/** Pending follow-up stays active; route reminder/overdue notifications to the new counsellor. */
+export async function onCounsellorReassignFollowupNotifications(
+  lead: LeadLike,
+  previousCounsellorId: number,
+  newCounsellorId: number,
+  followupAt: Date
+): Promise<void> {
+  await transferLeadFollowupNotifications(lead.id, previousCounsellorId, newCounsellorId);
+
+  const leadForOwner = { ...lead, currentCounsellorId: newCounsellorId };
+  await scheduleLeadFollowupReminder(leadForOwner, followupAt, { skipCancel: true });
 }
 
 export async function onLeadAssignmentChange(

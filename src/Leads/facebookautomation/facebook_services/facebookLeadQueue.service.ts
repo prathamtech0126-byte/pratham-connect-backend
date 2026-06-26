@@ -14,7 +14,6 @@ import {
 import { resolveLeadTypeLabelForStrategy } from "../leadTypeSelection.util";
 import { leads } from "../../schemas/leads.schema";
 import { facebookLead } from "../facebook_schemas/facebookLead.schema";
-import { getIndianNow } from "../../models/lead.model";
 import { insertLeadRecord } from "../../services/leadInsert.service";
 import { mapPlatformToLeadType } from "../../models/leadType.model";
 
@@ -122,7 +121,7 @@ const insertMappedLead = async (
     assignmentStatus = "assigned";
   }
 
-  const storedAt = getIndianNow();
+  const storedAt = new Date();
   await insertLeadRecord(
     {
       externalLeadId: mapped.externalLeadId || undefined,
@@ -171,7 +170,7 @@ const insertMappedLeadNoAssign = async (
     .limit(1);
   if (existing.length > 0) return { inserted: false, duplicate: true };
 
-  const storedAt = getIndianNow();
+  const storedAt = new Date();
   await insertLeadRecord(
     {
       externalLeadId: mapped.externalLeadId || undefined,

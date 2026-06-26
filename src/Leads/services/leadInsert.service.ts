@@ -1,6 +1,5 @@
 import { db } from "../../config/databaseConnection";
 import { leads } from "../schemas/leads.schema";
-import { serializeLeadTimestampsForApi } from "../../utils/istTime";
 import {
   upsertFacebookLeadMeta,
   type FacebookLeadMetaInput,
@@ -18,7 +17,6 @@ export async function insertLeadRecord(
   activity?: { userId?: number | null; performerName?: string | null }
 ) {
   const [created] = await db.insert(leads).values(data).returning();
-  const serialized = serializeLeadTimestampsForApi(created);
 
   if (facebookMeta && (facebookMeta.formId || facebookMeta.campaignId || facebookMeta.customAnswers)) {
     await upsertFacebookLeadMeta({ leadId: created.id, ...facebookMeta });
@@ -44,5 +42,5 @@ export async function insertLeadRecord(
     });
   }
 
-  return serialized;
+  return created;
 }

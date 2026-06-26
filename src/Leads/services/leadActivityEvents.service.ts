@@ -1,6 +1,5 @@
 import { db } from "../../config/databaseConnection";
 import { leadActivities } from "../schemas/leadActivities.schema";
-import { getIndianNow } from "../models/lead.model";
 import type { LeadFieldChange } from "./leadActivityChanges";
 
 export async function createLeadCreatedActivity(input: {
@@ -9,7 +8,7 @@ export async function createLeadCreatedActivity(input: {
   performerName?: string | null;
   createdAt?: Date;
 }) {
-  const at = input.createdAt ?? getIndianNow();
+  const at = input.createdAt ?? new Date();
   const performer = input.performerName?.trim();
   await db.insert(leadActivities).values({
     leadId: input.leadId,
@@ -22,6 +21,7 @@ export async function createLeadCreatedActivity(input: {
       performedByName: performer ?? null,
       createdAt: at.toISOString(),
     },
+    createdAt: at,
     updatedAt: at,
   });
 }
@@ -31,20 +31,33 @@ export async function createLeadUpdateActivity(input: {
   userId?: number | null;
   performerName?: string | null;
   changes: LeadFieldChange[];
+  /** Eligibility/quality reason — stored on lead_update so timeline and notes share one row. */
+  reasonMessage?: string;
+  reasonType?: "eligibility" | "quality";
 }) {
   const performer = input.performerName?.trim();
-  const now = getIndianNow();
+  const now = new Date();
+  const reasonMessage = input.reasonMessage?.trim();
+  const defaultMessage = performer ? `${performer} updated the lead` : "Lead updated";
   await db.insert(leadActivities).values({
     leadId: input.leadId,
     userId: input.userId ?? null,
     activityType: "lead_update",
-    message: performer ? `${performer} updated the lead` : "Lead updated",
+    message: reasonMessage || defaultMessage,
     status: "completed",
     meta: {
       eventType: "lead_updated",
       changes: input.changes,
       performedByName: performer ?? null,
+      ...(reasonMessage
+        ? {
+            reasonNote: reasonMessage,
+            reasonType: input.reasonType ?? null,
+            showInNotes: true,
+          }
+        : {}),
     },
+    createdAt: now,
     updatedAt: now,
   });
 }
@@ -56,7 +69,7 @@ export async function createLeadReasonNote(input: {
   message: string;
   meta?: Record<string, unknown>;
 }) {
-  const now = getIndianNow();
+  const now = new Date();
   await db.insert(leadActivities).values({
     leadId: input.leadId,
     userId: input.userId ?? null,
@@ -68,6 +81,7 @@ export async function createLeadReasonNote(input: {
       performedByName: input.performerName ?? null,
       isReasonNote: true,
     },
+    createdAt: now,
     updatedAt: now,
   });
 }
@@ -83,7 +97,7 @@ export async function createLeadInitialNote(input: {
   const trimmed = input.message.trim();
   if (!trimmed) return;
 
-  const at = input.createdAt ?? getIndianNow();
+  const at = input.createdAt ?? new Date();
   await db.insert(leadActivities).values({
     leadId: input.leadId,
     userId: input.userId ?? null,
@@ -94,6 +108,7 @@ export async function createLeadInitialNote(input: {
       performedByName: input.performerName?.trim() ?? null,
       source: "lead_create",
     },
+    createdAt: at,
     updatedAt: at,
   });
 }

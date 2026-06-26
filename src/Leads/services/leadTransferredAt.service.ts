@@ -1,5 +1,4 @@
 import { sql } from "drizzle-orm";
-import { getIndianNow, indianPeriodBounds } from "../../utils/istTime";
 import { leads } from "../schemas/leads.schema";
 
 /** Counted as a telecaller transfer outcome on dashboard / targets. */
@@ -26,7 +25,7 @@ export function stampTransferredAtOnPatch(
   patch: Record<string, unknown>
 ): Record<string, unknown> {
   if (patch.assignmentStatus === "transferred") {
-    return { ...patch, transferredAt: getIndianNow() };
+    return { ...patch, transferredAt: new Date() };
   }
   return patch;
 }
@@ -40,12 +39,10 @@ function outcomeTimestampInPeriod(
 ) {
   const notNull = sql`${column} IS NOT NULL`;
   if (!hasPeriod || !from || !to) return notNull;
-  const { from: naiveFrom, to: naiveTo } = indianPeriodBounds(from, to);
-  if (!naiveFrom || !naiveTo) return notNull;
   if (endExclusive) {
-    return sql`${notNull} AND ${column} >= ${naiveFrom} AND ${column} < ${naiveTo}`;
+    return sql`${notNull} AND ${column} >= ${from} AND ${column} < ${to}`;
   }
-  return sql`${notNull} AND ${column} >= ${naiveFrom} AND ${column} <= ${naiveTo}`;
+  return sql`${notNull} AND ${column} >= ${from} AND ${column} <= ${to}`;
 }
 
 /** SQL fragment for report "Transferred" counts (transferred_at in period). */

@@ -17,7 +17,10 @@ import {
   batchGetStudentApplicationDates,
 } from "./studentApplication.model";
 import { parseFrontendDate, normalizeDbDate } from "../utils/date";
-import { syncLeadPassportFromClient } from "../Leads/models/leadPassportSync.model";
+import {
+  syncLeadFullNameFromClient,
+  syncLeadPassportFromClient,
+} from "../Leads/models/leadPassportSync.model";
 
 /* ==============================
    TYPES
@@ -296,11 +299,20 @@ export const saveClient = async (
       .limit(1);
     leadIdForPassportSync = existing?.convertedLeadId ?? null;
   }
-  if (leadIdForPassportSync && trimmedPassportDetails) {
-    try {
-      await syncLeadPassportFromClient(leadIdForPassportSync, trimmedPassportDetails);
-    } catch (syncError) {
-      console.error("Failed to sync passport to lead profile:", syncError);
+  if (leadIdForPassportSync) {
+    if (trimmedPassportDetails) {
+      try {
+        await syncLeadPassportFromClient(leadIdForPassportSync, trimmedPassportDetails);
+      } catch (syncError) {
+        console.error("Failed to sync passport to lead profile:", syncError);
+      }
+    }
+    if (trimmedFullName) {
+      try {
+        await syncLeadFullNameFromClient(leadIdForPassportSync, trimmedFullName);
+      } catch (syncError) {
+        console.error("Failed to sync client name to lead:", syncError);
+      }
     }
   }
 
@@ -473,17 +485,23 @@ export const updateClientBasicDetails = async (
     throw new Error("Failed to update client");
   }
 
-  if (
-    passportDetails !== existingClient.passportDetails &&
-    updatedClient.convertedLeadId
-  ) {
-    try {
-      await syncLeadPassportFromClient(
-        updatedClient.convertedLeadId,
-        passportDetails
-      );
-    } catch (syncError) {
-      console.error("Failed to sync passport to lead profile:", syncError);
+  if (updatedClient.convertedLeadId) {
+    if (passportDetails !== existingClient.passportDetails) {
+      try {
+        await syncLeadPassportFromClient(
+          updatedClient.convertedLeadId,
+          passportDetails
+        );
+      } catch (syncError) {
+        console.error("Failed to sync passport to lead profile:", syncError);
+      }
+    }
+    if (fullName !== existingClient.fullName) {
+      try {
+        await syncLeadFullNameFromClient(updatedClient.convertedLeadId, fullName);
+      } catch (syncError) {
+        console.error("Failed to sync client name to lead:", syncError);
+      }
     }
   }
 

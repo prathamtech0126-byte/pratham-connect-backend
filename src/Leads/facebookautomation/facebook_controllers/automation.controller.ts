@@ -4,9 +4,7 @@ import crypto from "crypto";
 import { AuthenticatedRequest } from "../../../types/express-auth";
 import { db } from "../../../config/databaseConnection";
 import { leads } from "../../schemas/leads.schema";
-import { getIndianNow } from "../../models/lead.model";
 import { insertLeadRecord } from "../../services/leadInsert.service";
-import { serializeAsIst } from "../../../utils/istTime";
 import { mapPlatformToLeadType } from "../../models/leadType.model";
 import {
   clearFacebookAuthState,
@@ -267,7 +265,7 @@ const insertLeadToDB = async (
     }
   }
 
-  const storedAt = getIndianNow();
+  const storedAt = new Date();
   const leadTypeLabel = strategyRow
     ? await resolveLeadTypeLabelForStrategy(strategyRow)
     : null;
@@ -971,8 +969,11 @@ export const getFacebookManualDistributionLeadsController = async (req: Request,
         ...result,
         data: result.data.map((row) => ({
           ...row,
-          createdAt: serializeAsIst(row.createdAt) ?? String(row.createdAt),
-          facebookCreatedAt: serializeAsIst(row.facebookCreatedAt) ?? String(row.facebookCreatedAt),
+          createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
+          facebookCreatedAt:
+            row.facebookCreatedAt instanceof Date
+              ? row.facebookCreatedAt.toISOString()
+              : String(row.facebookCreatedAt),
         })),
       },
     });

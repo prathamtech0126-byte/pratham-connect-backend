@@ -16,15 +16,6 @@ import {
 } from "drizzle-orm";
 import { db } from "../../config/databaseConnection";
 import { saveClient } from "../../models/client.model";
-import {
-  getIndianNow,
-  indianPeriodBounds,
-  serializeLeadActivityTimestampsForApi,
-  serializeLeadTimestampsForApi,
-  utcToIndianWallClock,
-} from "../../utils/istTime";
-
-export { getIndianNow } from "../../utils/istTime";
 import { leads } from "../schemas/leads.schema";
 import { transferOutcomeInPeriodFilter } from "../services/leadTransferredAt.service";
 import {
@@ -319,11 +310,11 @@ const buildWhereClause = (filters: LeadListFilters) => {
   }
 
   if (filters.nextFollowupFrom) {
-    conditions.push(gte(leads.nextFollowupAt, utcToIndianWallClock(new Date(filters.nextFollowupFrom))));
+    conditions.push(gte(leads.nextFollowupAt, new Date(filters.nextFollowupFrom)));
   }
 
   if (filters.nextFollowupTo) {
-    conditions.push(lte(leads.nextFollowupAt, utcToIndianWallClock(new Date(filters.nextFollowupTo))));
+    conditions.push(lte(leads.nextFollowupAt, new Date(filters.nextFollowupTo)));
   }
 
   if (filters.leadSource?.trim()) {
@@ -345,24 +336,21 @@ const buildWhereClause = (filters: LeadListFilters) => {
   if (useConvertedPeriod) {
     const cf = filters.convertedFrom ?? filters.createdFrom;
     const ct = filters.convertedTo ?? filters.createdTo;
-    if (cf) conditions.push(gte(leads.convertedAt, utcToIndianWallClock(new Date(cf))));
-    if (ct) conditions.push(lte(leads.convertedAt, utcToIndianWallClock(new Date(ct))));
+    if (cf) conditions.push(gte(leads.convertedAt, new Date(cf)));
+    if (ct) conditions.push(lte(leads.convertedAt, new Date(ct)));
     conditions.push(isNotNull(leads.convertedAt));
   } else if (useDroppedPeriod) {
     const df = filters.droppedFrom ?? filters.createdFrom;
     const dt = filters.droppedTo ?? filters.createdTo;
-    if (df) conditions.push(gte(leads.droppedAt, utcToIndianWallClock(new Date(df))));
-    if (dt) conditions.push(lte(leads.droppedAt, utcToIndianWallClock(new Date(dt))));
+    if (df) conditions.push(gte(leads.droppedAt, new Date(df)));
+    if (dt) conditions.push(lte(leads.droppedAt, new Date(dt)));
     conditions.push(isNotNull(leads.droppedAt));
   } else if (filters.reportBucket !== "transferred") {
-    // filters.createdFrom/To are already naive IST strings (e.g. "2026-06-08 00:00:00").
-    // Passing them through new Date() on a UTC server shifts by +5:30 before utcToIndianWallClock
-    // re-extracts IST parts, so we pass them directly as typed SQL literals.
     if (filters.createdFrom) {
-      conditions.push(sql`${leads.createdAt} >= ${filters.createdFrom}::timestamp`);
+      conditions.push(gte(leads.createdAt, new Date(filters.createdFrom)));
     }
     if (filters.createdTo) {
-      conditions.push(sql`${leads.createdAt} <= ${filters.createdTo}::timestamp`);
+      conditions.push(lte(leads.createdAt, new Date(filters.createdTo)));
     }
   }
 
@@ -383,8 +371,8 @@ const buildWhereClause = (filters: LeadListFilters) => {
     filters.reportBucket !== "transferred" &&
     !useDroppedPeriod
   ) {
-    if (filters.droppedFrom) conditions.push(gte(leads.droppedAt, utcToIndianWallClock(new Date(filters.droppedFrom))));
-    if (filters.droppedTo) conditions.push(lte(leads.droppedAt, utcToIndianWallClock(new Date(filters.droppedTo))));
+    if (filters.droppedFrom) conditions.push(gte(leads.droppedAt, new Date(filters.droppedFrom)));
+    if (filters.droppedTo) conditions.push(lte(leads.droppedAt, new Date(filters.droppedTo)));
     conditions.push(isNotNull(leads.droppedAt));
     conditions.push(eq(leads.assignmentStatus, "dropped"));
   }
@@ -431,7 +419,7 @@ const resolveSort = (sortBy?: LeadListFilters["sortBy"], sortOrder?: LeadListFil
 
 export const createLead = async (data: LeadInsert) => {
   const [created] = await db.insert(leads).values(data).returning();
-  return serializeLeadTimestampsForApi(created);
+  return created;
 };
 
 export const getLeadById = async (id: number) => {
@@ -484,7 +472,7 @@ export const getLeadById = async (id: number) => {
         : {}),
     },
   ]);
-  return serializeLeadTimestampsForApi(withPendingFlag);
+  return withPendingFlag;
 };
 
 const enrichLeadsWithAssigneeNames = async <T extends {
@@ -583,12 +571,10 @@ export const listLeads = async (filters: LeadListFilters) => {
   }
 
   return {
-    items: withReferences.map((row) =>
-      serializeLeadTimestampsForApi({
+    items: withReferences.map((row) => ({
         ...row,
         sentToMeta: sentToMetaMap ? (sentToMetaMap.get(row.id) ?? false) : undefined,
-      })
-    ),
+      })),
     pagination: {
       page,
       limit,
@@ -701,7 +687,7 @@ export const getTelecallerLeadSummaryRows = async (
 export const updateLeadById = async (id: number, patch: Partial<LeadInsert>) => {
   const [updated] = await db
     .update(leads)
-    .set({ ...patch, updatedAt: getIndianNow() })
+    .set({ ...patch, updatedAt: new Date() })
     .where(eq(leads.id, id))
     .returning();
 
@@ -709,11 +695,11 @@ export const updateLeadById = async (id: number, patch: Partial<LeadInsert>) => 
     throw new Error("Lead not found");
   }
 
-  return serializeLeadTimestampsForApi(updated);
+  return updated;
 };
 
 export const createLeadActivity = async (payload: ActivityInsert) => {
-  const now = getIndianNow();
+  const now = new Date();
   const [created] = await db
     .insert(leadActivities)
     .values({
@@ -754,8 +740,7 @@ export const getLeadActivitiesEnriched = async (leadId: number) => {
     .where(eq(leadActivities.leadId, leadId))
     .orderBy(desc(leadActivities.createdAt));
 
-  return rows.map((row) =>
-    serializeLeadActivityTimestampsForApi({
+  return rows.map((row) => ({
       id: row.id,
       leadId: row.leadId,
       userId: row.userId,
@@ -768,8 +753,7 @@ export const getLeadActivitiesEnriched = async (leadId: number) => {
       updatedAt: row.updatedAt,
       userName: row.userName ?? null,
       userRole: row.userRole ?? null,
-    })
-  );
+    }));
 };
 
 /** Concatenated note timeline per lead for list export (oldest first). */
@@ -822,7 +806,53 @@ export const hasPendingFollowUpForLead = async (leadId: number): Promise<boolean
   return rows.length > 0;
 };
 
-/** Counsellor did follow-up / note / call after assignment (blocks telecaller re-transfer). */
+/** Earliest pending follow-up time for a lead (used when reassigning counsellor notifications). */
+export async function getEarliestPendingFollowupAtForLead(
+  leadId: number
+): Promise<Date | null> {
+  const [row] = await db
+    .select({ followupAt: leadActivities.followupAt })
+    .from(leadActivities)
+    .where(
+      and(
+        eq(leadActivities.leadId, leadId),
+        eq(leadActivities.activityType, "followup"),
+        eq(leadActivities.status, "pending")
+      )
+    )
+    .orderBy(asc(leadActivities.followupAt))
+    .limit(1);
+  return row?.followupAt ?? null;
+}
+
+/** Recompute leads.next_followup_at and progress after follow-up rows change. */
+export async function syncLeadNextFollowupFromActivities(leadId: number): Promise<void> {
+  const pending = await db
+    .select({ followupAt: leadActivities.followupAt })
+    .from(leadActivities)
+    .where(
+      and(
+        eq(leadActivities.leadId, leadId),
+        eq(leadActivities.activityType, "followup"),
+        eq(leadActivities.status, "pending")
+      )
+    )
+    .orderBy(asc(leadActivities.followupAt));
+
+  const lead = await getLeadById(leadId);
+  if (!lead) return;
+
+  const nextFollowupAt = pending[0]?.followupAt ?? null;
+  const patch: Record<string, unknown> = { nextFollowupAt, updatedAt: new Date() };
+
+  if (pending.length === 0 && lead.progressStatus === "follow_up") {
+    patch.progressStatus = "contacted";
+  }
+
+  await updateLeadById(leadId, patch);
+}
+
+/** Counsellor did follow-up / note after assignment (blocks telecaller re-transfer). */
 export const hasCounsellorPostTransferActivity = async (leadId: number): Promise<boolean> => {
   const [lead] = await db
     .select({ currentCounsellorId: leads.currentCounsellorId })
@@ -838,7 +868,7 @@ export const hasCounsellorPostTransferActivity = async (leadId: number): Promise
       and(
         eq(leadActivities.leadId, leadId),
         eq(leadActivities.userId, lead.currentCounsellorId),
-        inArray(leadActivities.activityType, ["followup", "note", "call_log"])
+        inArray(leadActivities.activityType, ["followup", "note"])
       )
     )
     .limit(1);
@@ -869,14 +899,15 @@ export const getTelecallerDashboardStats = async (
   createdFrom?: Date,
   createdTo?: Date,
   followupFrom?: Date,
-  followupTo?: Date
+  followupTo?: Date,
+  followupTodayFrom?: Date,
+  followupTodayTo?: Date
 ): Promise<TelecallerDashboardStats> => {
   const baseWhere = and(
     eq(leads.currentTelecallerId, telecallerId),
     eq(leads.isJunk, false)
   );
-  const { from: naiveFrom, to: naiveTo } = indianPeriodBounds(createdFrom, createdTo);
-  const hasPeriod = Boolean(naiveFrom && naiveTo);
+  const hasPeriod = Boolean(createdFrom && createdTo);
   const transferFilter = transferOutcomeInPeriodFilter(hasPeriod, createdFrom, createdTo);
 
   const [counts] = await db
@@ -892,20 +923,14 @@ export const getTelecallerDashboardStats = async (
         : sql<number>`COUNT(*) FILTER (WHERE ${leads.progressStatus} IN ('contacted', 'follow_up'))`,
       transferred: sql<number>`COUNT(*) FILTER (WHERE ${transferFilter})`,
       converted: hasPeriod
-        ? sql<number>`COUNT(*) FILTER (WHERE ${leads.convertedAt} IS NOT NULL AND ${leads.convertedAt} >= ${naiveFrom} AND ${leads.convertedAt} <= ${naiveTo} AND ${leads.assignmentStatus} = 'converted')`
+        ? sql<number>`COUNT(*) FILTER (WHERE ${leads.convertedAt} IS NOT NULL AND ${leads.convertedAt} >= ${createdFrom} AND ${leads.convertedAt} <= ${createdTo} AND ${leads.assignmentStatus} = 'converted')`
         : sql<number>`COUNT(*) FILTER (WHERE ${leads.assignmentStatus} = 'converted' AND ${leads.convertedAt} IS NOT NULL)`,
     })
     .from(leads)
     .where(baseWhere);
 
-  const todayYmd = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
-  const followTodayBounds = indianPeriodBounds(
-    new Date(`${todayYmd}T00:00:00.000+05:30`),
-    new Date(`${todayYmd}T23:59:59.999+05:30`),
-  );
-
   const [followToday] =
-    followTodayBounds.from && followTodayBounds.to
+    followupTodayFrom && followupTodayTo
       ? await db
           .select({ cnt: count() })
           .from(leads)
@@ -914,18 +939,14 @@ export const getTelecallerDashboardStats = async (
               eq(leads.currentTelecallerId, telecallerId),
               eq(leads.isJunk, false),
               isNotNull(leads.nextFollowupAt),
-              gte(leads.nextFollowupAt, followTodayBounds.from),
-              lte(leads.nextFollowupAt, followTodayBounds.to)
+              gte(leads.nextFollowupAt, followupTodayFrom),
+              lte(leads.nextFollowupAt, followupTodayTo)
             )
           )
       : [{ cnt: 0 }];
 
   let followInPeriod = 0;
   if (followupFrom && followupTo) {
-    const { from: naiveFollowFrom, to: naiveFollowTo } = indianPeriodBounds(
-      followupFrom,
-      followupTo,
-    );
     const [fp] = await db
       .select({ cnt: count() })
       .from(leads)
@@ -934,8 +955,8 @@ export const getTelecallerDashboardStats = async (
           eq(leads.currentTelecallerId, telecallerId),
           eq(leads.isJunk, false),
           isNotNull(leads.nextFollowupAt),
-          naiveFollowFrom ? gte(leads.nextFollowupAt, naiveFollowFrom) : undefined,
-          naiveFollowTo ? lte(leads.nextFollowupAt, naiveFollowTo) : undefined,
+          gte(leads.nextFollowupAt, followupFrom),
+          lte(leads.nextFollowupAt, followupTo),
         )
       );
     followInPeriod = Number(fp?.cnt ?? 0);
@@ -961,7 +982,7 @@ export const getTelecallerDashboardStats = async (
         : count(),
       transferred: sql<number>`COUNT(*) FILTER (WHERE ${transferFilter})`,
       converted: hasPeriod
-        ? sql<number>`COUNT(*) FILTER (WHERE ${leads.convertedAt} IS NOT NULL AND ${leads.convertedAt} >= ${naiveFrom} AND ${leads.convertedAt} <= ${naiveTo} AND ${leads.assignmentStatus} = 'converted')`
+        ? sql<number>`COUNT(*) FILTER (WHERE ${leads.convertedAt} IS NOT NULL AND ${leads.convertedAt} >= ${createdFrom} AND ${leads.convertedAt} <= ${createdTo} AND ${leads.assignmentStatus} = 'converted')`
         : sql<number>`COUNT(*) FILTER (WHERE ${leads.assignmentStatus} = 'converted' AND ${leads.convertedAt} IS NOT NULL)`,
     })
     .from(leads)
@@ -1053,7 +1074,7 @@ export const updateLeadActivityMessage = async (activityId: number, message: str
     .update(leadActivities)
     .set({
       message: trimmed,
-      updatedAt: getIndianNow(),
+      updatedAt: new Date(),
     })
     .where(eq(leadActivities.id, activityId))
     .returning();
@@ -1069,7 +1090,7 @@ export const updateActivityStatus = async (
 ) => {
   const patch: { status: typeof status; updatedAt: Date; message?: string } = {
     status,
-    updatedAt: getIndianNow(),
+    updatedAt: new Date(),
   };
   if (message != null && String(message).trim()) {
     patch.message = String(message).trim();
@@ -1184,7 +1205,7 @@ export const convertLeadToClient = async (leadId: number, counsellorId: number) 
   const normalizedName = assertEnglishNameField(lead.fullName, "Full name", { required: true });
   assertLeadCityField(lead.city, { required: true });
 
-  const now = getIndianNow();
+  const now = new Date();
   const y = now.getUTCFullYear();
   const m = String(now.getUTCMonth() + 1).padStart(2, "0");
   const d = String(now.getUTCDate()).padStart(2, "0");
@@ -1231,7 +1252,7 @@ export const convertLeadToClient = async (leadId: number, counsellorId: number) 
   const [withPendingFlag] = await attachPendingConvertedFlags([updated]);
 
   return {
-    lead: serializeLeadTimestampsForApi(withPendingFlag),
+    lead: withPendingFlag,
     client,
   };
 };
@@ -1254,7 +1275,7 @@ export const dropLeadByCounsellor = async (
     throw new Error("Converted leads cannot be dropped");
   }
 
-  const now = getIndianNow();
+  const now = new Date();
   const [updated] = await db
     .update(leads)
     .set({
@@ -1301,7 +1322,7 @@ export const revertJunkLead = async (
       : eq(leadActivities.leadId, leadId)
   );
 
-  const now = getIndianNow();
+  const now = new Date();
   await db
     .update(leads)
     .set({

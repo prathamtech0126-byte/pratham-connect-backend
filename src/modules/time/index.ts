@@ -6,15 +6,3 @@ export {
   utcUpdatedAt,
   utcTimestampColumns,
 } from "./drizzle/columns";
-export {
-  getPgNaiveIndianNow,
-  pgNaiveIst,
-  pgNaiveIstWallClockToInstant,
-  serializePgNaiveTimestampAsIst,
-  formatPgNaiveTimestampForDisplay,
-} from "./legacy/pgNaiveIst";
-export {
-  serializeActivityLogTimestampAsIst,
-  serializeLeadTimestampsForApi,
-  serializeLeadActivityTimestampsForApi,
-} from "./legacy/serializers";

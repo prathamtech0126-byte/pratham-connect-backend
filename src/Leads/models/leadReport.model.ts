@@ -2,7 +2,6 @@ import { sql } from "drizzle-orm";
 import { db } from "../../config/databaseConnection";
 import { leads } from "../schemas/leads.schema";
 import { users } from "../../schemas/users.schema";
-import { indianPeriodBounds } from "../../utils/istTime";
 
 export type LeadReportParams = {
   createdFrom?: Date;
@@ -61,10 +60,8 @@ const n = (v: unknown) => Number(v ?? 0);
 export async function getAdminLeadReportStats(
   params: LeadReportParams
 ): Promise<LeadReportStats> {
-  // Convert UTC instants to naive IST wall-clock Dates for `timestamp without time zone` comparison.
-  const { from: naiveFrom, to: naiveTo } = indianPeriodBounds(params.createdFrom, params.createdTo);
-  const createdFrom = naiveFrom;
-  const createdTo = naiveTo;
+  const createdFrom = params.createdFrom;
+  const createdTo = params.createdTo;
   const hp = Boolean(createdFrom && createdTo);
 
   const [summaryRow, teleCreation, teleOutcome, counsRows, sourceRows, typeRows, teleNames, counsNames] =

@@ -11,10 +11,6 @@ import type {
   NotificationRow,
   NotifyInput,
 } from "../types/notification.types";
-import {
-  formatIndianTimeForDisplay,
-  indianWallClockToInstant,
-} from "../../utils/istTime";
 import { getRegistryEntry } from "./notificationEventRegistry";
 
 const FOLLOWUP_REMINDER_MINUTES = parseInt(
@@ -120,16 +116,14 @@ export async function processDueNotifications(): Promise<number> {
   return due.length;
 }
 
-/** Compute deliverAt from naive IST follow-up wall clock + offset (ms can be negative). */
-function deliverAtFromPgNaiveFollowup(followupNaive: Date, offsetMs: number): Date {
-  const instant = indianWallClockToInstant(followupNaive);
-  const at = new Date(instant.getTime() + offsetMs);
+function deliverAtFromFollowup(followupAt: Date, offsetMs: number): Date {
+  const at = new Date(followupAt.getTime() + offsetMs);
   return at.getTime() <= Date.now() ? new Date() : at;
 }
 
 /** When to deliver the “X minutes before” reminder (default 5 min before follow-up). */
 export function getFollowupReminderDeliverAt(followupAt: Date): Date {
-  return deliverAtFromPgNaiveFollowup(
+  return deliverAtFromFollowup(
     followupAt,
     -FOLLOWUP_REMINDER_MINUTES * 60 * 1000
   );
@@ -137,7 +131,7 @@ export function getFollowupReminderDeliverAt(followupAt: Date): Date {
 
 /** When to deliver the “follow-up is now” reminder (at scheduled follow-up time). */
 export function getFollowupDueDeliverAt(followupAt: Date): Date {
-  return deliverAtFromPgNaiveFollowup(followupAt, 0);
+  return deliverAtFromFollowup(followupAt, 0);
 }
 
 export function getFollowupReminderMinutesBefore(): number {
@@ -146,18 +140,21 @@ export function getFollowupReminderMinutesBefore(): number {
 
 /** When to deliver the first “missed follow-up” alert (default 5 min after scheduled time). */
 export function getFollowupMissedOverdueDeliverAt(followupAt: Date): Date {
-  return deliverAtFromPgNaiveFollowup(followupAt, FOLLOWUP_MISSED_MINUTES * 60 * 1000);
+  return deliverAtFromFollowup(followupAt, FOLLOWUP_MISSED_MINUTES * 60 * 1000);
 }
 
 /** When to deliver the “still overdue” alert (default 3 hours after scheduled time). */
 export function getFollowupRepeatOverdueDeliverAt(followupAt: Date): Date {
-  return deliverAtFromPgNaiveFollowup(
+  return deliverAtFromFollowup(
     followupAt,
     FOLLOWUP_OVERDUE_REPEAT_HOURS * 60 * 60 * 1000
   );
 }
 
-/** Format follow-up time for notification body text (IST wall clock from naive PG Date). */
+/** Format follow-up time for notification body text. */
 export function formatFollowupTime(d: Date): string {
-  return formatIndianTimeForDisplay(d);
+  return d.toLocaleString("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
 }

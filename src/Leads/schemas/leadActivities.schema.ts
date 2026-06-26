@@ -9,14 +9,13 @@ import {
   text,
   timestamp,
 } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
 import { leads } from "./leads.schema";
 import { users } from "../../schemas/users.schema";
 
 export const leadActivityTypeEnum = pgEnum("lead_activity_type_enum", [
   "note",
   "followup",
-  "call_log",
+  "call_log", // legacy DB rows only — no longer created by the app
   "assignment_change",
   "counselor_assign",
   "lead_update",
@@ -41,11 +40,11 @@ export const leadActivities = pgTable(
     ),
     activityType: leadActivityTypeEnum("activity_type").notNull(),
     message: text("message"),
-    followupAt: timestamp("followup_at"),
+    followupAt: timestamp("followup_at", { withTimezone: true }),
     status: leadActivityStatusEnum("status").default("pending").notNull(),
     meta: jsonb("meta").$type<Record<string, unknown>>().default({}).notNull(),
-    createdAt: timestamp("created_at").default(sql`(now() at time zone 'Asia/Kolkata')`).notNull(),
-    updatedAt: timestamp("updated_at").default(sql`(now() at time zone 'Asia/Kolkata')`).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => ({
     leadIdIdx: index("idx_lead_activities_lead_id").on(table.leadId),

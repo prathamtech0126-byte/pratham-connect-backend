@@ -17,7 +17,6 @@ import {
   sql,
 } from "drizzle-orm";
 import type { NotificationRow } from "../types/notification.types";
-import { utcToIndianWallClock } from "../../utils/istTime";
 
 /** Minutes after scheduled follow-up before the first “missed” alert (default 5). */
 export const FOLLOWUP_MISSED_MINUTES = parseInt(
@@ -42,16 +41,16 @@ export function followupOverdueDedupeKey(
   return `lead_overdue:${leadId}:${userId}:${followupAt.getTime()}:${phase}`;
 }
 
-/** Naive IST wall clock: follow-ups scheduled at or before this time are past the “missed” window. */
+/** UTC cutoff: follow-ups scheduled at or before this time are past the “missed” window. */
 export function getFollowupMissedEarlyCutoff(): Date {
   const minutes = Math.max(0, FOLLOWUP_MISSED_MINUTES);
-  return utcToIndianWallClock(new Date(Date.now() - minutes * 60 * 1000));
+  return new Date(Date.now() - minutes * 60 * 1000);
 }
 
-/** Naive IST wall clock: follow-ups at or before this time qualify for the 3h repeat alert. */
+/** UTC cutoff: follow-ups at or before this time qualify for the 3h repeat alert. */
 export function getFollowupOverdueRepeatCutoff(): Date {
   const hours = Math.max(0, FOLLOWUP_OVERDUE_REPEAT_HOURS);
-  return utcToIndianWallClock(new Date(Date.now() - hours * 60 * 60 * 1000));
+  return new Date(Date.now() - hours * 60 * 60 * 1000);
 }
 
 /** @deprecated Use getFollowupOverdueRepeatCutoff */
@@ -415,6 +414,79 @@ export const cancelPendingLeadFollowupNotifications = async (
 ): Promise<void> => {
   await cancelLeadFollowupReminders(leadId);
   await cancelLeadFollowupOverdue(leadId);
+};
+
+const LEAD_FOLLOWUP_NOTIFICATION_TYPES = [
+  "lead_followup_reminder",
+  "lead_followup_overdue",
+] as const;
+
+function replaceUserIdInDedupeKey(
+  dedupeKey: string | null,
+  fromUserId: number,
+  toUserId: number
+): string | null {
+  if (!dedupeKey) return null;
+  return dedupeKey.split(`:${fromUserId}:`).join(`:${toUserId}:`);
+}
+
+/**
+ * Move undelivered follow-up notifications from the previous counsellor to the new assignee.
+ * Marks the previous counsellor's already-delivered follow-up alerts as read.
+ */
+export const transferLeadFollowupNotifications = async (
+  leadId: number,
+  fromUserId: number,
+  toUserId: number
+): Promise<number> => {
+  if (fromUserId === toUserId) return 0;
+
+  const pendingRows = await db
+    .select({
+      id: notifications.id,
+      dedupeKey: notifications.dedupeKey,
+    })
+    .from(notifications)
+    .where(
+      and(
+        eq(notifications.entityId, leadId),
+        eq(notifications.userId, fromUserId),
+        inArray(notifications.type, [...LEAD_FOLLOWUP_NOTIFICATION_TYPES]),
+        isNull(notifications.dismissedAt),
+        isNull(notifications.deliveredAt)
+      )
+    );
+
+  const now = new Date();
+  let transferred = 0;
+  for (const row of pendingRows) {
+    const nextDedupeKey = replaceUserIdInDedupeKey(row.dedupeKey, fromUserId, toUserId);
+    await db
+      .update(notifications)
+      .set({
+        userId: toUserId,
+        dedupeKey: nextDedupeKey,
+        updatedAt: now,
+      })
+      .where(eq(notifications.id, row.id));
+    transferred++;
+  }
+
+  await db
+    .update(notifications)
+    .set({ readAt: now, updatedAt: now })
+    .where(
+      and(
+        eq(notifications.entityId, leadId),
+        eq(notifications.userId, fromUserId),
+        inArray(notifications.type, [...LEAD_FOLLOWUP_NOTIFICATION_TYPES]),
+        isNotNull(notifications.deliveredAt),
+        isNull(notifications.readAt),
+        isNull(notifications.dismissedAt)
+      )
+    );
+
+  return transferred;
 };
 
 export const wasOverdueNotificationDelivered = async (

@@ -5,7 +5,6 @@ import { clientProductPayments } from "../../schemas/clientProductPayments.schem
 import { saleTypes } from "../../schemas/saleType.schema";
 import { saleTypeCategories } from "../../schemas/saleTypeCategory.schema";
 import { tutionFees } from "../../schemas/tutionFees.schema";
-import { getIndianNow, utcToIndianWallClock } from "../../utils/istTime";
 import { leads } from "../schemas/leads.schema";
 import { normalizeLeadTypeSlug } from "../models/leadType.model";
 
@@ -58,7 +57,7 @@ export const leadHasPaidTuitionDeposit = async (leadId: number): Promise<boolean
 export const buildCounsellorLeadConversionUpdate = async (
   leadType: string | null | undefined,
   existingConvertedAt?: Date | null,
-  now: Date = getIndianNow()
+  now: Date = new Date()
 ): Promise<{
   progressStatus: "converted";
   assignmentStatus: "transferred" | "converted";
@@ -88,7 +87,7 @@ export const maybeRevertPrematureStudentConversion = async (leadId: number): Pro
     .set({
       assignmentStatus: "transferred",
       convertedAt: null,
-      updatedAt: getIndianNow(),
+      updatedAt: new Date(),
     })
     .where(eq(leads.id, leadId));
   return true;
@@ -156,10 +155,10 @@ export const attachPendingConvertedFlags = async <T extends LeadPendingConversio
 };
 
 const tuitionFeeDateToConvertedAt = (feeDate?: string | null): Date => {
-  if (!feeDate?.trim()) return getIndianNow();
-  const parsed = new Date(`${feeDate.trim()}T12:00:00+05:30`);
-  if (Number.isNaN(parsed.getTime())) return getIndianNow();
-  return utcToIndianWallClock(parsed);
+  if (!feeDate?.trim()) return new Date();
+  const parsed = new Date(`${feeDate.trim()}T12:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) return new Date();
+  return parsed;
 };
 
 /**
@@ -192,7 +191,7 @@ export const maybeFinalizeLeadConversionAfterTuitionDeposit = async (
   if (!hasPaid) return;
 
   const convertedAt = tuitionFeeDateToConvertedAt(tuitionDepositDate);
-  const now = getIndianNow();
+  const now = new Date();
 
   await db
     .update(leads)

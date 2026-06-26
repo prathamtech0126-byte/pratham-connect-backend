@@ -2,7 +2,6 @@ import { and, count, gte, inArray } from "drizzle-orm";
 import { db } from "../../config/databaseConnection";
 import { leads } from "../schemas/leads.schema";
 import { users } from "../../schemas/users.schema";
-import { getIndianNow } from "../models/lead.model";
 import { buildCounsellorAssignPatch } from "./leadAssignment.service";
 import { isLeadTransferBlocked } from "./leadActivityLog.service";
 
@@ -62,9 +61,9 @@ const pickLeastLoadedFromPool = async (
 ): Promise<number | null> => {
   if (pool.length === 0) return null;
 
-  const istNow = getIndianNow();
+  const now = new Date();
   const todayStart = new Date(
-    Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 0, 0, 0)
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0)
   );
 
   const countMap = new Map<number, number>();

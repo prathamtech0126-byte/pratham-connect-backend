@@ -2,7 +2,6 @@ import { Request, Response } from "express";
 import {
   createLead,
   createLeadActivity,
-  getIndianNow,
   getLeadActivities,
   getLeadActivitiesEnriched,
   getBulkLeadNotesForExport,
@@ -14,6 +13,7 @@ import {
   getTelecallerLeadSummaryRows,
   hasPendingFollowUpForLead,
   hasCounsellorPostTransferActivity,
+  getEarliestPendingFollowupAtForLead,
   isLeadLocked,
   isLeadJunkLocked,
   isLeadConvertedLocked,
@@ -36,16 +36,7 @@ import {
 import { getAdminLeadReportStats } from "../models/leadReport.model";
 import { insertLeadRecord } from "../services/leadInsert.service";
 import {
-  utcToIndianWallClock,
-  utcToIndianWallClockStr,
-  serializeLeadActivityTimestampsForApi,
-  istDayStartStr,
-  istDayEndStr,
-  istFilterBounds,
-} from "../../utils/istTime";
-import {
   createLeadCreatedActivity,
-  createLeadReasonNote,
   createLeadUpdateActivity,
 } from "../services/leadActivityEvents.service";
 import {
@@ -74,6 +65,8 @@ import {
   assertTelecallerCanCompleteFollowUp,
   assertTelecallerCanModifyLead,
   canTelecallerCompleteFollowUp,
+  canCounsellorCompleteFollowUp,
+  assertCounsellorCanCompleteFollowUp,
   hasPendingTelecallerFollowUpForLead,
   isTelecallerTransferredViewOnly,
 } from "../services/leadTelecallerPermissions.service";
@@ -99,6 +92,7 @@ import {
 } from "../services/leadBulkStrategyAssign.service";
 import {
   flushLeadAssignmentBatch,
+  onCounsellorReassignFollowupNotifications,
   onLeadAssignmentChange,
   scheduleLeadFollowupReminder,
 } from "../../notification/integrations/leadNotifications";
@@ -173,7 +167,7 @@ export const createLeadController = async (req: Request, res: Response) => {
       body.assignedBy = authReq.user?.id;
     }
 
-    const indianNow = getIndianNow();
+    const now = new Date();
     const performerName = await getUserFullName(authReq.user?.id);
     const {
       facebookCreatedAt: _fb,
@@ -201,8 +195,8 @@ export const createLeadController = async (req: Request, res: Response) => {
         ...normalizedText,
         leadType: validatedLeadType ?? leadBody.leadType,
         referenceId,
-        createdAt: indianNow,
-        updatedAt: indianNow,
+        createdAt: now,
+        updatedAt: now,
         eligibilityStatus: body.eligibilityStatus ?? null,
         leadQuality: body.leadQuality ?? null,
       },
@@ -228,46 +222,22 @@ export const createLeadController = async (req: Request, res: Response) => {
 };
 
 /**
- * Resolve the `createdFrom` filter as a naive IST string for `timestamp without time zone` comparison.
- * Accepts three formats (in priority order):
- *  1. afterDate=yyyy-MM-dd  (new style — from lead list / reports)
- *  2. dateFilter=today|weekly|monthly  (backend computes IST bounds)
- *  3. createdFrom=ISO string (legacy — converted via utcToIndianWallClock)
+ * Resolve createdFrom filter as ISO UTC string for timestamptz comparison.
  */
 function resolveCreatedFrom(query: Record<string, any>): string | undefined {
+  if (query.createdFrom) return String(query.createdFrom);
   const afterDate = query.afterDate ? String(query.afterDate) : undefined;
-  const beforeDate = query.beforeDate ? String(query.beforeDate) : undefined;
-  const dateFilter = query.dateFilter ? String(query.dateFilter) : undefined;
-
-  if (afterDate && beforeDate) return istDayStartStr(afterDate);
-  if (afterDate) return istDayStartStr(afterDate);
-
-  if (dateFilter && ["today", "weekly", "monthly"].includes(dateFilter)) {
-    return istFilterBounds(dateFilter as "today" | "weekly" | "monthly").from;
-  }
-
-  const legacy = query.createdFrom ? String(query.createdFrom) : undefined;
-  if (!legacy) return undefined;
-  const d = new Date(legacy);
-  return isNaN(d.getTime()) ? undefined : utcToIndianWallClockStr(d);
+  if (!afterDate) return undefined;
+  const d = new Date(afterDate.includes("T") ? afterDate : `${afterDate}T00:00:00.000Z`);
+  return isNaN(d.getTime()) ? undefined : d.toISOString();
 }
 
 function resolveCreatedTo(query: Record<string, any>): string | undefined {
-  const afterDate = query.afterDate ? String(query.afterDate) : undefined;
+  if (query.createdTo) return String(query.createdTo);
   const beforeDate = query.beforeDate ? String(query.beforeDate) : undefined;
-  const dateFilter = query.dateFilter ? String(query.dateFilter) : undefined;
-
-  if (afterDate && beforeDate) return istDayEndStr(beforeDate);
-  if (beforeDate) return istDayEndStr(beforeDate);
-
-  if (dateFilter && ["today", "weekly", "monthly"].includes(dateFilter)) {
-    return istFilterBounds(dateFilter as "today" | "weekly" | "monthly").to;
-  }
-
-  const legacy = query.createdTo ? String(query.createdTo) : undefined;
-  if (!legacy) return undefined;
-  const d = new Date(legacy);
-  return isNaN(d.getTime()) ? undefined : utcToIndianWallClockStr(d);
+  if (!beforeDate) return undefined;
+  const d = new Date(beforeDate.includes("T") ? beforeDate : `${beforeDate}T23:59:59.999Z`);
+  return isNaN(d.getTime()) ? undefined : d.toISOString();
 }
 
 export const getLeadsController = async (req: Request, res: Response) => {
@@ -422,8 +392,8 @@ export const getTelecallerIndividualReportController = async (req: Request, res:
     }
     const naiveFrom = resolveCreatedFrom(req.query as Record<string, any>);
     const naiveTo   = resolveCreatedTo(req.query as Record<string, any>);
-    const createdFrom = naiveFrom ? new Date(naiveFrom.replace(" ", "T") + "+05:30") : undefined;
-    const createdTo   = naiveTo   ? new Date(naiveTo.replace(" ", "T")   + "+05:30") : undefined;
+    const createdFrom = naiveFrom ? new Date(naiveFrom) : undefined;
+    const createdTo   = naiveTo   ? new Date(naiveTo)   : undefined;
     const data = await getTelecallerIndividualReport(telecallerId, createdFrom, createdTo);
     res.json({ success: true, data });
   } catch (error: any) {
@@ -451,8 +421,8 @@ export const getCounsellorIndividualReportController = async (req: Request, res:
     }
     const naiveFrom = resolveCreatedFrom(req.query as Record<string, any>);
     const naiveTo   = resolveCreatedTo(req.query as Record<string, any>);
-    const createdFrom = naiveFrom ? new Date(naiveFrom.replace(" ", "T") + "+05:30") : undefined;
-    const createdTo   = naiveTo   ? new Date(naiveTo.replace(" ", "T")   + "+05:30") : undefined;
+    const createdFrom = naiveFrom ? new Date(naiveFrom) : undefined;
+    const createdTo   = naiveTo   ? new Date(naiveTo)   : undefined;
     const data = await getCounsellorIndividualReport(counsellorId, createdFrom, createdTo);
     res.json({ success: true, data });
   } catch (error: any) {
@@ -462,17 +432,10 @@ export const getCounsellorIndividualReportController = async (req: Request, res:
 
 export const getTelecallerLeadSummaryController = async (req: Request, res: Response) => {
   try {
-    let createdFrom: Date | undefined;
-    let createdTo: Date | undefined;
-    const dateFilterParam = req.query.dateFilter as string | undefined;
-    if (dateFilterParam === "today" || dateFilterParam === "weekly" || dateFilterParam === "monthly") {
-      const bounds = istFilterBounds(dateFilterParam);
-      createdFrom = new Date(bounds.from);
-      createdTo = new Date(bounds.to);
-    } else if (req.query.createdFrom) {
-      createdFrom = new Date(String(req.query.createdFrom));
-      createdTo = req.query.createdTo ? new Date(String(req.query.createdTo)) : undefined;
-    }
+    const createdFrom = req.query.createdFrom
+      ? new Date(String(req.query.createdFrom))
+      : undefined;
+    const createdTo = req.query.createdTo ? new Date(String(req.query.createdTo)) : undefined;
     const data = await getTelecallerLeadSummaryRows(createdFrom, createdTo);
     res.json({ success: true, data });
   } catch (error: any) {
@@ -502,6 +465,12 @@ export const getTelecallerDashboardStatsController = async (req: Request, res: R
       ? new Date(String(req.query.followupFrom))
       : undefined;
     const followupTo = req.query.followupTo ? new Date(String(req.query.followupTo)) : undefined;
+    const followupTodayFrom = req.query.followupTodayFrom
+      ? new Date(String(req.query.followupTodayFrom))
+      : undefined;
+    const followupTodayTo = req.query.followupTodayTo
+      ? new Date(String(req.query.followupTodayTo))
+      : undefined;
 
     const data = await getCachedTelecallerDashboardStats({
       telecallerId,
@@ -509,6 +478,8 @@ export const getTelecallerDashboardStatsController = async (req: Request, res: R
       createdTo: createdTo?.toISOString(),
       followupFrom: followupFrom?.toISOString(),
       followupTo: followupTo?.toISOString(),
+      followupTodayFrom: followupTodayFrom?.toISOString(),
+      followupTodayTo: followupTodayTo?.toISOString(),
     });
     res.json({ success: true, data });
   } catch (error: any) {
@@ -534,31 +505,23 @@ export const getLeadByIdController = async (req: Request, res: Response) => {
     }
 
     const isTelecallerViewer = authReq.user?.role === "telecaller";
+    const isCounsellorViewer = authReq.user?.role === "counsellor";
     let activities = allActivities;
 
     const isConvertedLead =
       lead.progressStatus === "converted" || lead.assignmentStatus === "converted";
 
     if (isTelecallerViewer) {
-      if (isConvertedLead) {
-        activities = allActivities.filter(
-          (a) =>
-            a.activityType === "counselor_assign" ||
-            a.activityType === "lead_created" ||
-            a.activityType === "lead_update" ||
-            (a.activityType === "note" &&
-              /convert|converted|client/i.test(String(a.message ?? "")))
-        );
-      } else {
-        // Current assignee sees full handoff history (prior telecaller notes, follow-ups, calls).
-        activities = allActivities.filter(
-          (a) =>
-            a.activityType === "assignment_change" ||
-            a.activityType === "counselor_assign" ||
-            a.activityType === "lead_created" ||
-            a.activityType === "lead_update" ||
-            ["note", "followup", "call_log"].includes(a.activityType)
-        );
+      // Telecallers see full handoff history (notes, follow-ups, calls) on active and converted leads.
+      activities = allActivities.filter(
+        (a) =>
+          a.activityType === "assignment_change" ||
+          a.activityType === "counselor_assign" ||
+          a.activityType === "lead_created" ||
+          a.activityType === "lead_update" ||
+          ["note", "followup"].includes(a.activityType)
+      );
+      if (!isConvertedLead) {
         activities = await Promise.all(
           activities.map(async (a) => ({
             ...a,
@@ -569,6 +532,21 @@ export const getLeadByIdController = async (req: Request, res: Response) => {
           }))
         );
       }
+    }
+
+    if (isCounsellorViewer && !isConvertedLead) {
+      activities = activities.map((a) => ({
+        ...a,
+        canComplete:
+          a.activityType === "followup" && a.status === "pending"
+            ? canCounsellorCompleteFollowUp(
+                lead,
+                a,
+                authReq.user?.id,
+                authReq.user?.role
+              )
+            : false,
+      }));
     }
 
     const telecallerTransferredViewOnly = isTelecallerTransferredViewOnly(
@@ -610,9 +588,11 @@ export const getLeadByIdController = async (req: Request, res: Response) => {
             !!lead.eligibilityStatus &&
             !!lead.leadQuality &&
             (lead.assignmentStatus !== "transferred" ||
-              (!counsellorActivity && isTelecallerViewer)),
+              (!isConverted && isTelecallerViewer)),
           canReassignCounsellor:
-            lead.assignmentStatus === "transferred" && !counsellorActivity && isTelecallerViewer,
+            lead.assignmentStatus === "transferred" &&
+            !isConverted &&
+            isTelecallerViewer,
           isAdminLike,
           isConverted,
         },
@@ -756,7 +736,7 @@ export const updateLeadController = async (req: Request, res: Response) => {
       );
       Object.assign(patch, conversionFields);
     } else if (patch.assignmentStatus === "converted" && !previous.convertedAt) {
-      patch.convertedAt = getIndianNow();
+      patch.convertedAt = new Date();
     }
 
     if (Object.keys(patch).length > 0) {
@@ -780,23 +760,11 @@ export const updateLeadController = async (req: Request, res: Response) => {
     const structured = await getLeadStructuredDetails(id);
     const changes = buildLeadFieldChanges(previous as Record<string, unknown>, patch);
 
-    if (changes.length > 0 || profile || education || languageScores || familyMembers) {
-      await createLeadUpdateActivity({
-        leadId: id,
-        userId: authReq.user?.id,
-        performerName,
-        changes:
-          changes.length > 0
-            ? changes
-            : [{ field: "Personal details", old: "—", new: "Updated" }],
-      });
-    }
-
+    let reasonMsg: string | null = null;
+    let reasonType: "eligibility" | "quality" | null = null;
     if (String(reason ?? "").trim()) {
       const touchesEligibility = Object.prototype.hasOwnProperty.call(patch, "eligibilityStatus");
       const touchesQuality = Object.prototype.hasOwnProperty.call(patch, "leadQuality");
-      let reasonMsg: string | null = null;
-      let reasonType: "eligibility" | "quality" | null = null;
 
       if (touchesEligibility && patch.eligibilityStatus != null) {
         reasonMsg = buildReasonNoteMessage(
@@ -809,16 +777,22 @@ export const updateLeadController = async (req: Request, res: Response) => {
         reasonMsg = buildReasonNoteMessage("quality", String(patch.leadQuality), String(reason));
         reasonType = "quality";
       }
+    }
 
-      if (reasonMsg && reasonType) {
-        await createLeadReasonNote({
-          leadId: id,
-          userId: authReq.user?.id,
-          performerName,
-          message: reasonMsg,
-          meta: { reasonType },
-        });
-      }
+    const hasStructuredUpdate = Boolean(profile || education || languageScores || familyMembers);
+
+    if (changes.length > 0 || hasStructuredUpdate || reasonMsg) {
+      await createLeadUpdateActivity({
+        leadId: id,
+        userId: authReq.user?.id,
+        performerName,
+        changes:
+          changes.length > 0
+            ? changes
+            : [{ field: "Personal details", old: "—", new: "Updated" }],
+        reasonMessage: reasonMsg ?? undefined,
+        reasonType: reasonType ?? undefined,
+      });
     }
 
     if (authReq.user?.id) {
@@ -916,6 +890,9 @@ export const addLeadActivityController = async (req: Request, res: Response) => 
     if (!body.activityType) {
       return res.status(400).json({ success: false, message: "activityType is required" });
     }
+    if (body.activityType === "call_log") {
+      return res.status(400).json({ success: false, message: "Call log is no longer supported" });
+    }
 
     const existingLead = await getLeadById(leadId);
     if (!existingLead) {
@@ -941,10 +918,10 @@ export const addLeadActivityController = async (req: Request, res: Response) => 
       userId: authReq.user?.id ?? null,
       activityType: body.activityType,
       message: body.message ?? null,
-      followupAt: body.followupAt ? utcToIndianWallClock(new Date(body.followupAt)) : null,
+      followupAt: body.followupAt ? new Date(body.followupAt) : null,
       status: body.status ?? "pending",
       meta: body.meta ?? {},
-      updatedAt: getIndianNow(),
+      updatedAt: new Date(),
     });
 
     const leadPatch: Record<string, unknown> = {};
@@ -953,14 +930,14 @@ export const addLeadActivityController = async (req: Request, res: Response) => 
       leadPatch.latestNote = body.message;
     }
     if (body.followupAt) {
-      leadPatch.nextFollowupAt = utcToIndianWallClock(new Date(body.followupAt));
+      leadPatch.nextFollowupAt = new Date(body.followupAt);
       leadPatch.progressStatus = "follow_up";
     }
     const followupScheduledAt = body.followupAt
-      ? utcToIndianWallClock(new Date(body.followupAt))
+      ? new Date(body.followupAt)
       : null;
-    // Notes and call logs on a not_contacted lead → contacted
-    if (body.activityType === "note" || body.activityType === "call_log") {
+    // Notes on a not_contacted lead → contacted
+    if (body.activityType === "note") {
       const currentLead = await getLeadById(leadId);
       if (currentLead?.progressStatus === "not_contacted") {
         leadPatch.progressStatus = "contacted";
@@ -984,13 +961,12 @@ export const addLeadActivityController = async (req: Request, res: Response) => 
           currentTelecallerId: enrichedLead.currentTelecallerId,
         },
         followupScheduledAt,
-        { alreadyIndianWallClock: true }
       ).catch((e) => console.error("[notification] followup schedule:", e));
     }
 
     res.status(201).json({
       success: true,
-      data: serializeLeadActivityTimestampsForApi(activity),
+      data: activity,
       lead: enrichedLead,
     });
   } catch (error: any) {
@@ -1057,31 +1033,43 @@ export const assignLeadController = async (req: Request, res: Response) => {
         });
       }
 
-      const pendingFollowUp = await hasPendingFollowUpForLead(leadId);
-      if (pendingFollowUp && !isAdminLike) {
+      const alreadyTransferred = currentLead.assignmentStatus === "transferred";
+      const isCounsellorReassign =
+        counsellorId != null &&
+        alreadyTransferred &&
+        currentLead.currentCounsellorId != null &&
+        Number(counsellorId) !== Number(currentLead.currentCounsellorId);
+
+      const pendingBlocksTransfer =
+        isTelecaller && isCounsellorReassign
+          ? await hasPendingTelecallerFollowUpForLead(leadId)
+          : await hasPendingFollowUpForLead(leadId);
+
+      if (pendingBlocksTransfer && !isAdminLike) {
         return res.status(400).json({
           success: false,
-          message: "Complete the scheduled follow-up before transferring to counsellor",
+          message: isCounsellorReassign
+            ? "Complete your telecaller follow-up before reassigning to another counsellor"
+            : "Complete the scheduled follow-up before transferring to counsellor",
         });
       }
 
-      const alreadyTransferred = currentLead.assignmentStatus === "transferred";
-      if (alreadyTransferred && isTelecaller) {
-        const counsellorActivity = await hasCounsellorPostTransferActivity(leadId);
-        if (counsellorActivity) {
-          return res.status(400).json({
-            success: false,
-            message:
-              "Counsellor has already worked on this lead. Only admin can reassign it.",
-          });
-        }
-      } else if (alreadyTransferred && !isAdminLike) {
+      if (alreadyTransferred && !isTelecaller && !isAdminLike) {
         return res.status(400).json({
           success: false,
           message: "Lead is already transferred to a counsellor",
         });
       }
     }
+
+    const isCounsellorReassign =
+      counsellorId != null &&
+      currentLead.assignmentStatus === "transferred" &&
+      currentLead.currentCounsellorId != null &&
+      Number(counsellorId) !== Number(currentLead.currentCounsellorId);
+    const previousCounsellorId = isCounsellorReassign
+      ? Number(currentLead.currentCounsellorId)
+      : null;
 
     const assignPatch: Record<string, unknown> =
       counsellorId != null
@@ -1096,9 +1084,30 @@ export const assignLeadController = async (req: Request, res: Response) => {
           };
 
     await updateLeadById(leadId, assignPatch);
+
     const updated = await getLeadById(leadId);
     if (!updated) {
       return res.status(404).json({ success: false, message: "Lead not found after assign" });
+    }
+
+    if (
+      isCounsellorReassign &&
+      previousCounsellorId != null &&
+      counsellorId != null
+    ) {
+      const followupAt =
+        updated.nextFollowupAt ??
+        (await getEarliestPendingFollowupAtForLead(leadId));
+      if (followupAt) {
+        await onCounsellorReassignFollowupNotifications(
+          updated,
+          previousCounsellorId,
+          Number(counsellorId),
+          new Date(followupAt)
+        ).catch((e) =>
+          console.error("[notification] counsellor reassign follow-up:", e)
+        );
+      }
     }
 
     const performerName = await getUserFullName(authReq.user?.id);
@@ -1130,7 +1139,7 @@ export const assignLeadController = async (req: Request, res: Response) => {
         counsellorName,
         performedByName: performerName,
       },
-      updatedAt: getIndianNow(),
+      updatedAt: new Date(),
     });
 
     if (authReq.user?.id) {
@@ -1203,7 +1212,7 @@ export const markLeadJunkController = async (req: Request, res: Response) => {
       activityType: "note",
       message: "Lead marked as junk",
       meta: {},
-      updatedAt: getIndianNow(),
+      updatedAt: new Date(),
     });
 
     if (authReq.user?.id) {
@@ -1310,7 +1319,7 @@ export const convertLeadToClientController = async (req: Request, res: Response)
       activityType: "note",
       message: "Converted to client",
       meta: { clientId: client?.client?.clientId },
-      updatedAt: getIndianNow(),
+      updatedAt: new Date(),
     });
 
     const clientId = client?.client?.clientId;
@@ -1355,7 +1364,7 @@ export const dropLeadByCounsellorController = async (req: Request, res: Response
       activityType: "note",
       message: `Client dropped: ${String(reason).trim()}`,
       meta: { reason: String(reason).trim() },
-      updatedAt: getIndianNow(),
+      updatedAt: new Date(),
     });
 
     await logLeadDropped(req, updated, previous, authReq.user.id, String(reason).trim());
@@ -1416,7 +1425,7 @@ export const markLeadFollowupController = async (req: Request, res: Response) =>
     }
 
     await updateLeadById(leadId, {
-      nextFollowupAt: utcToIndianWallClock(followupDate),
+      nextFollowupAt: followupDate,
       progressStatus: "follow_up",
     });
     const enriched = await getLeadById(leadId);
@@ -1430,10 +1439,10 @@ export const markLeadFollowupController = async (req: Request, res: Response) =>
       userId: authReq.user?.id ?? null,
       activityType: "followup",
       message: message?.trim() || null,
-      followupAt: utcToIndianWallClock(followupDate),
+      followupAt: followupDate,
       status: "pending",
       meta: { performedByName: performerName },
-      updatedAt: getIndianNow(),
+      updatedAt: new Date(),
     });
 
     if (authReq.user?.id) {
@@ -1456,17 +1465,15 @@ export const markLeadFollowupController = async (req: Request, res: Response) =>
         currentCounsellorId: enriched.currentCounsellorId,
         currentTelecallerId: enriched.currentTelecallerId,
       },
-      utcToIndianWallClock(followupDate),
-      { alreadyIndianWallClock: true }
+      followupDate,
     ).catch((e) => console.error("[notification] followup schedule:", e));
 
     const activities = await getLeadActivitiesEnriched(leadId);
     const createdActivity =
-      activities.find((a) => a.id === followupActivity.id) ??
-      serializeLeadActivityTimestampsForApi({
+      activities.find((a) => a.id === followupActivity.id) ?? {
         ...followupActivity,
         userName: performerName,
-      });
+      };
 
     res.json({ success: true, data: enriched, activity: createdActivity });
   } catch (error: any) {
@@ -1523,21 +1530,21 @@ export const createLeadActivityController = async (
       userId: authReq.user?.id ?? null,
       activityType,
       message: message?.trim() || null,
-      followupAt: parsedFollowup ? utcToIndianWallClock(parsedFollowup) : null,
+      followupAt: parsedFollowup ? parsedFollowup : null,
       status: status || "completed",
       meta: meta || {},
-      updatedAt: getIndianNow(),
+      updatedAt: new Date(),
     });
 
     // If followup activity => update lead main table
     let updatedLead = null;
 
     if (activityType === "followup" && parsedFollowup) {
-      const followupNaive = utcToIndianWallClock(parsedFollowup);
+      const followupInstant = parsedFollowup;
       updatedLead = await updateLeadById(leadId, {
-        nextFollowupAt: followupNaive,
+        nextFollowupAt: followupInstant,
         progressStatus: "follow_up",
-        updatedAt: getIndianNow(),
+        updatedAt: new Date(),
       });
       if (updatedLead) {
         const leadRow = await getLeadById(leadId);
@@ -1549,8 +1556,7 @@ export const createLeadActivityController = async (
               currentCounsellorId: leadRow.currentCounsellorId,
               currentTelecallerId: leadRow.currentTelecallerId,
             },
-            followupNaive,
-            { alreadyIndianWallClock: true }
+            followupInstant,
           ).catch((e) => console.error("[notification] followup schedule:", e));
         }
       }
@@ -1558,7 +1564,7 @@ export const createLeadActivityController = async (
       const current = await getLeadById(leadId);
       const notePatch: Record<string, unknown> = {
         latestNote: message.trim(),
-        updatedAt: getIndianNow(),
+        updatedAt: new Date(),
       };
       if (current?.progressStatus === "not_contacted") {
         notePatch.progressStatus = "contacted";
@@ -1580,7 +1586,7 @@ export const createLeadActivityController = async (
       message: "Activity created successfully",
       data: {
         lead: updatedLead,
-        activity: serializeLeadActivityTimestampsForApi(activity),
+        activity: activity,
       },
     });
   } catch (error: any) {
@@ -1707,7 +1713,7 @@ export const bulkAssignLeadsController = async (req: Request, res: Response) => 
           counsellorName: counsellorId != null ? assigneeName : null,
           performedByName: performerName,
         },
-        updatedAt: getIndianNow(),
+        updatedAt: new Date(),
       });
 
       if (authReq.user?.id) {
@@ -1854,7 +1860,7 @@ export const bulkStrategyAssignLeadsController = async (req: Request, res: Respo
           counsellorName: assignment.role === "counsellor" ? assignment.userName : null,
           performedByName: performerName,
         },
-        updatedAt: getIndianNow(),
+        updatedAt: new Date(),
       });
 
       if (authReq.user?.id) {
@@ -2015,6 +2021,12 @@ export const updateLeadActivityStatusController = async (req: Request, res: Resp
     if (status === "completed" && targetActivity.activityType === "followup") {
       try {
         await assertTelecallerCanCompleteFollowUp(lead, targetActivity, authReq.user?.role);
+        assertCounsellorCanCompleteFollowUp(
+          lead,
+          targetActivity,
+          authReq.user?.id,
+          authReq.user?.role
+        );
       } catch (e: any) {
         return res.status(403).json({ success: false, message: e.message });
       }
@@ -2050,7 +2062,7 @@ export const updateLeadActivityStatusController = async (req: Request, res: Resp
         .sort((a: any, b: any) => new Date(a.followupAt ?? 0).getTime() - new Date(b.followupAt ?? 0).getTime())[0];
 
       const leadPatch: Record<string, unknown> = {
-        nextFollowupAt: nextPending?.followupAt ? utcToIndianWallClock(new Date(nextPending.followupAt)) : null,
+        nextFollowupAt: nextPending?.followupAt ? new Date(nextPending.followupAt) : null,
       };
       if (!stillPending) {
         const current = await getLeadById(leadId);
@@ -2067,6 +2079,12 @@ export const updateLeadActivityStatusController = async (req: Request, res: Resp
       await invalidateLeadListCaches();
       const enrichedLead = await getLeadById(leadId);
       if (enrichedLead) {
+        if (nextPending?.followupAt) {
+          scheduleLeadFollowupReminder(
+            enrichedLead,
+            new Date(nextPending.followupAt)
+          ).catch((e) => console.error("[notification] next follow-up schedule:", e));
+        }
         await publishLeadChange("lead:updated", enrichedLead as Record<string, unknown>);
       }
     }
@@ -2138,29 +2156,12 @@ const ADMIN_REPORT_STATS_CACHE_PREFIX = "leads:admin-report-stats:";
 
 export const getAdminLeadReportStatsController = async (req: Request, res: Response) => {
   try {
-    // Resolve date bounds as UTC Date objects for the model (which applies utcToIndianWallClock internally).
+    // Resolve date bounds as UTC ISO instants from query params.
     // Accepts: afterDate/beforeDate (yyyy-MM-dd), dateFilter=today|weekly|monthly, or legacy createdFrom/createdTo ISO.
-    const afterDate  = req.query.afterDate  ? String(req.query.afterDate)  : undefined;
-    const beforeDate = req.query.beforeDate ? String(req.query.beforeDate) : undefined;
-    const dateFilter = req.query.dateFilter ? String(req.query.dateFilter) : undefined;
-
-    let createdFrom: Date | undefined;
-    let createdTo:   Date | undefined;
-
-    if (afterDate && beforeDate) {
-      createdFrom = new Date(`${afterDate}T00:00:00${"+05:30"}`);
-      createdTo   = new Date(`${beforeDate}T23:59:59.999${"+05:30"}`);
-    } else if (dateFilter && ["today", "weekly", "monthly"].includes(dateFilter)) {
-      const bounds = istFilterBounds(dateFilter as "today" | "weekly" | "monthly");
-      // Convert naive IST string back to UTC instant for the model
-      createdFrom = new Date(`${bounds.from.replace(" ", "T")}${"+05:30"}`);
-      createdTo   = new Date(`${bounds.to.replace(" ", "T")}${"+05:30"}`);
-    } else {
-      const rawFrom = req.query.createdFrom ? String(req.query.createdFrom) : undefined;
-      const rawTo   = req.query.createdTo   ? String(req.query.createdTo)   : undefined;
-      createdFrom = rawFrom ? new Date(rawFrom) : undefined;
-      createdTo   = rawTo   ? new Date(rawTo)   : undefined;
-    }
+    const createdFrom = req.query.createdFrom
+      ? new Date(String(req.query.createdFrom))
+      : undefined;
+    const createdTo = req.query.createdTo ? new Date(String(req.query.createdTo)) : undefined;
 
     if (createdFrom && isNaN(createdFrom.getTime())) {
       return res.status(400).json({ success: false, message: "Invalid from date" });

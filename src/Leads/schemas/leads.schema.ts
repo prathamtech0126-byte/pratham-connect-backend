@@ -10,7 +10,6 @@ import {
   timestamp,
   varchar,
 } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
 import { users } from "../../schemas/users.schema";
 import { leadReferences } from "./leadReferences.schema";
 
@@ -49,8 +48,8 @@ export const leads = pgTable(
     id: bigserial("id", { mode: "number" }).primaryKey(),
     externalLeadId: varchar("external_lead_id", { length: 100 }).unique(),
 
-    createdAt: timestamp("created_at").default(sql`(now() at time zone 'Asia/Kolkata')`).notNull(),
-    updatedAt: timestamp("updated_at").default(sql`(now() at time zone 'Asia/Kolkata')`).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 
     fullName: varchar("full_name", { length: 150 }).notNull(),
     phone: varchar("phone", { length: 30 }).notNull(),
@@ -94,17 +93,17 @@ export const leads = pgTable(
     latestNote: text("latest_note"),
     dropReason: text("drop_reason"),
 
-    nextFollowupAt: timestamp("next_followup_at"),
+    nextFollowupAt: timestamp("next_followup_at", { withTimezone: true }),
     /** When telecaller (or admin) transferred lead to counsellor/manager; updated on re-transfer. */
-    transferredAt: timestamp("transferred_at"),
-    convertedAt: timestamp("converted_at"),
+    transferredAt: timestamp("transferred_at", { withTimezone: true }),
+    convertedAt: timestamp("converted_at", { withTimezone: true }),
     /** When counsellor/telecaller dropped the lead after handoff. */
-    droppedAt: timestamp("dropped_at"),
+    droppedAt: timestamp("dropped_at", { withTimezone: true }),
 
     isJunk: boolean("is_junk").default(false).notNull(),
 
     isVerified: boolean("is_verified").default(false).notNull(),
-    verifiedAt: timestamp("verified_at"),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
     verifiedByFrontDeskId: bigint("verified_by_front_desk_id", { mode: "number" }).references(
       (): AnyPgColumn => users.id
     ),

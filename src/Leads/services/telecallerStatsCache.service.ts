@@ -13,6 +13,8 @@ export type TelecallerDashboardStatsParams = {
   createdTo?: string;
   followupFrom?: string;
   followupTo?: string;
+  followupTodayFrom?: string;
+  followupTodayTo?: string;
 };
 
 const cacheKeyFor = (params: TelecallerDashboardStatsParams): string =>
@@ -34,7 +36,9 @@ export async function getCachedTelecallerDashboardStats(
     params.createdFrom ? new Date(params.createdFrom) : undefined,
     params.createdTo ? new Date(params.createdTo) : undefined,
     params.followupFrom ? new Date(params.followupFrom) : undefined,
-    params.followupTo ? new Date(params.followupTo) : undefined
+    params.followupTo ? new Date(params.followupTo) : undefined,
+    params.followupTodayFrom ? new Date(params.followupTodayFrom) : undefined,
+    params.followupTodayTo ? new Date(params.followupTodayTo) : undefined
   );
 
   await redisSetJson(cacheKey, data, TELECALLER_DASHBOARD_STATS_TTL_SECONDS);

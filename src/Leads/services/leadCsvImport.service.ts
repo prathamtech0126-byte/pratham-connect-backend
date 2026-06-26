@@ -1,4 +1,3 @@
-import { getIndianNow } from "../models/lead.model";
 import { insertLeadRecord } from "./leadInsert.service";
 import type { Role } from "../../types/role";
 
@@ -125,7 +124,7 @@ export async function importLeadsFromCsvBuffer(
   }
 
   const result: CsvImportResult = { created: 0, failed: 0, errors: [] };
-  const indianNow = getIndianNow();
+  const now = new Date();
 
   for (let i = 0; i < dataRows.length; i++) {
     const rowNumber = i + 2;
@@ -159,8 +158,8 @@ export async function importLeadsFromCsvBuffer(
         leadSource: mapped.leadSource || "csv_import",
         leadType: mapped.leadType || null,
         latestNote: mapped.latestNote || null,
-        createdAt: indianNow,
-        updatedAt: indianNow,
+        createdAt: now,
+        updatedAt: now,
         assignmentStatus: "not_assigned",
         progressStatus: "not_contacted",
         assignedBy: ctx.userId,

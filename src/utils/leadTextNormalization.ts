@@ -3,6 +3,12 @@ const ENGLISH_TEXT_REGEX = /^[A-Za-z]+(?:\s+[A-Za-z]+)*$/;
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** Letters, spaces, and . , / ; : ( ) - { } [ ] */
+export const LEAD_CITY_ALLOWED_REGEX = /^[A-Za-z\s.,/;:\-(){}[\]]+$/;
+
+export const LEAD_CITY_VALIDATION_MESSAGE =
+  "City can only contain English letters, spaces, and these symbols: . , / ; : ( ) - { } [ ]";
+
 export function toTitleCaseWords(value: string): string {
   return value
     .trim()
@@ -30,6 +36,12 @@ export function isEnglishPersonOrPlaceName(value: string): boolean {
   const trimmed = value.trim();
   if (!trimmed) return false;
   return ENGLISH_TEXT_REGEX.test(trimmed);
+}
+
+export function isValidLeadCity(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  return LEAD_CITY_ALLOWED_REGEX.test(trimmed);
 }
 
 export function isValidLeadEmail(value: string): boolean {
@@ -94,10 +106,8 @@ export function assertLeadCityField(
     }
     return "";
   }
-  if (!isEnglishPersonOrPlaceName(trimmed)) {
-    throw new LeadFieldValidationError(
-      "City must use English letters only. Please update it before continuing."
-    );
+  if (!isValidLeadCity(trimmed)) {
+    throw new LeadFieldValidationError(LEAD_CITY_VALIDATION_MESSAGE);
   }
   return normalizeLeadCity(trimmed);
 }
