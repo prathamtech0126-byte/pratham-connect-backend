@@ -220,6 +220,93 @@ export async function canUserUpdateClientBasicDetails(
   return OPS_READ_ROLES.has(role);
 }
 
+export type ClientPaymentEditContext = {
+  counsellorId?: number | null;
+  transferStatus?: boolean | null;
+  transferedToCounsellorId?: number | null;
+};
+
+const PAYMENT_EDIT_PRIVILEGED_ROLES = new Set([
+  "admin",
+  "manager",
+  "developer",
+  "superadmin",
+]);
+
+/**
+ * Single source of truth for whether a viewer may edit/delete an existing payment row
+ * (client payments and product payments).
+ *
+ * Counsellors with write access may edit rows they created (`handledBy`) or legacy rows
+ * with no attribution (`handledBy` null). Admin/manager/developer always may edit.
+ */
+export function isClientPaymentEditableByViewer(
+  paymentHandledBy: number | null | undefined,
+  viewerId: number,
+  viewerRole: string,
+  client: ClientPaymentEditContext
+): boolean {
+  if (PAYMENT_EDIT_PRIVILEGED_ROLES.has(viewerRole)) return true;
+  if (viewerRole !== "counsellor") return false;
+
+  const isOriginalOwner = Number(client.counsellorId) === viewerId;
+  const isTransferred = client.transferStatus === true;
+  const isCurrentSharedTo =
+    isTransferred && Number(client.transferedToCounsellorId) === viewerId;
+
+  if (!isOriginalOwner && !isCurrentSharedTo) return false;
+
+  const handlerId = toNumber(paymentHandledBy);
+  if (handlerId == null) return true;
+
+  return handlerId === viewerId;
+}
+
+const stampPaymentRowsWithEditability = (
+  rows: unknown[],
+  viewerId: number,
+  viewerRole: string,
+  client: ClientPaymentEditContext
+): unknown[] =>
+  rows.map((row) => ({
+    ...(row as Record<string, unknown>),
+    isEditable: isClientPaymentEditableByViewer(
+      (row as { handledBy?: number | null }).handledBy,
+      viewerId,
+      viewerRole,
+      client
+    ),
+  }));
+
+export async function canUserEditExistingClientPayment(
+  clientId: number,
+  paymentHandledBy: number | null | undefined,
+  userId: number,
+  role: string
+): Promise<boolean> {
+  const access = await resolveClientAccess(clientId, userId, role);
+  if (access !== "write") return false;
+
+  const [client] = await db
+    .select({
+      counsellorId: clientInformation.counsellorId,
+      transferStatus: clientInformation.transferStatus,
+      transferedToCounsellorId: clientInformation.transferedToCounsellorId,
+    })
+    .from(clientInformation)
+    .where(eq(clientInformation.clientId, clientId))
+    .limit(1);
+
+  if (!client) return false;
+
+  return isClientPaymentEditableByViewer(
+    paymentHandledBy,
+    userId,
+    role,
+    client
+  );
+}
+
 /**
  * Filter payments in client detail data based on viewer's relationship to the client.
  * Also stamps each payment with `isEditable` and adds `paymentPermissions`.
@@ -237,80 +324,78 @@ export const filterClientPaymentDetailsForViewer = (
     viewerRole === "developer" ||
     viewerRole === "superadmin";
 
+  const client = (data.client as ClientPaymentEditContext | undefined) ?? {};
+  const payments = (data.payments as unknown[]) || [];
+  const productPayments = (data.productPayments as unknown[]) || [];
+
   if (!viewerId || isAdminOrManager) {
     return {
       ...data,
-      payments: ((data.payments as unknown[]) || []).map((p: unknown) => ({
-        ...(p as Record<string, unknown>),
-        isEditable: true,
-      })),
+      payments: stampPaymentRowsWithEditability(
+        payments,
+        viewerId ?? 0,
+        viewerRole ?? "admin",
+        client
+      ),
+      productPayments: stampPaymentRowsWithEditability(
+        productPayments,
+        viewerId ?? 0,
+        viewerRole ?? "admin",
+        client
+      ),
       paymentPermissions: { canAddPayment: true, canEditTotalPayment: true },
     };
   }
 
-  const client = data.client as
-    | {
-        counsellorId?: number;
-        transferStatus?: boolean;
-        transferedToCounsellorId?: number;
-      }
-    | undefined;
-
-  const isOriginalOwner = Number(client?.counsellorId) === viewerId;
-  const isTransferred = client?.transferStatus === true;
+  const isOriginalOwner = Number(client.counsellorId) === viewerId;
+  const isTransferred = client.transferStatus === true;
   const isCurrentSharedTo =
-    isTransferred && Number(client?.transferedToCounsellorId) === viewerId;
+    isTransferred && Number(client.transferedToCounsellorId) === viewerId;
 
-  if (isCurrentSharedTo) {
+  if (!isOriginalOwner && !isCurrentSharedTo) {
     return {
       ...data,
-      payments: ((data.payments as unknown[]) || []).map((p: unknown) => ({
-        ...(p as Record<string, unknown>),
-        isEditable: Number((p as { handledBy?: number }).handledBy) === viewerId,
-      })),
-      paymentPermissions: { canAddPayment: true, canEditTotalPayment: true },
+      payments: [],
+      productPayments: [],
+      paymentPermissions: { canAddPayment: false, canEditTotalPayment: false },
     };
   }
 
-  if (isOriginalOwner) {
-    if (isTransferred) {
-      return {
-        ...data,
-        payments: ((data.payments as unknown[]) || []).map((p: unknown) => ({
-          ...(p as Record<string, unknown>),
-          isEditable: Number((p as { handledBy?: number }).handledBy) === viewerId,
-        })),
-        paymentPermissions: { canAddPayment: true, canEditTotalPayment: true },
-      };
-    }
-
-    return {
-      ...data,
-      payments: ((data.payments as unknown[]) || []).map((p: unknown) => ({
-        ...(p as Record<string, unknown>),
-        isEditable: true,
-      })),
-      paymentPermissions: { canAddPayment: true, canEditTotalPayment: true },
-    };
-  }
+  const viewerRoleForPayments = viewerRole ?? "counsellor";
 
   return {
     ...data,
-    payments: [],
-    paymentPermissions: { canAddPayment: false, canEditTotalPayment: false },
+    payments: stampPaymentRowsWithEditability(
+      payments,
+      viewerId,
+      viewerRoleForPayments,
+      client
+    ),
+    productPayments: stampPaymentRowsWithEditability(
+      productPayments,
+      viewerId,
+      viewerRoleForPayments,
+      client
+    ),
+    paymentPermissions: { canAddPayment: true, canEditTotalPayment: true },
   };
 };
 
 const filterReadOnlyClientDetails = (
   data: Record<string, unknown>
-): Record<string, unknown> => ({
-  ...data,
-  payments: ((data.payments as unknown[]) || []).map((p: unknown) => ({
-    ...(p as Record<string, unknown>),
+): Record<string, unknown> => {
+  const lockRow = (row: unknown) => ({
+    ...(row as Record<string, unknown>),
     isEditable: false,
-  })),
-  paymentPermissions: { canAddPayment: false, canEditTotalPayment: false },
-});
+  });
+
+  return {
+    ...data,
+    payments: ((data.payments as unknown[]) || []).map(lockRow),
+    productPayments: ((data.productPayments as unknown[]) || []).map(lockRow),
+    paymentPermissions: { canAddPayment: false, canEditTotalPayment: false },
+  };
+};
 
 /**
  * Enforce client visibility and apply payment edit rules for the viewer.

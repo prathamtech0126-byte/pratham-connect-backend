@@ -433,13 +433,15 @@ export const visaCasePaths = buildPaths([
     description:
       "Sets the visa case processing sub-status directly (no sequential stage workflow). " +
       "Stage and assigned team are derived from subStatus. Status history and client journey are still recorded. " +
+      "Optional submissionDate (for FILE_SUBMITTED) and decisionDate (for DECISION_APPROVED / DECISION_REFUSED / DECISION_WITHDRAWN) accept YYYY-MM-DD or DD-MM-YYYY. " +
       "See GET /processing-stages for all valid subStatus values and labels.",
     roles: [...visaCaseListRoles, "superadmin"],
     parameters: [param.path("visaCaseId", "Visa case UUID")],
     requestBody: jsonBody("SuccessResponse", "Processing status update"),
     requestExample: {
-      subStatus: "READY_TO_FILE",
-      notes: "Manual status correction",
+      subStatus: "DECISION_APPROVED",
+      decisionDate: "2026-06-15",
+      notes: "Visa approved",
     },
   },
   {

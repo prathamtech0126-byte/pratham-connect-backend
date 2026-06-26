@@ -33,6 +33,8 @@ export const journeyPaths = buildPaths([
       clientId: "550e8400-e29b-41d4-a716-446655440000",
       legacyClientId: 960,
       counsellorId: 42,
+      enrollmentDate: "2026-01-15",
+      createdAt: "2026-01-15T10:30:00.000Z",
       events: [
         {
           id: "550e8400-e29b-41d4-a716-446655440001",
@@ -43,7 +45,10 @@ export const journeyPaths = buildPaths([
           description: null,
           actor: { id: 42, name: "Jane Doe", role: "counsellor" },
           visaCaseId: null,
-          metadata: {},
+          metadata: {
+            enrollmentDate: "2026-01-15",
+            createdAt: "2026-01-15T10:30:00.000Z",
+          },
           source: "journey_event",
         },
         {
@@ -102,6 +107,8 @@ export const journeyPaths = buildPaths([
       clientId: "550e8400-e29b-41d4-a716-446655440000",
       legacyClientId: 960,
       counsellorId: 42,
+      enrollmentDate: "2026-01-15",
+      createdAt: "2026-01-15T10:30:00.000Z",
       currentJourneyStage: "DOCUMENTS_IN_PROGRESS",
       currentProcessingStage: "DOCUMENTATION",
       currentProcessingSubStatus: "CHECKLIST_SHARED",

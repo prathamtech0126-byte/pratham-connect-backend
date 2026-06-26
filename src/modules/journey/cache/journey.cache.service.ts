@@ -4,11 +4,11 @@ import {
   getClientJourneySummary,
   getClientJourneyTimeline,
   type JourneySummary,
-  type TimelineEvent,
+  type JourneyTimelineResult,
 } from "../services/journeyTimeline.service";
 
 export const getCachedClientJourneyTimeline = (clientUuid: string) =>
-  getOrSetCache<TimelineEvent[]>(
+  getOrSetCache<JourneyTimelineResult>(
     `${MODULE_CACHE_KEYS.JOURNEY_TIMELINE}${clientUuid}`,
     MODULE_CACHE_TTL.JOURNEY,
     () => getClientJourneyTimeline(clientUuid)
