@@ -1,15 +1,20 @@
 import { Request, Response } from "express";
 import {
-  getFrontDeskLeads,
-  getFrontDeskLeadDetail,
   verifyFrontDeskLead,
   assignLeadToCounsellor,
   exportFrontDeskLeadsToExcel,
-  getSaleTypeNamesForFilter,
-  getFrontDeskDashboardStats,
-  getFrontDeskActivityLogsForViewer,
+  getFrontDeskLeads,
   updateLeadDetails,
+  FRONT_DESK_LEAD_EDIT_BLOCKED_MSG,
 } from "../models/frontdesk.model";
+import {
+  getCachedFrontDeskActivityLogs,
+  getCachedFrontDeskLeadDetail,
+  getCachedFrontDeskLeads,
+  getCachedFrontDeskSaleTypes,
+  getCachedFrontDeskStats,
+} from "../cache/frontdesk.cache.service";
+import { toApiCacheMeta } from "../../../modules/cache/cacheResponse";
 import { db } from "../../../config/databaseConnection";
 import { users } from "../../../schemas/users.schema";
 import { eq, and } from "drizzle-orm";
@@ -27,8 +32,8 @@ export const getDashboardStatsController = async (req: Request, res: Response): 
       end = new Date(endDate as string);
       end.setHours(23, 59, 59, 999);
     }
-    const stats = await getFrontDeskDashboardStats(start, end);
-    res.json({ success: true, data: stats });
+    const result = await getCachedFrontDeskStats(start, end);
+    res.json({ success: true, data: result.data, ...toApiCacheMeta(result) });
   } catch (err) {
     console.error("[frontdesk] stats error:", err);
     res.status(500).json({ success: false, message: "Failed to fetch stats" });
@@ -40,7 +45,7 @@ export const getDashboardStatsController = async (req: Request, res: Response): 
 export const listFrontDeskLeads = async (req: Request, res: Response): Promise<void> => {
   try {
     const { search, startDate, endDate, isVerified, leadType, page, limit } = req.query;
-    const result = await getFrontDeskLeads({
+    const filters = {
       search: search as string | undefined,
       startDate: startDate as string | undefined,
       endDate: endDate as string | undefined,
@@ -48,8 +53,9 @@ export const listFrontDeskLeads = async (req: Request, res: Response): Promise<v
       leadType: leadType as string | undefined,
       page: page ? Number(page) : 1,
       limit: limit ? Number(limit) : 25,
-    });
-    res.json({ success: true, ...result });
+    };
+    const result = await getCachedFrontDeskLeads(filters);
+    res.json({ success: true, ...result.data, ...toApiCacheMeta(result) });
   } catch (err) {
     console.error("[frontdesk] listLeads error:", err);
     res.status(500).json({ success: false, message: "Failed to fetch leads" });
@@ -62,9 +68,9 @@ export const getFrontDeskLeadDetailController = async (req: Request, res: Respon
   try {
     const leadId = Number(req.params.id);
     if (!leadId) { res.status(400).json({ success: false, message: "Invalid lead ID" }); return; }
-    const detail = await getFrontDeskLeadDetail(leadId);
-    if (!detail) { res.status(404).json({ success: false, message: "Lead not found" }); return; }
-    res.json({ success: true, data: detail });
+    const result = await getCachedFrontDeskLeadDetail(leadId);
+    if (!result.data) { res.status(404).json({ success: false, message: "Lead not found" }); return; }
+    res.json({ success: true, data: result.data, ...toApiCacheMeta(result) });
   } catch (err) {
     console.error("[frontdesk] getLeadDetail error:", err);
     res.status(500).json({ success: false, message: "Failed to fetch lead detail" });
@@ -121,7 +127,10 @@ export const updateLeadDetailsController = async (req: Request, res: Response): 
     await updateLeadDetails(leadId, req.body, userId(req));
     res.json({ success: true, message: "Lead details updated successfully" });
   } catch (err: any) {
-    res.status(err?.message === "Lead not found" ? 404 : 500).json({ success: false, message: err?.message ?? "Failed to update lead" });
+    const msg = err?.message ?? "Failed to update lead";
+    const status =
+      msg === "Lead not found" ? 404 : msg === FRONT_DESK_LEAD_EDIT_BLOCKED_MSG ? 403 : 500;
+    res.status(status).json({ success: false, message: msg });
   }
 };
 
@@ -144,8 +153,8 @@ export const getCounsellorsForAssignment = async (_req: Request, res: Response):
 
 export const getSaleTypesController = async (_req: Request, res: Response): Promise<void> => {
   try {
-    const names = await getSaleTypeNamesForFilter();
-    res.json({ success: true, data: names });
+    const result = await getCachedFrontDeskSaleTypes();
+    res.json({ success: true, data: result.data, ...toApiCacheMeta(result) });
   } catch (err) {
     console.error("[frontdesk] getSaleTypes error:", err);
     res.status(500).json({ success: false, message: "Failed to fetch sale types" });
@@ -157,13 +166,16 @@ export const getSaleTypesController = async (_req: Request, res: Response): Prom
 export const getActivityLogsController = async (req: Request, res: Response): Promise<void> => {
   try {
     const { page, limit } = req.query;
-    const result = await getFrontDeskActivityLogsForViewer(
+    const pageNum = page ? Number(page) : 1;
+    const limitNum = limit ? Number(limit) : 30;
+    const viewerRole = (req as any).user?.role ?? "front_desk";
+    const result = await getCachedFrontDeskActivityLogs(
       userId(req),
-      (req as any).user?.role ?? "front_desk",
-      page ? Number(page) : 1,
-      limit ? Number(limit) : 30
+      viewerRole,
+      pageNum,
+      limitNum
     );
-    res.json({ success: true, ...result });
+    res.json({ success: true, ...result.data, ...toApiCacheMeta(result) });
   } catch (err) {
     console.error("[frontdesk] activityLog error:", err);
     res.status(500).json({ success: false, message: "Failed to fetch activity log" });

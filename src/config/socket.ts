@@ -1,7 +1,15 @@
 import { Server as HttpServer } from "http";
 import { Server as SocketIOServer, Socket } from "socket.io";
+import { registerModulesRealtimeHandlers } from "../modules/realtime/registerSocketHandlers";
 
 let io: SocketIOServer | null = null;
+
+/** Normalize role strings for room names (role:front_desk, etc.). */
+export const normalizeSocketRole = (role: string): string => {
+  const normalized = role.toLowerCase().trim().replace(/-/g, "_");
+  if (normalized === "frontdesk") return "front_desk";
+  return normalized;
+};
 
 /**
  * Initialize WebSocket server
@@ -62,7 +70,7 @@ export const initializeSocket = (httpServer: HttpServer) => {
         return;
       }
 
-      const room = `role:${role.toLowerCase()}`;
+      const room = `role:${normalizeSocketRole(role)}`;
       socket.join(room);
       const socketsInRoom = io!.sockets.adapter.rooms.get(room);
       const socketCount = socketsInRoom ? socketsInRoom.size : 0;
@@ -75,14 +83,14 @@ export const initializeSocket = (httpServer: HttpServer) => {
       // Emit confirmation back to frontend
       const confirmation = {
         success: true,
-        role: role.toLowerCase(),
+        role: normalizeSocketRole(role),
         room: room,
         socketCount
       };
       socket.emit("joined:role", confirmation);
       if (callback) callback(confirmation);
       if (socketDebug) {
-        console.log(`✅ [BACKEND] Sent confirmation to socket ${socket.id} for role: ${role.toLowerCase()}`);
+        console.log(`✅ [BACKEND] Sent confirmation to socket ${socket.id} for role: ${normalizeSocketRole(role)}`);
       }
     });
     if (socketDebug) console.log(`✅ [BACKEND] join:role handler registered for socket ${socket.id}`);
@@ -179,7 +187,7 @@ export const initializeSocket = (httpServer: HttpServer) => {
         return;
       }
 
-      const room = `role:${role.toLowerCase()}`;
+      const room = `role:${normalizeSocketRole(role)}`;
       socket.leave(room);
       if (socketDebug) console.log(`👋 Socket ${socket.id} left role room: ${room}`);
     });
@@ -187,6 +195,8 @@ export const initializeSocket = (httpServer: HttpServer) => {
     socket.on("disconnect", () => {
       if (socketDebug) console.log(`❌ Client disconnected: ${socket.id}`);
     });
+
+    registerModulesRealtimeHandlers(socket, socketDebug);
   });
 
   if (socketDebug) console.log("🔌 WebSocket server initialized");
@@ -259,7 +269,7 @@ export const emitToCounsellors = (event: string, data: any) => {
 export const emitToRoles = (roles: string[], event: string, data: any) => {
   const io = getIO();
   for (const role of roles) {
-    const room = `role:${role.toLowerCase()}`;
+    const room = `role:${normalizeSocketRole(role)}`;
     io.to(room).emit(event, data);
   }
 };

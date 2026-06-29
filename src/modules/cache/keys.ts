@@ -6,6 +6,8 @@ export const MODULE_CACHE_KEYS = {
   VISA_CASE: "modules:visa-case:",
   JOURNEY_TIMELINE: "modules:journey:timeline:",
   JOURNEY_SUMMARY: "modules:journey:summary:",
+  /** Front desk dashboard APIs (list, detail, stats, activity). */
+  FRONTDESK: "modules:frontdesk:",
 } as const;
 
 export const MODULE_CACHE_TTL = {
@@ -21,4 +23,11 @@ export const MODULE_CACHE_TTL = {
   VISA_CASE_PROCESSING_STAGES: 3600,
   /** Client journey reads — invalidate on visa/journey mutations. */
   JOURNEY: 120,
+  /** Front desk list, detail, stats, activity. */
+  FRONT_DESK_LIST: 60,
+  FRONT_DESK_DETAIL: 60,
+  FRONT_DESK_STATS: 60,
+  FRONT_DESK_ACTIVITY: 60,
+  /** Sale type filter dropdown — changes infrequently. */
+  FRONT_DESK_SALE_TYPES: 3600,
 } as const;

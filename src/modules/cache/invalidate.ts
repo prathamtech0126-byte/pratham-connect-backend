@@ -42,6 +42,11 @@ export async function invalidateJourneyCachesForClient(
   });
 }
 
+/** Immediately delete all front desk Redis keys (list, detail, stats, activity). */
+export async function invalidateFrontDeskCaches(): Promise<void> {
+  await safeRun(() => redisDelByPrefix(MODULE_CACHE_KEYS.FRONTDESK));
+}
+
 export type ModulesCacheInvalidation = ModulesRealtimeWriteMeta & {
   countries?: boolean;
 };

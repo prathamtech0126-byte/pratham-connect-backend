@@ -28,7 +28,15 @@ export function resolveLeadSourceFromInbound(
   const key = normalizeInboundEventKey(event);
 
   if (key.includes("udaan") || key.includes("udan")) return "udaan";
-  if (key === "walk_in" || key === "walkin" || key === "walk") return "walk_in";
+  if (
+    key === "walk_in" ||
+    key === "walkin" ||
+    key === "walk" ||
+    key.includes("walkin") ||
+    key.includes("walk_in")
+  ) {
+    return "walk_in";
+  }
   if (
     key === "web_site" ||
     key === "website" ||

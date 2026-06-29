@@ -2,6 +2,11 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { verifySecondaryServerHmac } from "../../../middlewares/secondaryServerHmac.middleware";
 import { receiveLeadRegistrationController } from "../controllers/leadRegistration.controller";
+import {
+  getLeadSelfEditController,
+  patchLeadSelfEditController,
+} from "../controllers/leadSelfEdit.controller";
+import { requireLeadEditToken } from "../middlewares/leadEditToken.middleware";
 
 const router = Router();
 
@@ -14,6 +19,19 @@ const inboundMax = Math.max(
 const inboundRateLimit = rateLimit({
   windowMs: WINDOW_MS,
   max: inboundMax,
+  message: { success: false, message: "Too many requests" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const selfEditMax = Math.max(
+  1,
+  parseInt(process.env.LEAD_SELF_EDIT_RATE_LIMIT_MAX ?? "60", 10)
+);
+
+const selfEditRateLimit = rateLimit({
+  windowMs: WINDOW_MS,
+  max: selfEditMax,
   message: { success: false, message: "Too many requests" },
   standardHeaders: true,
   legacyHeaders: false,
@@ -40,6 +58,42 @@ router.post(
   inboundRateLimit,
   verifySecondaryServerHmac,
   receiveLeadRegistrationController
+);
+
+/**
+ * @openapi
+ * /api/lead-registration/self/me:
+ *   get:
+ *     tags: [LeadRegistration]
+ *     summary: Get lead data for client self-edit (edit-link token required)
+ *     security: []
+ *     responses:
+ *       200:
+ *         description: Lead registration data
+ *       401:
+ *         description: Invalid or expired edit link
+ *   patch:
+ *     tags: [LeadRegistration]
+ *     summary: Update lead registration via client edit link
+ *     security: []
+ *     responses:
+ *       200:
+ *         description: Updated
+ *       401:
+ *         description: Invalid or expired edit link
+ */
+router.get(
+  "/self/me",
+  selfEditRateLimit,
+  requireLeadEditToken,
+  getLeadSelfEditController
+);
+
+router.patch(
+  "/self/me",
+  selfEditRateLimit,
+  requireLeadEditToken,
+  patchLeadSelfEditController
 );
 
 export default router;

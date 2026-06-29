@@ -25,7 +25,8 @@ export function requireCsrf(req: Request, res: Response, next: NextFunction) {
     path === "/health" ||
     path === "/api/users/login" ||
     path === "/api/users/refresh" ||
-    path === "/api/lead-registration/inbound"
+    path === "/api/lead-registration/inbound" ||
+    path === "/api/lead-registration/self/me"
   ) {
     return next();
   }

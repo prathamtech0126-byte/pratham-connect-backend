@@ -19,6 +19,17 @@ if (!inboundWebhookSecret) {
   console.log("✅ [leadRegistration] Inbound webhook HMAC secret loaded");
 }
 
+if (
+  !process.env.LEAD_SELF_EDIT_BASE_URL?.trim() &&
+  !process.env.REGISTRATION_SITE_URL?.trim()
+) {
+  console.warn(
+    "⚠️ [leadRegistration] Set LEAD_SELF_EDIT_BASE_URL or REGISTRATION_SITE_URL — edit links return token only until configured"
+  );
+} else {
+  console.log("✅ [leadRegistration] Client edit page URL configured for registration site");
+}
+
 import { createServer } from "http";
 import app from "./index";
 import { checkDbConnection, pool } from "./config/databaseConnection";

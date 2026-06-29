@@ -30,6 +30,11 @@ export const NOTIFICATION_EVENT_REGISTRY: Record<NotificationType, RegistryEntry
   tech_support_request: { category: "operations", defaultPriority: "normal" },
   deadline_missed: { category: "system", defaultPriority: "high" },
   visa_case_document_request: { category: "operations", defaultPriority: "high" },
+  lead_inbound_registered: { category: "leads", defaultPriority: "normal" },
+  lead_client_self_edited: { category: "leads", defaultPriority: "normal" },
+  lead_frontdesk_verified: { category: "leads", defaultPriority: "normal" },
+  lead_frontdesk_assigned: { category: "leads", defaultPriority: "normal" },
+  lead_frontdesk_updated: { category: "leads", defaultPriority: "low" },
   system: { category: "system", defaultPriority: "normal" },
 };
 
