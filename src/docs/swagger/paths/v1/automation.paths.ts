@@ -1,7 +1,7 @@
 import { TAG_NAMES } from "../../tags/tags";
 import { buildPaths, jsonBody, param } from "../../utils/routeBuilder";
 
-const automationRoles = ["superadmin", "admin", "developer", "manager"];
+const automationRoles = ["admin"];
 
 export const automationPaths = buildPaths([
   { method: "get", path: "/api/automation/facebook/callback", tag: TAG_NAMES.AUTOMATION, summary: "Facebook OAuth callback", secured: false },

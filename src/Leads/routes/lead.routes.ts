@@ -5,6 +5,8 @@ import {
   addLeadActivityController,
   assignLeadController,
   bulkAssignLeadsController,
+  bulkRevertJunkLeadsController,
+  bulkRevertDroppedLeadsController,
   bulkStrategyAssignLeadsController,
   createLeadController,
   downloadLeadImportTemplateController,
@@ -22,6 +24,7 @@ import {
   markLeadFollowupController,
   markLeadJunkController,
   revertLeadJunkController,
+  revertLeadDroppedController,
   convertLeadToClientController,
   dropLeadByCounsellorController,
   updateLeadActivityStatusController,
@@ -682,6 +685,22 @@ router.post(
   bulkStrategyAssignLeadsController
 );
 
+router.post(
+  "/bulk-revert-junk",
+  requireAuth,
+  requireRole("developer", "admin", "manager", "superadmin"),
+  preventDuplicateRequests,
+  bulkRevertJunkLeadsController
+);
+
+router.post(
+  "/bulk-revert-dropped",
+  requireAuth,
+  requireRole("developer", "admin", "manager", "superadmin"),
+  preventDuplicateRequests,
+  bulkRevertDroppedLeadsController
+);
+
 router.get("/:id", requireAuth, getLeadByIdController);
 
 router.post(
@@ -730,6 +749,14 @@ router.post(
   requireRole("developer", "admin", "manager", "superadmin"),
   preventDuplicateRequests,
   revertLeadJunkController
+);
+
+router.post(
+  "/:id/revert-dropped",
+  requireAuth,
+  requireRole("developer", "admin", "manager", "superadmin"),
+  preventDuplicateRequests,
+  revertLeadDroppedController
 );
 
 router.post(

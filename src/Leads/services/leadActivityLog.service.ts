@@ -64,10 +64,9 @@ export const logLeadAssignment = async (
     counsellorId?: number | null;
     telecallerName?: string | null;
     counsellorName?: string | null;
-    bulk?: boolean;
   }
 ) => {
-  const { lead, previous, performedBy, telecallerId, counsellorId, telecallerName, counsellorName, bulk } =
+  const { lead, previous, performedBy, telecallerId, counsellorId, telecallerName, counsellorName } =
     input;
 
   const transferredToCounsellor = counsellorId != null;
@@ -81,7 +80,7 @@ export const logLeadAssignment = async (
     action: "STATUS_CHANGE",
     oldValue: leadSnapshot(previous),
     newValue: leadSnapshot(lead),
-    description: bulk ? `Bulk ${description.toLowerCase()}` : description,
+    description,
     metadata: {
       leadName: lead.fullName,
       telecallerId: telecallerId ?? null,
@@ -89,6 +88,78 @@ export const logLeadAssignment = async (
       telecallerName: telecallerName ?? null,
       counsellorName: counsellorName ?? null,
       assignmentStatus: lead.assignmentStatus ?? null,
+    },
+    performedBy,
+  });
+};
+
+export type BulkAssigneeSummary = {
+  userId: number;
+  userName: string;
+  role: "telecaller" | "counsellor";
+  count: number;
+};
+
+const formatBulkAssigneePhrase = (summaries: BulkAssigneeSummary[]) => {
+  if (summaries.length === 1) {
+    const s = summaries[0];
+    const roleLabel = s.role === "counsellor" ? "counsellor" : "telecaller";
+    return `${roleLabel} ${s.userName}`;
+  }
+  return summaries.map((s) => `${s.userName} (${s.count})`).join(", ");
+};
+
+/** One global activity log entry for bulk assign / distribute / junk restore flows. */
+export const logBulkLeadAssignment = async (
+  req: Request,
+  input: {
+    performedBy: number;
+    leadCount: number;
+    summaries: BulkAssigneeSummary[];
+    action: "assigned" | "distributed" | "restored_and_assigned" | "restored_and_distributed";
+    strategy?: string | null;
+  }
+) => {
+  const { performedBy, leadCount, summaries, action, strategy } = input;
+  if (leadCount <= 0 || summaries.length === 0) return;
+
+  const leadWord = leadCount === 1 ? "lead" : "leads";
+  const assigneePhrase = formatBulkAssigneePhrase(summaries);
+  const strategyNote = strategy ? ` via ${strategy.replace(/_/g, " ")}` : "";
+
+  let description: string;
+  switch (action) {
+    case "assigned":
+      description = `Assigned ${leadCount} ${leadWord} to ${assigneePhrase}`;
+      break;
+    case "distributed":
+      description =
+        summaries.length === 1
+          ? `Distributed ${leadCount} ${leadWord} to ${assigneePhrase}${strategyNote}`
+          : `Distributed ${leadCount} ${leadWord}${strategyNote}: ${assigneePhrase}`;
+      break;
+    case "restored_and_assigned":
+      description = `Restored and assigned ${leadCount} ${leadWord} to ${assigneePhrase}`;
+      break;
+    case "restored_and_distributed":
+      description =
+        summaries.length === 1
+          ? `Restored and assigned ${leadCount} ${leadWord} to ${assigneePhrase}`
+          : `Restored and distributed ${leadCount} ${leadWord}: ${assigneePhrase}`;
+      break;
+  }
+
+  await logActivity(req, {
+    entityType: "lead",
+    entityId: null,
+    action: "STATUS_CHANGE",
+    description,
+    metadata: {
+      bulk: true,
+      leadCount,
+      summaries,
+      strategy: strategy ?? null,
+      bulkAction: action,
     },
     performedBy,
   });

@@ -27,5 +27,5 @@ export const leadReferences = pgTable("lead_references", {
     () => users.id
   ),
   manualCounsellorName: varchar("manual_counsellor_name", { length: 255 }),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });

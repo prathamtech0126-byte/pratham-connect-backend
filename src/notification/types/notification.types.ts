@@ -16,6 +16,8 @@ export type NotificationType =
   | "lead_reassigned"
   | "lead_followup_reminder"
   | "lead_followup_overdue"
+  | "lead_followup_manager_escalation"
+  | "lead_followup_admin_escalation"
   | "lead_converted"
   | "lead_dropped"
   | "lead_junked"
@@ -87,4 +89,11 @@ export interface NotificationPayload {
   deliverAt: string;
   createdAt: string;
   readAt: string | null;
+  /** Present on socket pushes only */
+  delivery?: {
+    via: "socket";
+    deliveredAt: string;
+    realtime: boolean;
+    redis: boolean;
+  };
 }

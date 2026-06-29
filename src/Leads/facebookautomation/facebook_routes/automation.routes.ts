@@ -1,5 +1,5 @@
-import { Router } from "express";
-import { requireAuth, requireRole } from "../../../middlewares/auth.middleware";
+import { Router, Request, Response, NextFunction } from "express";
+import { requireAuth } from "../../../middlewares/auth.middleware";
 import {
   disconnectFacebookController,
   distributeFacebookManualBulkController,
@@ -36,7 +36,17 @@ import {
 } from "../facebook_controllers/metaConversions.controller";
 
 const router = Router();
-const allowAutomationRoles = requireRole("superadmin", "admin", "developer", "marketing_head");
+
+/** Admin only — no developer bypass (unlike requireRole). */
+const allowAutomationRoles = (req: Request, res: Response, next: NextFunction) => {
+  if (!req.user) {
+    return res.status(401).json({ message: "Authentication required" });
+  }
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ message: "Forbidden: insufficient role" });
+  }
+  next();
+};
 
 /**
  * @openapi
@@ -75,7 +85,7 @@ const allowAutomationRoles = requireRole("superadmin", "admin", "developer", "ma
  *       401:
  *         description: Unauthorized
  *       403:
- *         description: Forbidden — superadmin/admin/developer/manager only
+ *         description: Forbidden — admin only
  * /api/automation/facebook/status:
  *   get:
  *     tags: [FacebookAutomation]

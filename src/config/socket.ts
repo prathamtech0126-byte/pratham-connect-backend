@@ -1,5 +1,6 @@
 import { Server as HttpServer } from "http";
 import { Server as SocketIOServer, Socket } from "socket.io";
+import { getNotificationRealtimeMeta } from "../notification/services/notificationRealtime.service";
 
 let io: SocketIOServer | null = null;
 
@@ -119,16 +120,29 @@ export const initializeSocket = (httpServer: HttpServer) => {
     });
 
     // Join user-specific room (notifications, individual messages)
-    socket.on("join:user", (userId: number | string) => {
-      const id = typeof userId === "string" ? parseInt(userId, 10) : userId;
-      if (isNaN(id) || id <= 0) {
-        console.error(`❌ Invalid userId for join:user: ${userId}`);
-        return;
+    socket.on(
+      "join:user",
+      (userId: number | string, callback?: (response: unknown) => void) => {
+        const id = typeof userId === "string" ? parseInt(userId, 10) : userId;
+        if (isNaN(id) || id <= 0) {
+          console.error(`❌ Invalid userId for join:user: ${userId}`);
+          if (callback) callback({ success: false, error: "Invalid user ID" });
+          return;
+        }
+        const room = `user:${id}`;
+        socket.join(room);
+        const socketsInRoom = io!.sockets.adapter.rooms.get(room);
+        const socketCount = socketsInRoom ? socketsInRoom.size : 0;
+        if (socketDebug) {
+          console.log(
+            `👤 Socket ${socket.id} joined user room: ${room} (Total sockets in room: ${socketCount})`
+          );
+        }
+        socket.emit("notifications:realtime", getNotificationRealtimeMeta());
+        const confirmation = { success: true, room, socketCount };
+        if (callback) callback(confirmation);
       }
-      const room = `user:${id}`;
-      socket.join(room);
-      if (socketDebug) console.log(`👤 Socket ${socket.id} joined user room: ${room}`);
-    });
+    );
 
     socket.on("leave:user", (userId: number | string) => {
       const id = typeof userId === "string" ? parseInt(userId, 10) : userId;
@@ -218,7 +232,23 @@ export const emitToCounsellor = (counsellorId: number, event: string, data: any)
  */
 export const emitToUser = (userId: number, event: string, data: unknown) => {
   const io = getIO();
-  io.to(`user:${userId}`).emit(event, data);
+  const room = `user:${userId}`;
+  const roomSize = io.sockets.adapter.rooms.get(room)?.size ?? 0;
+  const isProduction = process.env.NODE_ENV === "production";
+
+  if (event.startsWith("notification:") && !isProduction) {
+    if (roomSize === 0) {
+      console.warn(
+        `[notification] emit to empty room — event=${event} userId=${userId} room=${room}`
+      );
+    } else {
+      console.log(
+        `[notification] emit event=${event} userId=${userId} roomSize=${roomSize}`
+      );
+    }
+  }
+
+  io.to(room).emit(event, data);
 };
 
 /**

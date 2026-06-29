@@ -394,6 +394,61 @@ const parseOptionalPositiveAmount = (v: unknown): number | null => {
   return isFinite(n) && n > 0 ? n : null;
 };
 
+const ALL_FINANCE_MONEY_EPSILON = 0.005;
+
+const parseAllFinanceMoney = (v: unknown): number => {
+  if (v === undefined || v === null || v === "") return NaN;
+  const n = typeof v === "string" ? parseFloat(v) : Number(v);
+  return isFinite(n) ? n : NaN;
+};
+
+const allFinanceAmountsEqual = (a: number, b: number) =>
+  Math.abs(a - b) < ALL_FINANCE_MONEY_EPSILON;
+
+const resolveAllFinanceTotalAmount = (
+  data: AllFinanceData,
+  primaryAmount: number,
+  extraSum: number
+): number => {
+  if (data.totalAmount !== undefined && data.totalAmount !== null && data.totalAmount !== "") {
+    return parseAllFinanceMoney(data.totalAmount);
+  }
+  return primaryAmount + extraSum;
+};
+
+/** Enforce partial-payment request when total !== first amount; cap amount at total. */
+const assertAllFinancePaymentRules = (data: AllFinanceData): void => {
+  const amountValue = parseAllFinanceMoney(data.amount);
+  if (!isFinite(amountValue) || amountValue <= 0) {
+    throw new Error("Valid amount is required for all finance");
+  }
+
+  const extraSum = sumAllFinanceExtraSlots(parseAllFinanceExtraSlots(data));
+  const totalAmountValue = resolveAllFinanceTotalAmount(data, amountValue, extraSum);
+
+  if (!isFinite(totalAmountValue) || totalAmountValue <= 0) {
+    throw new Error("Valid totalAmount is required for all finance");
+  }
+
+  if (amountValue > totalAmountValue + ALL_FINANCE_MONEY_EPSILON) {
+    throw new Error("Amount cannot exceed total payment");
+  }
+
+  if (
+    !allFinanceAmountsEqual(amountValue, totalAmountValue) &&
+    data.partialPayment !== true
+  ) {
+    throw new Error("Make partial payment request first before saving it");
+  }
+
+  if (!allFinanceAmountsEqual(amountValue, totalAmountValue)) {
+    const remarks = data.remarks?.trim();
+    if (!remarks) {
+      throw new Error("Remarks are required for partial payment");
+    }
+  }
+};
+
 const parseAllFinanceExtraSlots = (data: AllFinanceData) => {
   const pairs: [unknown, unknown][] = [
     [data.anotherPaymentAmount, data.anotherPaymentDate],
@@ -711,6 +766,8 @@ const createEntityRecord = async (
         throw new Error("Valid totalAmount is required for all finance");
       }
 
+      assertAllFinancePaymentRules(data);
+
       const [record] = await db
         .insert(allFinance)
         .values({
@@ -946,6 +1003,8 @@ export const saveClientProductPayment = async (
             throw new Error("Valid totalAmount is required for all finance");
           }
 
+          assertAllFinancePaymentRules(data);
+
           const [newAllFinance] = await db
             .insert(allFinance)
             .values({
@@ -1112,6 +1171,31 @@ export const saveClientProductPayment = async (
             updateData.approvalStatus = "pending";
             updateData.approvedBy = null;
           }
+
+          const mergedForValidation: AllFinanceData = {
+            amount: (updateData.amount ?? existingAllFinance.amount)!,
+            totalAmount: updateData.totalAmount ?? existingAllFinance.totalAmount ?? undefined,
+            partialPayment:
+              updateData.partialPayment !== undefined
+                ? updateData.partialPayment
+                : existingAllFinance.partialPayment ?? false,
+            anotherPaymentAmount:
+              updateData.anotherPaymentAmount ?? existingAllFinance.anotherPaymentAmount ?? undefined,
+            anotherPaymentDate:
+              (updateData.anotherPaymentDate as string | undefined) ??
+              (existingAllFinance.anotherPaymentDate as string | undefined),
+            anotherPaymentAmount2:
+              updateData.anotherPaymentAmount2 ?? existingAllFinance.anotherPaymentAmount2 ?? undefined,
+            anotherPaymentDate2:
+              (updateData.anotherPaymentDate2 as string | undefined) ??
+              (existingAllFinance.anotherPaymentDate2 as string | undefined),
+            anotherPaymentAmount3:
+              updateData.anotherPaymentAmount3 ?? existingAllFinance.anotherPaymentAmount3 ?? undefined,
+            anotherPaymentDate3:
+              (updateData.anotherPaymentDate3 as string | undefined) ??
+              (existingAllFinance.anotherPaymentDate3 as string | undefined),
+          };
+          assertAllFinancePaymentRules(mergedForValidation);
 
           await db
             .update(allFinance)

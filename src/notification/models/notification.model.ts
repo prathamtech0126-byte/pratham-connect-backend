@@ -24,13 +24,34 @@ export const FOLLOWUP_MISSED_MINUTES = parseInt(
   10
 );
 
-/** Hours after scheduled follow-up before the second “still overdue” alert (default 3). */
+/** Hours after scheduled follow-up for the 3-hour overdue step (default 3). */
 export const FOLLOWUP_OVERDUE_REPEAT_HOURS = parseInt(
   process.env.FOLLOWUP_OVERDUE_HOURS || "3",
   10
 );
 
-export type FollowupOverduePhase = "early" | "repeat";
+/** Hours after scheduled follow-up for the final warning step (default 5). */
+export const FOLLOWUP_FINAL_WARNING_HOURS = parseInt(
+  process.env.FOLLOWUP_FINAL_WARNING_HOURS || "5",
+  10
+);
+
+/** Hours after manager escalation before admin is notified (default 24). */
+export const FOLLOWUP_ADMIN_ESCALATION_HOURS = parseInt(
+  process.env.FOLLOWUP_ADMIN_ESCALATION_HOURS || "24",
+  10
+);
+
+export type FollowupOverduePhase = "early" | "three_hour" | "five_hour";
+
+export function followupReminderDedupeKey(
+  leadId: number,
+  userId: number,
+  followupAt: Date,
+  phase: "before" | "due"
+): string {
+  return `lead_followup:${leadId}:${userId}:${followupAt.getTime()}:${phase}`;
+}
 
 export function followupOverdueDedupeKey(
   leadId: number,
@@ -39,6 +60,26 @@ export function followupOverdueDedupeKey(
   phase: FollowupOverduePhase
 ): string {
   return `lead_overdue:${leadId}:${userId}:${followupAt.getTime()}:${phase}`;
+}
+
+export function followupManagerEscalationDedupeKey(
+  leadId: number,
+  ownerId: number,
+  followupAt: Date
+): string {
+  return `lead_followup_escalation:${leadId}:${ownerId}:${followupAt.getTime()}:manager`;
+}
+
+export function followupAdminEscalationDedupeKey(
+  leadId: number,
+  followupAt: Date,
+  adminUserId: number
+): string {
+  return `lead_followup_escalation:${leadId}:${followupAt.getTime()}:admin:${adminUserId}`;
+}
+
+function followupCompletedMetaPatch(): Record<string, unknown> {
+  return { followupCompletedAt: new Date().toISOString(), followupCompleted: true };
 }
 
 /** UTC cutoff: follow-ups scheduled at or before this time are past the “missed” window. */
@@ -350,76 +391,113 @@ export const cancelNotificationsByDedupePrefix = async (
 };
 
 export const cancelLeadFollowupReminders = async (leadId: number): Promise<void> => {
-  const dedupePrefix = "lead_followup:" + leadId + ":";
-
-  // Dismiss scheduled-but-not-yet-delivered reminder notifications.
-  await db
-    .update(notifications)
-    .set({ dismissedAt: new Date(), updatedAt: new Date() })
-    .where(
-      and(
-        eq(notifications.type, "lead_followup_reminder"),
-        sql`${notifications.dedupeKey} LIKE ${dedupePrefix + "%"}`,
-        isNull(notifications.deliveredAt)
-      )
-    );
-
-  // Mark already-delivered reminder notifications as read.
-  await db
-    .update(notifications)
-    .set({ readAt: new Date(), updatedAt: new Date() })
-    .where(
-      and(
-        eq(notifications.type, "lead_followup_reminder"),
-        sql`${notifications.dedupeKey} LIKE ${dedupePrefix + "%"}`,
-        isNotNull(notifications.deliveredAt),
-        isNull(notifications.readAt)
-      )
-    );
+  await closeAllLeadFollowupNotificationsForLead(leadId);
 };
 
-/** Cancel pending missed/overdue alerts when follow-up is rescheduled or completed. */
+/** @deprecated Use closeAllLeadFollowupNotificationsForLead */
 export const cancelLeadFollowupOverdue = async (leadId: number): Promise<void> => {
-  const dedupePrefix = "lead_overdue:" + leadId + ":";
-
-  // Dismiss scheduled-but-not-yet-delivered overdue alerts.
-  await db
-    .update(notifications)
-    .set({ dismissedAt: new Date(), updatedAt: new Date() })
-    .where(
-      and(
-        eq(notifications.type, "lead_followup_overdue"),
-        sql`${notifications.dedupeKey} LIKE ${dedupePrefix + "%"}`,
-        isNull(notifications.deliveredAt)
-      )
-    );
-
-  // Mark already-delivered overdue alerts as read so they no longer show as unread
-  // in the inbox after the follow-up is completed or a new one is scheduled.
-  await db
-    .update(notifications)
-    .set({ readAt: new Date(), updatedAt: new Date() })
-    .where(
-      and(
-        eq(notifications.type, "lead_followup_overdue"),
-        sql`${notifications.dedupeKey} LIKE ${dedupePrefix + "%"}`,
-        isNotNull(notifications.deliveredAt),
-        isNull(notifications.readAt)
-      )
-    );
+  await closeAllLeadFollowupNotificationsForLead(leadId);
 };
 
 export const cancelPendingLeadFollowupNotifications = async (
-  leadId: number
+  leadId: number,
+  followupAt?: Date
 ): Promise<void> => {
-  await cancelLeadFollowupReminders(leadId);
-  await cancelLeadFollowupOverdue(leadId);
+  await closeAllLeadFollowupNotificationsForLead(leadId, followupAt);
 };
 
-const LEAD_FOLLOWUP_NOTIFICATION_TYPES = [
+export const LEAD_FOLLOWUP_NOTIFICATION_TYPES = [
   "lead_followup_reminder",
   "lead_followup_overdue",
+  "lead_followup_manager_escalation",
+  "lead_followup_admin_escalation",
 ] as const;
+
+/** Mark follow-up chain notifications read + dismissed (stops escalation). */
+export const closeAllLeadFollowupNotificationsForLead = async (
+  leadId: number,
+  followupAt?: Date
+): Promise<void> => {
+  const completedMeta = JSON.stringify(followupCompletedMetaPatch());
+  const now = new Date();
+  const followupAtIso = followupAt?.toISOString();
+
+  const conditions = [
+    eq(notifications.entityId, leadId),
+    inArray(notifications.type, [...LEAD_FOLLOWUP_NOTIFICATION_TYPES]),
+  ];
+  if (followupAtIso) {
+    conditions.push(sql`${notifications.meta}->>'followupAt' = ${followupAtIso}`);
+  }
+
+  await db
+    .update(notifications)
+    .set({
+      readAt: now,
+      dismissedAt: now,
+      updatedAt: now,
+      meta: sql`COALESCE(${notifications.meta}, '{}'::jsonb) || ${completedMeta}::jsonb`,
+    })
+    .where(and(...conditions));
+};
+
+export const isFollowupStillPending = async (
+  leadId: number,
+  followupAt: Date
+): Promise<boolean> => {
+  const rows = await db
+    .select({ followupAt: leadActivities.followupAt })
+    .from(leadActivities)
+    .where(
+      and(
+        eq(leadActivities.leadId, leadId),
+        eq(leadActivities.activityType, "followup"),
+        eq(leadActivities.status, "pending"),
+        isNotNull(leadActivities.followupAt)
+      )
+    );
+  const targetMs = followupAt.getTime();
+  return rows.some((row) => {
+    if (!row.followupAt) return false;
+    return Math.abs(new Date(row.followupAt).getTime() - targetMs) < 2000;
+  });
+};
+
+export const getManagerForUser = async (
+  userId: number
+): Promise<{ id: number; fullName: string | null } | null> => {
+  const [owner] = await db
+    .select({ managerId: users.managerId })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (!owner?.managerId) return null;
+
+  const [manager] = await db
+    .select({ id: users.id, fullName: users.fullName })
+    .from(users)
+    .where(eq(users.id, owner.managerId))
+    .limit(1);
+  return manager ?? null;
+};
+
+export const getAdminEscalationUserIds = async (): Promise<number[]> => {
+  const rows = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(
+      and(
+        inArray(users.role, ["admin", "superadmin"] as any[]),
+        eq(users.status, true)
+      )
+    );
+  return rows.map((r) => r.id);
+};
+
+export const wasNotificationDeliveredByDedupeKey = async (
+  userId: number,
+  dedupeKey: string
+): Promise<boolean> => wasOverdueNotificationDelivered(userId, dedupeKey);
 
 function replaceUserIdInDedupeKey(
   dedupeKey: string | null,

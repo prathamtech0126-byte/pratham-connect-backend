@@ -18,6 +18,7 @@ import {
   isLeadJunkLocked,
   isLeadConvertedLocked,
   revertJunkLead,
+  revertDroppedLead,
   updateActivityStatus,
   updateLeadActivityMessage,
 
@@ -34,6 +35,9 @@ import {
   getCounsellorIndividualReport,
 } from "../models/leadIndividualReport.model";
 import { getAdminLeadReportStats } from "../models/leadReport.model";
+import {
+  resolveLeadDateRangeFromQuery,
+} from "../services/leadDateRange.service";
 import { insertLeadRecord } from "../services/leadInsert.service";
 import {
   createLeadCreatedActivity,
@@ -103,8 +107,10 @@ import { eq, inArray } from "drizzle-orm";
 import { users } from "../../schemas/users.schema";
 import {
   isLeadTransferBlocked,
+  logBulkLeadAssignment,
   logLeadAssignment,
   logLeadCreated,
+  type BulkAssigneeSummary,
   logLeadFollowup,
   logLeadJunk,
   logLeadUpdate,
@@ -221,23 +227,13 @@ export const createLeadController = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * Resolve createdFrom filter as ISO UTC string for timestamptz comparison.
- */
-function resolveCreatedFrom(query: Record<string, any>): string | undefined {
-  if (query.createdFrom) return String(query.createdFrom);
-  const afterDate = query.afterDate ? String(query.afterDate) : undefined;
-  if (!afterDate) return undefined;
-  const d = new Date(afterDate.includes("T") ? afterDate : `${afterDate}T00:00:00.000Z`);
-  return isNaN(d.getTime()) ? undefined : d.toISOString();
+function toIsoDate(value?: Date): string | undefined {
+  if (!value || isNaN(value.getTime())) return undefined;
+  return value.toISOString();
 }
 
-function resolveCreatedTo(query: Record<string, any>): string | undefined {
-  if (query.createdTo) return String(query.createdTo);
-  const beforeDate = query.beforeDate ? String(query.beforeDate) : undefined;
-  if (!beforeDate) return undefined;
-  const d = new Date(beforeDate.includes("T") ? beforeDate : `${beforeDate}T23:59:59.999Z`);
-  return isNaN(d.getTime()) ? undefined : d.toISOString();
+function resolveQueryCreatedRange(query: Record<string, unknown>) {
+  return resolveLeadDateRangeFromQuery(query);
 }
 
 export const getLeadsController = async (req: Request, res: Response) => {
@@ -253,6 +249,18 @@ export const getLeadsController = async (req: Request, res: Response) => {
       reportBucketRaw === "contacted" || reportBucketRaw === "transferred"
         ? reportBucketRaw
         : undefined;
+    const forReport =
+      req.query.forReport === "true" ||
+      req.query.forReport === "1" ||
+      assignedScope ||
+      Boolean(reportBucket);
+    const assignmentStatus = req.query.assignmentStatus as string | undefined;
+    const progressStatus = req.query.progressStatus as string | undefined;
+    const { createdFrom: rangeFrom, createdTo: rangeTo } = resolveQueryCreatedRange(
+      req.query as Record<string, unknown>
+    );
+    const resolvedFrom = toIsoDate(rangeFrom);
+    const resolvedTo = toIsoDate(rangeTo);
 
     const filters: LeadListFilters = {
       search: rawSearch.length >= 3 ? rawSearch : undefined,
@@ -271,18 +279,34 @@ export const getLeadsController = async (req: Request, res: Response) => {
         ? Number(counsellorIdFromQuery)
         : undefined,
       isJunk: req.query.isJunk === undefined ? undefined : req.query.isJunk === "true",
-      nextFollowupFrom: req.query.nextFollowupFrom as string | undefined,
-      nextFollowupTo: req.query.nextFollowupTo as string | undefined,
+      nextFollowupFrom:
+        (req.query.nextFollowupFrom as string | undefined) ??
+        (progressStatus === "follow_up" ? resolvedFrom : undefined),
+      nextFollowupTo:
+        (req.query.nextFollowupTo as string | undefined) ??
+        (progressStatus === "follow_up" ? resolvedTo : undefined),
       leadSource: req.query.leadSource as string | undefined,
       leadType: req.query.leadType as string | undefined,
-      createdFrom: resolveCreatedFrom(req.query),
-      createdTo: resolveCreatedTo(req.query),
-      transferredFrom: req.query.transferredFrom as string | undefined,
-      transferredTo: req.query.transferredTo as string | undefined,
-      convertedFrom: req.query.convertedFrom as string | undefined,
-      convertedTo: req.query.convertedTo as string | undefined,
-      droppedFrom: req.query.droppedFrom as string | undefined,
-      droppedTo: req.query.droppedTo as string | undefined,
+      createdFrom: resolvedFrom,
+      createdTo: resolvedTo,
+      transferredFrom:
+        (req.query.transferredFrom as string | undefined) ??
+        (reportBucket === "transferred" ? resolvedFrom : undefined),
+      transferredTo:
+        (req.query.transferredTo as string | undefined) ??
+        (reportBucket === "transferred" ? resolvedTo : undefined),
+      convertedFrom:
+        (req.query.convertedFrom as string | undefined) ??
+        (forReport && assignmentStatus === "converted" ? resolvedFrom : undefined),
+      convertedTo:
+        (req.query.convertedTo as string | undefined) ??
+        (forReport && assignmentStatus === "converted" ? resolvedTo : undefined),
+      droppedFrom:
+        (req.query.droppedFrom as string | undefined) ??
+        (forReport && assignmentStatus === "dropped" ? resolvedFrom : undefined),
+      droppedTo:
+        (req.query.droppedTo as string | undefined) ??
+        (forReport && assignmentStatus === "dropped" ? resolvedTo : undefined),
       page: req.query.page ? Number(req.query.page) : undefined,
       limit: req.query.limit ? Number(req.query.limit) : undefined,
       sortBy: (req.query.sortBy as any) || "updated_at",
@@ -294,11 +318,7 @@ export const getLeadsController = async (req: Request, res: Response) => {
         | "converted"
         | "dropped"
         | undefined,
-      forReport:
-        req.query.forReport === "true" ||
-        req.query.forReport === "1" ||
-        assignedScope ||
-        Boolean(reportBucket),
+      forReport,
       counsellorOwnList: authReq.user?.role === "counsellor",
       assignedScope,
       reportBucket,
@@ -390,10 +410,9 @@ export const getTelecallerIndividualReportController = async (req: Request, res:
     ) {
       return res.status(403).json({ success: false, message: "Access denied" });
     }
-    const naiveFrom = resolveCreatedFrom(req.query as Record<string, any>);
-    const naiveTo   = resolveCreatedTo(req.query as Record<string, any>);
-    const createdFrom = naiveFrom ? new Date(naiveFrom) : undefined;
-    const createdTo   = naiveTo   ? new Date(naiveTo)   : undefined;
+    const { createdFrom, createdTo } = resolveQueryCreatedRange(
+      req.query as Record<string, unknown>
+    );
     const data = await getTelecallerIndividualReport(telecallerId, createdFrom, createdTo);
     res.json({ success: true, data });
   } catch (error: any) {
@@ -419,10 +438,9 @@ export const getCounsellorIndividualReportController = async (req: Request, res:
     ) {
       return res.status(403).json({ success: false, message: "Access denied" });
     }
-    const naiveFrom = resolveCreatedFrom(req.query as Record<string, any>);
-    const naiveTo   = resolveCreatedTo(req.query as Record<string, any>);
-    const createdFrom = naiveFrom ? new Date(naiveFrom) : undefined;
-    const createdTo   = naiveTo   ? new Date(naiveTo)   : undefined;
+    const { createdFrom, createdTo } = resolveQueryCreatedRange(
+      req.query as Record<string, unknown>
+    );
     const data = await getCounsellorIndividualReport(counsellorId, createdFrom, createdTo);
     res.json({ success: true, data });
   } catch (error: any) {
@@ -432,10 +450,9 @@ export const getCounsellorIndividualReportController = async (req: Request, res:
 
 export const getTelecallerLeadSummaryController = async (req: Request, res: Response) => {
   try {
-    const createdFrom = req.query.createdFrom
-      ? new Date(String(req.query.createdFrom))
-      : undefined;
-    const createdTo = req.query.createdTo ? new Date(String(req.query.createdTo)) : undefined;
+    const { createdFrom, createdTo } = resolveQueryCreatedRange(
+      req.query as Record<string, unknown>
+    );
     const data = await getTelecallerLeadSummaryRows(createdFrom, createdTo);
     res.json({ success: true, data });
   } catch (error: any) {
@@ -457,20 +474,13 @@ export const getTelecallerDashboardStatsController = async (req: Request, res: R
       return res.status(400).json({ success: false, message: "telecallerId is required" });
     }
 
-    const createdFrom = req.query.createdFrom
-      ? new Date(String(req.query.createdFrom))
-      : undefined;
-    const createdTo = req.query.createdTo ? new Date(String(req.query.createdTo)) : undefined;
-    const followupFrom = req.query.followupFrom
-      ? new Date(String(req.query.followupFrom))
-      : undefined;
-    const followupTo = req.query.followupTo ? new Date(String(req.query.followupTo)) : undefined;
-    const followupTodayFrom = req.query.followupTodayFrom
-      ? new Date(String(req.query.followupTodayFrom))
-      : undefined;
-    const followupTodayTo = req.query.followupTodayTo
-      ? new Date(String(req.query.followupTodayTo))
-      : undefined;
+    const query = req.query as Record<string, unknown>;
+    const { createdFrom: rangeFrom, createdTo: rangeTo } = resolveQueryCreatedRange(query);
+    const createdFrom = rangeFrom;
+    const createdTo = rangeTo;
+    const { createdFrom: followupFrom, createdTo: followupTo } = resolveQueryCreatedRange(query);
+    const { createdFrom: followupTodayFrom, createdTo: followupTodayTo } =
+      resolveQueryCreatedRange({ dateFilter: "today" });
 
     const data = await getCachedTelecallerDashboardStats({
       telecallerId,
@@ -1155,17 +1165,21 @@ export const assignLeadController = async (req: Request, res: Response) => {
       });
     }
 
+    try {
+      await onLeadAssignmentChange(currentLead, updated, {
+        telecallerId: telecallerId ?? null,
+        counsellorId: counsellorId ?? null,
+        actorUserId: authReq.user?.id ?? null,
+        performerName: performerName ?? null,
+      });
+    } catch (e) {
+      console.error("[notification] assign lead:", e);
+    }
+
     await publishLeadChange("lead:assigned", updated as Record<string, unknown>, {
       notifyTelecallerId: telecallerId ?? updated.currentTelecallerId ?? null,
       notifyCounsellorId: counsellorId ?? null,
     });
-
-    onLeadAssignmentChange(currentLead, updated, {
-      telecallerId: telecallerId ?? null,
-      counsellorId: counsellorId ?? null,
-      actorUserId: authReq.user?.id ?? null,
-      performerName: performerName ?? null,
-    }).catch((e) => console.error("[notification] assign lead:", e));
 
     res.json({ success: true, data: updated });
   } catch (error: any) {
@@ -1272,14 +1286,18 @@ export const revertLeadJunkController = async (req: Request, res: Response) => {
     if ((parsedTelecallerId != null || parsedCounsellorId != null) && previous && authReq.user?.id) {
       const assigneeId = parsedCounsellorId ?? parsedTelecallerId;
       const assigneeName = await getUserFullName(assigneeId);
-      await logLeadAssignment(req, {
-        lead: restored,
-        previous,
+      await logBulkLeadAssignment(req, {
         performedBy: authReq.user.id,
-        telecallerId: parsedTelecallerId,
-        counsellorId: parsedCounsellorId,
-        telecallerName: parsedCounsellorId == null ? assigneeName : null,
-        counsellorName: parsedCounsellorId != null ? assigneeName : null,
+        leadCount: 1,
+        summaries: [
+          {
+            userId: Number(assigneeId),
+            userName: assigneeName ?? String(assigneeId),
+            role: parsedCounsellorId != null ? "counsellor" : "telecaller",
+            count: 1,
+          },
+        ],
+        action: "restored_and_assigned",
       });
     }
 
@@ -1288,6 +1306,395 @@ export const revertLeadJunkController = async (req: Request, res: Response) => {
   } catch (error: any) {
     const status = error.message?.includes("not found") ? 404 : 400;
     res.status(status).json({ success: false, message: error.message });
+  }
+};
+
+export const bulkRevertJunkLeadsController = async (req: Request, res: Response) => {
+  try {
+    const authReq = req as AuthenticatedRequest;
+    const role = authReq.user?.role ?? "";
+    if (!["admin", "developer", "manager", "superadmin"].includes(role)) {
+      return res.status(403).json({
+        success: false,
+        message: "Only admins can restore junk leads",
+      });
+    }
+
+    const { leadIds, telecallerId, counsellorId, assignments } = req.body ?? {};
+    const hasTelecaller = telecallerId != null && telecallerId !== "";
+    const hasCounsellor = counsellorId != null && counsellorId !== "";
+
+    type RevertAssignment = {
+      leadId: number;
+      telecallerId?: number | null;
+      counsellorId?: number | null;
+      userName?: string | null;
+      role?: "telecaller" | "counsellor";
+    };
+
+    let items: RevertAssignment[] = [];
+
+    if (Array.isArray(assignments) && assignments.length > 0) {
+      items = assignments
+        .map((row: Record<string, unknown>) => {
+          const leadId = Number(row.leadId);
+          if (!Number.isFinite(leadId)) return null;
+          const roleName = row.role === "counsellor" ? "counsellor" : row.role === "telecaller" ? "telecaller" : null;
+          const userId = Number(row.userId);
+          const explicitTelecallerId =
+            row.telecallerId != null && row.telecallerId !== "" ? Number(row.telecallerId) : null;
+          const explicitCounsellorId =
+            row.counsellorId != null && row.counsellorId !== "" ? Number(row.counsellorId) : null;
+          return {
+            leadId,
+            telecallerId:
+              explicitTelecallerId ??
+              (roleName === "telecaller" && Number.isFinite(userId) ? userId : null),
+            counsellorId:
+              explicitCounsellorId ??
+              (roleName === "counsellor" && Number.isFinite(userId) ? userId : null),
+            userName: typeof row.userName === "string" ? row.userName : null,
+            role: roleName ?? (explicitCounsellorId != null ? "counsellor" : "telecaller"),
+          } satisfies RevertAssignment;
+        })
+        .filter(Boolean) as RevertAssignment[];
+    } else {
+      if (!Array.isArray(leadIds) || leadIds.length === 0) {
+        return res.status(400).json({ success: false, message: "leadIds or assignments is required" });
+      }
+      if (hasTelecaller && hasCounsellor) {
+        return res.status(400).json({ success: false, message: "Choose either telecaller or counsellor" });
+      }
+      const parsedTelecallerId = hasTelecaller ? Number(telecallerId) : null;
+      const parsedCounsellorId = hasCounsellor ? Number(counsellorId) : null;
+      if (
+        (hasTelecaller && (parsedTelecallerId == null || isNaN(parsedTelecallerId))) ||
+        (hasCounsellor && (parsedCounsellorId == null || isNaN(parsedCounsellorId)))
+      ) {
+        return res.status(400).json({ success: false, message: "Invalid assignee id" });
+      }
+      items = leadIds
+        .map((id: unknown) => Number(id))
+        .filter((id: number) => Number.isFinite(id))
+        .map((leadId: number) => ({
+          leadId,
+          telecallerId: parsedTelecallerId,
+          counsellorId: parsedCounsellorId,
+        }));
+    }
+
+    if (items.length === 0) {
+      return res.status(400).json({ success: false, message: "No valid leads to restore" });
+    }
+
+    const assigneeIds = new Set<number>();
+    for (const item of items) {
+      if (item.telecallerId != null) assigneeIds.add(Number(item.telecallerId));
+      if (item.counsellorId != null) assigneeIds.add(Number(item.counsellorId));
+    }
+
+    const nameRows =
+      assigneeIds.size > 0
+        ? await db
+            .select({ id: users.id, fullName: users.fullName })
+            .from(users)
+            .where(inArray(users.id, Array.from(assigneeIds)))
+        : [];
+    const nameMap = new Map(nameRows.map((row) => [row.id, row.fullName]));
+
+    const updatedItems: Awaited<ReturnType<typeof revertJunkLead>>[] = [];
+    const failed: Array<{ leadId: number; message: string }> = [];
+    const assignSummaryMap = new Map<string, BulkAssigneeSummary>();
+    const isDistributed =
+      Array.isArray(assignments) && assignments.length > 0
+        ? new Set(
+            items.map((item) =>
+              item.counsellorId != null
+                ? `counsellor:${item.counsellorId}`
+                : `telecaller:${item.telecallerId ?? "none"}`
+            )
+          ).size > 1
+        : false;
+
+    for (const item of items) {
+      try {
+        const restored = await revertJunkLead(item.leadId, {
+          telecallerId: item.telecallerId ?? null,
+          counsellorId: item.counsellorId ?? null,
+          assignedBy: authReq.user?.id ?? null,
+        });
+        updatedItems.push(restored);
+        await publishLeadChange("lead:reverted", restored as Record<string, unknown>);
+
+        if (item.telecallerId != null || item.counsellorId != null) {
+          const role = item.counsellorId != null ? "counsellor" : "telecaller";
+          const userId = Number(item.counsellorId ?? item.telecallerId);
+          const userName =
+            item.userName ??
+            nameMap.get(userId) ??
+            String(userId);
+          const summaryKey = `${role}:${userId}`;
+          const existingSummary = assignSummaryMap.get(summaryKey);
+          if (existingSummary) {
+            existingSummary.count += 1;
+          } else {
+            assignSummaryMap.set(summaryKey, { userId, userName, role, count: 1 });
+          }
+        }
+      } catch (error: any) {
+        failed.push({ leadId: item.leadId, message: error.message ?? "Restore failed" });
+      }
+    }
+
+    if (authReq.user?.id && updatedItems.length > 0 && assignSummaryMap.size > 0) {
+      await logBulkLeadAssignment(req, {
+        performedBy: authReq.user.id,
+        leadCount: updatedItems.length,
+        summaries: Array.from(assignSummaryMap.values()),
+        action: isDistributed ? "restored_and_distributed" : "restored_and_assigned",
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        updated: updatedItems,
+        failed,
+      },
+    });
+  } catch (error: any) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+export const revertLeadDroppedController = async (req: Request, res: Response) => {
+  try {
+    const authReq = req as AuthenticatedRequest;
+    const role = authReq.user?.role ?? "";
+    if (!["admin", "developer", "manager", "superadmin"].includes(role)) {
+      return res.status(403).json({
+        success: false,
+        message: "Only admins can restore dropped leads",
+      });
+    }
+
+    const leadId = Number(req.params.id);
+    if (isNaN(leadId)) {
+      return res.status(400).json({ success: false, message: "Invalid lead id" });
+    }
+
+    const { telecallerId, counsellorId } = req.body ?? {};
+    const hasTelecaller = telecallerId != null && telecallerId !== "";
+    const hasCounsellor = counsellorId != null && counsellorId !== "";
+
+    if (hasTelecaller && hasCounsellor) {
+      return res.status(400).json({ success: false, message: "Choose either telecaller or counsellor" });
+    }
+
+    const parsedTelecallerId = hasTelecaller ? Number(telecallerId) : null;
+    const parsedCounsellorId = hasCounsellor ? Number(counsellorId) : null;
+
+    if (
+      (hasTelecaller && (parsedTelecallerId == null || isNaN(parsedTelecallerId))) ||
+      (hasCounsellor && (parsedCounsellorId == null || isNaN(parsedCounsellorId)))
+    ) {
+      return res.status(400).json({ success: false, message: "Invalid assignee id" });
+    }
+
+    const previous = await getLeadById(leadId);
+    const restored = await revertDroppedLead(leadId, {
+      telecallerId: parsedTelecallerId,
+      counsellorId: parsedCounsellorId,
+      assignedBy: authReq.user?.id ?? null,
+    });
+
+    if ((parsedTelecallerId != null || parsedCounsellorId != null) && previous && authReq.user?.id) {
+      const assigneeId = parsedCounsellorId ?? parsedTelecallerId;
+      const assigneeName = await getUserFullName(assigneeId);
+      await logBulkLeadAssignment(req, {
+        performedBy: authReq.user.id,
+        leadCount: 1,
+        summaries: [
+          {
+            userId: Number(assigneeId),
+            userName: assigneeName ?? String(assigneeId),
+            role: parsedCounsellorId != null ? "counsellor" : "telecaller",
+            count: 1,
+          },
+        ],
+        action: "restored_and_assigned",
+      });
+    }
+
+    await publishLeadChange("lead:reverted", restored as Record<string, unknown>);
+    cancelPendingLeadFollowupNotifications(leadId).catch((e) =>
+      console.error("[notification] cancel on dropped restore:", e)
+    );
+    res.json({ success: true, data: restored });
+  } catch (error: any) {
+    const status = error.message?.includes("not found") ? 404 : 400;
+    res.status(status).json({ success: false, message: error.message });
+  }
+};
+
+export const bulkRevertDroppedLeadsController = async (req: Request, res: Response) => {
+  try {
+    const authReq = req as AuthenticatedRequest;
+    const role = authReq.user?.role ?? "";
+    if (!["admin", "developer", "manager", "superadmin"].includes(role)) {
+      return res.status(403).json({
+        success: false,
+        message: "Only admins can restore dropped leads",
+      });
+    }
+
+    const { leadIds, telecallerId, counsellorId, assignments } = req.body ?? {};
+    const hasTelecaller = telecallerId != null && telecallerId !== "";
+    const hasCounsellor = counsellorId != null && counsellorId !== "";
+
+    type RevertAssignment = {
+      leadId: number;
+      telecallerId?: number | null;
+      counsellorId?: number | null;
+      userName?: string | null;
+      role?: "telecaller" | "counsellor";
+    };
+
+    let items: RevertAssignment[] = [];
+
+    if (Array.isArray(assignments) && assignments.length > 0) {
+      items = assignments
+        .map((row: Record<string, unknown>) => {
+          const leadId = Number(row.leadId);
+          if (!Number.isFinite(leadId)) return null;
+          const roleName = row.role === "counsellor" ? "counsellor" : row.role === "telecaller" ? "telecaller" : null;
+          const userId = Number(row.userId);
+          const explicitTelecallerId =
+            row.telecallerId != null && row.telecallerId !== "" ? Number(row.telecallerId) : null;
+          const explicitCounsellorId =
+            row.counsellorId != null && row.counsellorId !== "" ? Number(row.counsellorId) : null;
+          return {
+            leadId,
+            telecallerId:
+              explicitTelecallerId ??
+              (roleName === "telecaller" && Number.isFinite(userId) ? userId : null),
+            counsellorId:
+              explicitCounsellorId ??
+              (roleName === "counsellor" && Number.isFinite(userId) ? userId : null),
+            userName: typeof row.userName === "string" ? row.userName : null,
+            role: roleName ?? (explicitCounsellorId != null ? "counsellor" : "telecaller"),
+          } satisfies RevertAssignment;
+        })
+        .filter(Boolean) as RevertAssignment[];
+    } else {
+      if (!Array.isArray(leadIds) || leadIds.length === 0) {
+        return res.status(400).json({ success: false, message: "leadIds or assignments is required" });
+      }
+      if (hasTelecaller && hasCounsellor) {
+        return res.status(400).json({ success: false, message: "Choose either telecaller or counsellor" });
+      }
+      const parsedTelecallerId = hasTelecaller ? Number(telecallerId) : null;
+      const parsedCounsellorId = hasCounsellor ? Number(counsellorId) : null;
+      if (
+        (hasTelecaller && (parsedTelecallerId == null || isNaN(parsedTelecallerId))) ||
+        (hasCounsellor && (parsedCounsellorId == null || isNaN(parsedCounsellorId)))
+      ) {
+        return res.status(400).json({ success: false, message: "Invalid assignee id" });
+      }
+      items = leadIds
+        .map((id: unknown) => Number(id))
+        .filter((id: number) => Number.isFinite(id))
+        .map((leadId: number) => ({
+          leadId,
+          telecallerId: parsedTelecallerId,
+          counsellorId: parsedCounsellorId,
+        }));
+    }
+
+    if (items.length === 0) {
+      return res.status(400).json({ success: false, message: "No valid leads to restore" });
+    }
+
+    const assigneeIds = new Set<number>();
+    for (const item of items) {
+      if (item.telecallerId != null) assigneeIds.add(Number(item.telecallerId));
+      if (item.counsellorId != null) assigneeIds.add(Number(item.counsellorId));
+    }
+
+    const nameRows =
+      assigneeIds.size > 0
+        ? await db
+            .select({ id: users.id, fullName: users.fullName })
+            .from(users)
+            .where(inArray(users.id, Array.from(assigneeIds)))
+        : [];
+    const nameMap = new Map(nameRows.map((row) => [row.id, row.fullName]));
+
+    const updatedItems: Awaited<ReturnType<typeof revertDroppedLead>>[] = [];
+    const failed: Array<{ leadId: number; message: string }> = [];
+    const assignSummaryMap = new Map<string, BulkAssigneeSummary>();
+    const isDistributed =
+      Array.isArray(assignments) && assignments.length > 0
+        ? new Set(
+            items.map((item) =>
+              item.counsellorId != null
+                ? `counsellor:${item.counsellorId}`
+                : `telecaller:${item.telecallerId ?? "none"}`
+            )
+          ).size > 1
+        : false;
+
+    for (const item of items) {
+      try {
+        const restored = await revertDroppedLead(item.leadId, {
+          telecallerId: item.telecallerId ?? null,
+          counsellorId: item.counsellorId ?? null,
+          assignedBy: authReq.user?.id ?? null,
+        });
+        updatedItems.push(restored);
+        await publishLeadChange("lead:reverted", restored as Record<string, unknown>);
+        cancelPendingLeadFollowupNotifications(item.leadId).catch((e) =>
+          console.error("[notification] cancel on dropped restore:", e)
+        );
+
+        if (item.telecallerId != null || item.counsellorId != null) {
+          const role = item.counsellorId != null ? "counsellor" : "telecaller";
+          const userId = Number(item.counsellorId ?? item.telecallerId);
+          const userName =
+            item.userName ??
+            nameMap.get(userId) ??
+            String(userId);
+          const summaryKey = `${role}:${userId}`;
+          const existingSummary = assignSummaryMap.get(summaryKey);
+          if (existingSummary) {
+            existingSummary.count += 1;
+          } else {
+            assignSummaryMap.set(summaryKey, { userId, userName, role, count: 1 });
+          }
+        }
+      } catch (error: any) {
+        failed.push({ leadId: item.leadId, message: error.message ?? "Restore failed" });
+      }
+    }
+
+    if (authReq.user?.id && updatedItems.length > 0 && assignSummaryMap.size > 0) {
+      await logBulkLeadAssignment(req, {
+        performedBy: authReq.user.id,
+        leadCount: updatedItems.length,
+        summaries: Array.from(assignSummaryMap.values()),
+        action: isDistributed ? "restored_and_distributed" : "restored_and_assigned",
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        updated: updatedItems,
+        failed,
+      },
+    });
+  } catch (error: any) {
+    res.status(400).json({ success: false, message: error.message });
   }
 };
 
@@ -1716,19 +2123,6 @@ export const bulkAssignLeadsController = async (req: Request, res: Response) => 
         updatedAt: new Date(),
       });
 
-      if (authReq.user?.id) {
-        await logLeadAssignment(req, {
-          lead: updated,
-          previous: currentLead,
-          performedBy: authReq.user.id,
-          telecallerId: telecallerId ?? null,
-          counsellorId: counsellorId ?? null,
-          telecallerName: counsellorId == null ? assigneeName : null,
-          counsellorName: counsellorId != null ? assigneeName : null,
-          bulk: true,
-        });
-      }
-
       if (updated) {
         await onLeadAssignmentChange(currentLead, updated, {
           telecallerId: telecallerId ?? null,
@@ -1750,6 +2144,22 @@ export const bulkAssignLeadsController = async (req: Request, res: Response) => 
       } catch (e) {
         console.error("[notification] bulk assign flush:", e);
       }
+    }
+
+    if (authReq.user?.id && updatedItems.length > 0 && assigneeId != null) {
+      await logBulkLeadAssignment(req, {
+        performedBy: authReq.user.id,
+        leadCount: updatedItems.length,
+        summaries: [
+          {
+            userId: Number(assigneeId),
+            userName: assigneeName ?? String(assigneeId),
+            role: counsellorId != null ? "counsellor" : "telecaller",
+            count: updatedItems.length,
+          },
+        ],
+        action: "assigned",
+      });
     }
 
     await publishLeadChange("lead:bulk_assigned", {
@@ -1822,6 +2232,7 @@ export const bulkStrategyAssignLeadsController = async (req: Request, res: Respo
     const performerName = await getUserFullName(authReq.user?.id);
     const updatedItems: Awaited<ReturnType<typeof updateLeadById>>[] = [];
     const assigneesToFlush = new Set<number>();
+    const assignSummaryMap = new Map<string, BulkAssigneeSummary>();
 
     for (const assignment of plan.assignments) {
       const currentLead = rowMap.get(assignment.leadId);
@@ -1863,19 +2274,6 @@ export const bulkStrategyAssignLeadsController = async (req: Request, res: Respo
         updatedAt: new Date(),
       });
 
-      if (authReq.user?.id) {
-        await logLeadAssignment(req, {
-          lead: updated,
-          previous: currentLead,
-          performedBy: authReq.user.id,
-          telecallerId: assignment.role === "telecaller" ? assignment.userId : null,
-          counsellorId: assignment.role === "counsellor" ? assignment.userId : null,
-          telecallerName: assignment.role === "telecaller" ? assignment.userName : null,
-          counsellorName: assignment.role === "counsellor" ? assignment.userName : null,
-          bulk: true,
-        });
-      }
-
       await onLeadAssignmentChange(currentLead, updated, {
         telecallerId: assignment.role === "telecaller" ? assignment.userId : null,
         counsellorId: assignment.role === "counsellor" ? assignment.userId : null,
@@ -1884,6 +2282,19 @@ export const bulkStrategyAssignLeadsController = async (req: Request, res: Respo
         deferDelivery: true,
       });
       assigneesToFlush.add(assignment.userId);
+
+      const summaryKey = `${assignment.role}:${assignment.userId}`;
+      const existingSummary = assignSummaryMap.get(summaryKey);
+      if (existingSummary) {
+        existingSummary.count += 1;
+      } else {
+        assignSummaryMap.set(summaryKey, {
+          userId: assignment.userId,
+          userName: assignment.userName,
+          role: assignment.role,
+          count: 1,
+        });
+      }
 
       updatedItems.push(updated);
     }
@@ -1894,6 +2305,16 @@ export const bulkStrategyAssignLeadsController = async (req: Request, res: Respo
       } catch (e) {
         console.error("[notification] strategy assign flush:", e);
       }
+    }
+
+    if (authReq.user?.id && updatedItems.length > 0) {
+      await logBulkLeadAssignment(req, {
+        performedBy: authReq.user.id,
+        leadCount: updatedItems.length,
+        summaries: Array.from(assignSummaryMap.values()),
+        action: "distributed",
+        strategy: validStrategy,
+      });
     }
 
     await publishLeadChange("lead:bulk_assigned", {
@@ -2052,7 +2473,10 @@ export const updateLeadActivityStatusController = async (req: Request, res: Resp
 
     // When a follow-up is completed, cancel pending/overdue notifications and advance state
     if (status === "completed" && targetActivity?.activityType === "followup") {
-      await cancelPendingLeadFollowupNotifications(leadId);
+      const completedFollowupAt = targetActivity.followupAt
+        ? new Date(targetActivity.followupAt)
+        : undefined;
+      await cancelPendingLeadFollowupNotifications(leadId, completedFollowupAt);
       const stillPending = allActivities.some(
         (a: any) =>
           a.activityType === "followup" && a.status === "pending" && a.id !== activityId
@@ -2156,12 +2580,9 @@ const ADMIN_REPORT_STATS_CACHE_PREFIX = "leads:admin-report-stats:";
 
 export const getAdminLeadReportStatsController = async (req: Request, res: Response) => {
   try {
-    // Resolve date bounds as UTC ISO instants from query params.
-    // Accepts: afterDate/beforeDate (yyyy-MM-dd), dateFilter=today|weekly|monthly, or legacy createdFrom/createdTo ISO.
-    const createdFrom = req.query.createdFrom
-      ? new Date(String(req.query.createdFrom))
-      : undefined;
-    const createdTo = req.query.createdTo ? new Date(String(req.query.createdTo)) : undefined;
+    const query = req.query as Record<string, unknown>;
+    const { createdFrom, createdTo } = resolveQueryCreatedRange(query);
+    const dateFilter = typeof query.dateFilter === "string" ? query.dateFilter : "all";
 
     if (createdFrom && isNaN(createdFrom.getTime())) {
       return res.status(400).json({ success: false, message: "Invalid from date" });
@@ -2170,7 +2591,7 @@ export const getAdminLeadReportStatsController = async (req: Request, res: Respo
       return res.status(400).json({ success: false, message: "Invalid to date" });
     }
 
-    const cacheKey = `${ADMIN_REPORT_STATS_CACHE_PREFIX}${createdFrom?.toISOString() ?? "all"}:${createdTo?.toISOString() ?? "all"}`;
+    const cacheKey = `${ADMIN_REPORT_STATS_CACHE_PREFIX}${dateFilter}:${createdFrom?.toISOString() ?? "all"}:${createdTo?.toISOString() ?? "all"}`;
     const cached = await redisGetJson<any>(cacheKey);
     if (cached) {
       return res.json({ success: true, data: cached, cached: true });

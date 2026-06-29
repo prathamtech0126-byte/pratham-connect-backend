@@ -7,6 +7,7 @@ import {
   markNotificationRead,
 } from "../models/notification.model";
 import { toNotificationPayload } from "../services/notification.service";
+import { getNotificationRealtimeMeta } from "../services/notificationRealtime.service";
 
 export const listNotificationsController = async (req: Request, res: Response) => {
   try {
@@ -39,6 +40,7 @@ export const listNotificationsController = async (req: Request, res: Response) =
         total: result.total,
         totalPages: result.totalPages,
       },
+      realtime: getNotificationRealtimeMeta(),
     });
   } catch (error: any) {
     return res.status(500).json({
@@ -59,7 +61,11 @@ export const getUnreadCountController = async (req: Request, res: Response) => {
 
     const count = await getUnreadNotificationCount(req.user.id, category);
 
-    return res.status(200).json({ success: true, count });
+    return res.status(200).json({
+      success: true,
+      count,
+      realtime: getNotificationRealtimeMeta(),
+    });
   } catch (error: any) {
     return res.status(500).json({
       success: false,

@@ -1,5 +1,7 @@
 import { emitToUser } from "../../config/socket";
 import {
+  FOLLOWUP_ADMIN_ESCALATION_HOURS,
+  FOLLOWUP_FINAL_WARNING_HOURS,
   FOLLOWUP_MISSED_MINUTES,
   FOLLOWUP_OVERDUE_REPEAT_HOURS,
   getDueUndeliveredNotifications,
@@ -12,6 +14,9 @@ import type {
   NotifyInput,
 } from "../types/notification.types";
 import { getRegistryEntry } from "./notificationEventRegistry";
+import {
+  wrapNotificationSocketPayload,
+} from "./notificationRealtime.service";
 
 const FOLLOWUP_REMINDER_MINUTES = parseInt(
   process.env.FOLLOWUP_REMINDER_MINUTES_BEFORE || "5",
@@ -41,7 +46,7 @@ export async function emitNotificationToUser(
   event: "notification:new" | "notification:updated"
 ): Promise<void> {
   if (event === "notification:updated") {
-    const payload = toNotificationPayload(row);
+    const payload = wrapNotificationSocketPayload(toNotificationPayload(row));
     emitToUser(row.userId, "notification:updated", payload);
     return;
   }
@@ -49,12 +54,32 @@ export async function emitNotificationToUser(
   if (row.deliveredAt) return;
 
   await markNotificationDelivered(row.id);
-  const payload = toNotificationPayload({ ...row, deliveredAt: new Date() });
+  const payload = wrapNotificationSocketPayload(
+    toNotificationPayload({ ...row, deliveredAt: new Date() })
+  );
   emitToUser(row.userId, "notification:new", payload);
 }
 
 export async function deliverNotificationRow(row: NotificationRow): Promise<void> {
+  if (row.deliveredAt) {
+    await emitNotificationToUser(row, "notification:updated");
+    return;
+  }
   await emitNotificationToUser(row, "notification:new");
+
+  // Lazy require avoids circular init with followupNotificationChain (which imports notifyUsers).
+  const { handleFollowupNotificationDelivered } = require(
+    "../integrations/followupNotificationChain.service"
+  ) as Pick<
+    typeof import("../integrations/followupNotificationChain.service.js"),
+    "handleFollowupNotificationDelivered"
+  >;
+  const deliveredRow = { ...row, deliveredAt: new Date() };
+  try {
+    await handleFollowupNotificationDelivered(deliveredRow);
+  } catch (err) {
+    console.error("[notification] followup chain failed", row.id, err);
+  }
 }
 
 export async function notifyUsers(input: NotifyInput): Promise<void> {
@@ -143,12 +168,28 @@ export function getFollowupMissedOverdueDeliverAt(followupAt: Date): Date {
   return deliverAtFromFollowup(followupAt, FOLLOWUP_MISSED_MINUTES * 60 * 1000);
 }
 
-/** When to deliver the “still overdue” alert (default 3 hours after scheduled time). */
+/** When to deliver the 3-hour overdue step (default 3 hours after scheduled time). */
 export function getFollowupRepeatOverdueDeliverAt(followupAt: Date): Date {
   return deliverAtFromFollowup(
     followupAt,
     FOLLOWUP_OVERDUE_REPEAT_HOURS * 60 * 60 * 1000
   );
+}
+
+/** When to deliver the final warning step (default 5 hours after scheduled time). */
+export function getFollowupFinalWarningDeliverAt(followupAt: Date): Date {
+  return deliverAtFromFollowup(
+    followupAt,
+    FOLLOWUP_FINAL_WARNING_HOURS * 60 * 60 * 1000
+  );
+}
+
+/** When to deliver admin escalation after manager was notified. */
+export function getFollowupAdminEscalationDeliverAt(managerNotifiedAt: Date): Date {
+  const at = new Date(
+    managerNotifiedAt.getTime() + FOLLOWUP_ADMIN_ESCALATION_HOURS * 60 * 60 * 1000
+  );
+  return at.getTime() <= Date.now() ? new Date() : at;
 }
 
 /** Format follow-up time for notification body text. */

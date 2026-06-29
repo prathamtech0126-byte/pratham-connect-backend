@@ -1354,6 +1354,76 @@ export const revertJunkLead = async (
   return enriched;
 };
 
+/** Admin-only: restore dropped lead and optionally assign it during restore. */
+export const revertDroppedLead = async (
+  leadId: number,
+  assignment?: {
+    telecallerId?: number | null;
+    counsellorId?: number | null;
+    assignedBy?: number | null;
+  }
+) => {
+  const [existing] = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
+  if (!existing) throw new Error("Lead not found");
+  if (!isLeadDroppedLocked(existing)) {
+    throw new Error("Only dropped leads can be restored");
+  }
+  if (existing.assignmentStatus === "transferred") {
+    throw new Error("Transferred leads cannot be restored");
+  }
+  if (existing.currentCounsellorId == null) {
+    throw new Error("Only counsellor-dropped leads can be restored");
+  }
+  if (existing.currentTelecallerId != null) {
+    throw new Error("Dropped leads with a telecaller cannot be restored");
+  }
+
+  const [firstActivity] = await db
+    .select({ id: leadActivities.id })
+    .from(leadActivities)
+    .where(eq(leadActivities.leadId, leadId))
+    .orderBy(asc(leadActivities.createdAt))
+    .limit(1);
+
+  await db.delete(leadActivities).where(
+    firstActivity
+      ? and(eq(leadActivities.leadId, leadId), ne(leadActivities.id, firstActivity.id))
+      : eq(leadActivities.leadId, leadId)
+  );
+
+  const now = new Date();
+  await db
+    .update(leads)
+    .set({
+      progressStatus: "not_contacted",
+      assignmentStatus:
+        assignment?.counsellorId != null
+          ? "transferred"
+          : assignment?.telecallerId != null
+            ? "assigned"
+            : "not_assigned",
+      eligibilityStatus: null,
+      leadQuality: null,
+      currentTelecallerId: assignment?.counsellorId != null ? null : assignment?.telecallerId ?? null,
+      currentCounsellorId: assignment?.counsellorId ?? null,
+      assignedBy:
+        assignment?.telecallerId != null || assignment?.counsellorId != null
+          ? assignment?.assignedBy ?? null
+          : null,
+      nextFollowupAt: null,
+      convertedAt: null,
+      latestNote: null,
+      dropReason: null,
+      droppedAt: null,
+      updatedAt: now,
+    })
+    .where(eq(leads.id, leadId));
+
+  const enriched = await getLeadById(leadId);
+  if (!enriched) throw new Error("Lead not found after restore");
+  return enriched;
+};
+
 export type LeadStructuredDetailsInput = {
   profile?: {
     gender?: string;

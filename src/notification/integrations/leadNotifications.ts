@@ -2,25 +2,21 @@ import {
   activeLeadAssignmentBatchDedupeKey,
   cancelPendingLeadFollowupNotifications,
   findMissedFollowUpLeads,
-  followupOverdueDedupeKey,
+  followupReminderDedupeKey,
   getFollowupMissedEarlyCutoff,
-  getFollowupOverdueRepeatCutoff,
   getUnreadLeadAssignmentBatch,
   transferLeadFollowupNotifications,
-  wasOverdueNotificationDelivered,
-  type FollowupOverduePhase,
 } from "../models/notification.model";
 import {
   deliverNotificationRow,
   emitNotificationToUser,
   formatFollowupTime,
   getFollowupDueDeliverAt,
-  getFollowupMissedOverdueDeliverAt,
   getFollowupReminderDeliverAt,
   getFollowupReminderMinutesBefore,
-  getFollowupRepeatOverdueDeliverAt,
   notifyUsers,
 } from "../services/notification.service";
+import { backfillFollowupChainForLead } from "./followupNotificationChain.service";
 import { db } from "../../config/databaseConnection";
 import { notifications } from "../schemas/notifications.schema";
 import { eq } from "drizzle-orm";
@@ -200,7 +196,21 @@ export async function appendLeadAssignmentBatch(params: {
 export async function flushLeadAssignmentBatch(userId: number): Promise<void> {
   const existing = await getUnreadLeadAssignmentBatch(userId);
   if (!existing) return;
-  await deliverNotificationRow(existing);
+
+  const now = new Date();
+  await db
+    .update(notifications)
+    .set({
+      deliveredAt: null,
+      deliverAt: now,
+      updatedAt: now,
+    })
+    .where(eq(notifications.id, existing.id));
+
+  const fresh = await getUnreadLeadAssignmentBatch(userId);
+  if (!fresh) return;
+
+  await deliverNotificationRow(fresh);
 }
 
 export async function scheduleLeadFollowupReminder(
@@ -224,6 +234,7 @@ export async function scheduleLeadFollowupReminder(
   const baseMeta = {
     leadName: lead.fullName,
     followupAt: followupAtIso,
+    ownerUserId: ownerId,
   };
 
   // 1) Reminder N minutes before scheduled follow-up (default 5 min)
@@ -238,7 +249,7 @@ export async function scheduleLeadFollowupReminder(
     scheduledAt: followupInstant,
     deliverAt: getFollowupReminderDeliverAt(followupInstant),
     deliverImmediately: false,
-    dedupeKey: `lead_followup:${lead.id}:${ownerId}:before`,
+    dedupeKey: followupReminderDedupeKey(lead.id, ownerId, followupInstant, "before"),
     meta: { ...baseMeta, phase: "before" },
   });
 
@@ -248,141 +259,32 @@ export async function scheduleLeadFollowupReminder(
     userIds: [ownerId],
     title: "Follow-up now",
     body: `It's time to follow up with ${leadName} (scheduled for ${whenLabel}).`,
+    priority: "high",
     entityType: "lead",
     entityId: lead.id,
     actionUrl: leadActionUrl(lead.id),
     scheduledAt: followupInstant,
     deliverAt: getFollowupDueDeliverAt(followupInstant),
     deliverImmediately: false,
-    dedupeKey: `lead_followup:${lead.id}:${ownerId}:due`,
+    dedupeKey: followupReminderDedupeKey(lead.id, ownerId, followupInstant, "due"),
     meta: { ...baseMeta, phase: "due" },
   });
-
-  await scheduleLeadFollowupOverdueAlerts(lead, followupInstant, ownerId, whenLabel, leadName);
 }
 
-async function scheduleLeadFollowupOverdueAlerts(
-  lead: LeadLike,
-  followupAt: Date,
-  ownerId: number,
-  whenLabel: string,
-  leadName: string
-): Promise<void> {
-  const overdueMeta = {
-    leadName: lead.fullName,
-    followupAt: followupAt.toISOString(),
-  };
-
-  await notifyUsers({
-    type: "lead_followup_overdue",
-    userIds: [ownerId],
-    title: "Follow-up missed",
-    body: `Follow-up with ${leadName} was due at ${whenLabel}. Complete it as soon as possible or your manager may be updated.`,
-    priority: "high",
-    category: "alerts",
-    entityType: "lead",
-    entityId: lead.id,
-    actionUrl: leadActionUrl(lead.id),
-    scheduledAt: followupAt,
-    deliverAt: getFollowupMissedOverdueDeliverAt(followupAt),
-    deliverImmediately: false,
-    dedupeKey: followupOverdueDedupeKey(lead.id, ownerId, followupAt, "early"),
-    meta: { ...overdueMeta, phase: "early" },
-  });
-
-  await notifyUsers({
-    type: "lead_followup_overdue",
-    userIds: [ownerId],
-    title: "Follow-up still overdue",
-    body: `Follow-up with ${leadName} (due ${whenLabel}) is still not completed. Complete it now or your manager may be updated.`,
-    priority: "high",
-    category: "alerts",
-    entityType: "lead",
-    entityId: lead.id,
-    actionUrl: leadActionUrl(lead.id),
-    scheduledAt: followupAt,
-    deliverAt: getFollowupRepeatOverdueDeliverAt(followupAt),
-    deliverImmediately: false,
-    dedupeKey: followupOverdueDedupeKey(lead.id, ownerId, followupAt, "repeat"),
-    meta: { ...overdueMeta, phase: "repeat" },
-  });
-}
-
-export async function notifyLeadFollowupOverdue(
-  lead: LeadLike,
-  phase: FollowupOverduePhase,
-  followupAt: Date
-): Promise<void> {
-  const ownerId = resolveLeadOwnerId(lead);
-  if (!ownerId || !lead.id) return;
-
-  const leadName = lead.fullName ?? `lead #${lead.id}`;
-  const whenLabel = formatFollowupTime(followupAt);
-  const isEarly = phase === "early";
-
-  await notifyUsers({
-    type: "lead_followup_overdue",
-    userIds: [ownerId],
-    title: isEarly ? "Follow-up missed" : "Follow-up still overdue",
-    body: isEarly
-      ? `Follow-up with ${leadName} was due at ${whenLabel}. Complete it as soon as possible or your manager may be updated.`
-      : `Follow-up with ${leadName} (due ${whenLabel}) is still not completed. Complete it now or your manager may be updated.`,
-    priority: "high",
-    category: "alerts",
-    entityType: "lead",
-    entityId: lead.id,
-    actionUrl: leadActionUrl(lead.id),
-    scheduledAt: followupAt,
-    deliverAt: isEarly
-      ? getFollowupMissedOverdueDeliverAt(followupAt)
-      : getFollowupRepeatOverdueDeliverAt(followupAt),
-    dedupeKey: followupOverdueDedupeKey(lead.id, ownerId, followupAt, phase),
-    meta: {
-      leadName: lead.fullName,
-      followupAt: followupAt.toISOString(),
-      phase,
-    },
-  });
-}
-
-/** Scanner backup: deliver missed alerts if scheduled rows were never created. */
+/** Scanner backup: backfill missing chain steps for pending overdue follow-ups. */
 export async function processMissedFollowUpOverdueScan(): Promise<void> {
   const earlyLeads = await findMissedFollowUpLeads(getFollowupMissedEarlyCutoff(), 100);
   for (const row of earlyLeads) {
     if (!row.nextFollowupAt) continue;
-    const lead: LeadLike = {
-      id: row.id,
-      fullName: row.fullName,
-      currentCounsellorId: row.currentCounsellorId,
-      currentTelecallerId: row.currentTelecallerId,
-      nextFollowupAt: row.nextFollowupAt,
-    };
-    const ownerId = resolveLeadOwnerId(lead);
+    const ownerId = resolveLeadOwnerId(row);
     if (!ownerId) continue;
     const followupAt = new Date(row.nextFollowupAt);
-    const key = followupOverdueDedupeKey(row.id, ownerId, followupAt, "early");
-    if (await wasOverdueNotificationDelivered(ownerId, key)) continue;
-    await notifyLeadFollowupOverdue(lead, "early", followupAt);
-  }
-
-  const repeatLeads = await findMissedFollowUpLeads(getFollowupOverdueRepeatCutoff(), 100);
-  for (const row of repeatLeads) {
-    if (!row.nextFollowupAt) continue;
-    const lead: LeadLike = {
-      id: row.id,
-      fullName: row.fullName,
-      currentCounsellorId: row.currentCounsellorId,
-      currentTelecallerId: row.currentTelecallerId,
-      nextFollowupAt: row.nextFollowupAt,
-    };
-    const ownerId = resolveLeadOwnerId(lead);
-    if (!ownerId) continue;
-    const followupAt = new Date(row.nextFollowupAt);
-    const earlyKey = followupOverdueDedupeKey(row.id, ownerId, followupAt, "early");
-    const repeatKey = followupOverdueDedupeKey(row.id, ownerId, followupAt, "repeat");
-    if (!(await wasOverdueNotificationDelivered(ownerId, earlyKey))) continue;
-    if (await wasOverdueNotificationDelivered(ownerId, repeatKey)) continue;
-    await notifyLeadFollowupOverdue(lead, "repeat", followupAt);
+    await backfillFollowupChainForLead({
+      leadId: row.id,
+      ownerId,
+      followupAt,
+      leadName: row.fullName ?? `lead #${row.id}`,
+    });
   }
 }
 
