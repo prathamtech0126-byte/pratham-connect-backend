@@ -12,15 +12,24 @@ import {
 const scopedKey = (segment: string, payload: unknown): string =>
   `${MODULE_CACHE_KEYS.FRONTDESK}${segment}:${JSON.stringify(payload)}`;
 
-export const getCachedFrontDeskStats = (start?: Date, end?: Date) =>
-  getOrSetCache(
+/** Match getFrontDeskDashboardStats defaults so cache key aligns with the DB query. */
+function resolveFrontDeskStatsRange(start?: Date, end?: Date): { start: Date; end: Date } {
+  const startResolved = start ?? new Date(new Date().setHours(0, 0, 0, 0));
+  const endResolved = end ?? new Date(new Date().setHours(23, 59, 59, 999));
+  return { start: startResolved, end: endResolved };
+}
+
+export const getCachedFrontDeskStats = (start?: Date, end?: Date) => {
+  const { start: startResolved, end: endResolved } = resolveFrontDeskStatsRange(start, end);
+  return getOrSetCache(
     scopedKey("stats", {
-      start: start?.toISOString() ?? null,
-      end: end?.toISOString() ?? null,
+      start: startResolved.toISOString(),
+      end: endResolved.toISOString(),
     }),
     MODULE_CACHE_TTL.FRONT_DESK_STATS,
-    () => getFrontDeskDashboardStats(start, end)
+    () => getFrontDeskDashboardStats(startResolved, endResolved)
   );
+};
 
 export const getCachedFrontDeskLeads = (filters: FrontDeskLeadFilters) =>
   getOrSetCache(

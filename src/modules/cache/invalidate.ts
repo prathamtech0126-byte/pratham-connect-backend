@@ -6,11 +6,15 @@ import {
 import { bumpModulesCacheGeneration } from "./generation";
 import { MODULE_CACHE_KEYS } from "./keys";
 
-const safeRun = async (task: () => Promise<void>): Promise<void> => {
+const safeRun = async (
+  task: () => Promise<void>,
+  label = "cache invalidation"
+): Promise<void> => {
   try {
     await task();
-  } catch {
-    // Cache invalidation must never fail a DB write or API response.
+  } catch (err) {
+    // Must never fail a DB write or API response — log for ops visibility.
+    console.warn(`[cache] ${label} failed:`, err);
   }
 };
 
@@ -42,9 +46,12 @@ export async function invalidateJourneyCachesForClient(
   });
 }
 
-/** Immediately delete all front desk Redis keys (list, detail, stats, activity). */
+/** Immediately invalidate front desk reads (bump generation + delete stale keys). */
 export async function invalidateFrontDeskCaches(): Promise<void> {
-  await safeRun(() => redisDelByPrefix(MODULE_CACHE_KEYS.FRONTDESK));
+  await safeRun(async () => {
+    await bumpModulesCacheGeneration();
+    await redisDelByPrefix(MODULE_CACHE_KEYS.FRONTDESK);
+  }, "front desk cache invalidation");
 }
 
 export type ModulesCacheInvalidation = ModulesRealtimeWriteMeta & {
