@@ -65,6 +65,36 @@ type PublishLeadChangeOptions = {
   notifyCounsellorId?: number | null;
 };
 
+/** Per-assignee socket notifies after bulk assign (dashboard banner + alert sound). */
+export function emitBulkAssignmentNotifies(
+  leads: Record<string, unknown>[]
+): void {
+  const telecallerLatest = new Map<number, Record<string, unknown>>();
+  const counsellorLatest = new Map<number, Record<string, unknown>>();
+
+  for (const lead of leads) {
+    const telecallerId = Number(lead.currentTelecallerId);
+    if (
+      Number.isFinite(telecallerId) &&
+      telecallerId > 0 &&
+      lead.assignmentStatus === "assigned"
+    ) {
+      telecallerLatest.set(telecallerId, lead);
+    }
+    const counsellorId = Number(lead.currentCounsellorId);
+    if (Number.isFinite(counsellorId) && counsellorId > 0) {
+      counsellorLatest.set(counsellorId, lead);
+    }
+  }
+
+  for (const [telecallerId, lead] of telecallerLatest) {
+    emitToRoles(["telecaller"], "lead:assigned:notify", { lead, telecallerId });
+  }
+  for (const [counsellorId, lead] of counsellorLatest) {
+    emitToRoles(["counsellor"], "lead:transferred:notify", { lead, counsellorId });
+  }
+}
+
 /**
  * Redis first (entity snapshot + list cache bust), then Socket.io to role rooms.
  */

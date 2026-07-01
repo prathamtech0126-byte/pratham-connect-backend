@@ -442,9 +442,13 @@ const assertAllFinancePaymentRules = (data: AllFinanceData): void => {
   }
 
   if (!allFinanceAmountsEqual(amountValue, totalAmountValue)) {
-    const remarks = data.remarks?.trim();
-    if (!remarks) {
-      throw new Error("Remarks are required for partial payment");
+    const alreadySubmitted =
+      data.approvalStatus === "pending" || data.approvalStatus === "approved";
+    if (!alreadySubmitted) {
+      const remarks = data.remarks?.trim();
+      if (!remarks) {
+        throw new Error("Remarks are required for partial payment");
+      }
     }
   }
 };
@@ -1179,6 +1183,14 @@ export const saveClientProductPayment = async (
               updateData.partialPayment !== undefined
                 ? updateData.partialPayment
                 : existingAllFinance.partialPayment ?? false,
+            approvalStatus:
+              (updateData.approvalStatus as AllFinanceData["approvalStatus"]) ??
+              (existingAllFinance.approvalStatus as AllFinanceData["approvalStatus"]) ??
+              undefined,
+            remarks:
+              (updateData.remarks as string | undefined) ??
+              (existingAllFinance.remarks as string | undefined) ??
+              undefined,
             anotherPaymentAmount:
               updateData.anotherPaymentAmount ?? existingAllFinance.anotherPaymentAmount ?? undefined,
             anotherPaymentDate:

@@ -80,6 +80,7 @@ import {
   getLeadListCacheGen,
   invalidateLeadListCaches,
   LEAD_LIST_CACHE_PREFIX,
+  emitBulkAssignmentNotifies,
   publishLeadChange,
 } from "../services/leadRealtime.service";
 import {
@@ -1177,7 +1178,9 @@ export const assignLeadController = async (req: Request, res: Response) => {
     }
 
     await publishLeadChange("lead:assigned", updated as Record<string, unknown>, {
-      notifyTelecallerId: telecallerId ?? updated.currentTelecallerId ?? null,
+      notifyTelecallerId: counsellorId
+        ? null
+        : telecallerId ?? updated.currentTelecallerId ?? null,
       notifyCounsellorId: counsellorId ?? null,
     });
 
@@ -2167,6 +2170,7 @@ export const bulkAssignLeadsController = async (req: Request, res: Response) => 
       blocked,
       missing,
     });
+    emitBulkAssignmentNotifies(updatedItems as Record<string, unknown>[]);
 
     res.json({
       success: true,
@@ -2323,6 +2327,7 @@ export const bulkStrategyAssignLeadsController = async (req: Request, res: Respo
       missing: plan.missing,
       strategy: validStrategy,
     });
+    emitBulkAssignmentNotifies(updatedItems as Record<string, unknown>[]);
 
     res.json({
       success: true,
