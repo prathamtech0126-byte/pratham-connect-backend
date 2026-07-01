@@ -225,10 +225,11 @@ export async function getClientActivityFeed(
   filters: ActivityFeedFilters = {}
 ): Promise<ActivityFeedResult> {
   // Resolve journey events and primary visa case ID in parallel (both modules DB).
-  const [journeyEvents, primaryVisaCaseId] = await Promise.all([
+  const [journeyTimeline, primaryVisaCaseId] = await Promise.all([
     getClientJourneyTimeline(clientUuid),
     resolvePrimaryVisaCaseId(clientUuid),
   ]);
+  const journeyEvents = journeyTimeline.events;
 
   // Then fetch activity_log from the legacy DB, now armed with the visa case ID.
   const activityLogEvents =

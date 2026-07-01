@@ -211,14 +211,23 @@ const devDefaultOrigins = [
   "http://192.168.29.105:5000",
 ];
 
+const registrationSiteOrigin = (process.env.REGISTRATION_SITE_URL ?? "")
+  .trim()
+  .replace(/\/$/, "");
+
 const allowedOrigins = Array.from(
   new Set(
     (
       isProduction
-        ? [process.env.FRONTEND_URL]
+        ? [
+            process.env.FRONTEND_URL,
+            registrationSiteOrigin,
+            ...parseOrigins(process.env.CORS_ORIGINS),
+          ]
         : [
             ...devDefaultOrigins,
             process.env.FRONTEND_URL,
+            registrationSiteOrigin,
             ...parseOrigins(process.env.CORS_ORIGINS),
           ]
     ).filter(Boolean) as string[]
@@ -258,6 +267,7 @@ app.use(
       "Content-Type",
       "Authorization",
       "X-CSRF-Token",
+      "X-Lead-Edit-Token",
       "X-Timestamp",
       "X-Signature",
     ],

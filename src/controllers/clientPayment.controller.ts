@@ -12,7 +12,11 @@ import { db } from "../config/databaseConnection";
 import { clientInformation } from "../schemas/clientInformation.schema";
 import { clientPayments } from "../schemas/clientPayment.schema";
 import { users } from "../schemas/users.schema";
-import { eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
+import {
+  canUserEditExistingClientPayment,
+  canUserModifyClient,
+} from "../modules/clients/services/clientAccess.service";
 import { logActivity } from "../services/activityLog.service";
 import { redisDel, redisDelByPrefix, redisGetJson, redisSetJson } from "../config/redis";
 import { syncVisaCaseIfEligible } from "../modules/sync/modulesSync.service";
@@ -46,52 +50,6 @@ function normalizePaymentForActivityLog(payment: any): Record<string, unknown> |
   };
 }
 
-const canUserTouchClient = async (
-  clientId: number,
-  userId: number,
-  role: string
-): Promise<boolean> => {
-  if (role === "admin") return true;
-
-  const [client] = await db
-    .select({
-      counsellorId: clientInformation.counsellorId,
-      transferStatus: clientInformation.transferStatus,
-      transferedToCounsellorId: clientInformation.transferedToCounsellorId,
-    })
-    .from(clientInformation)
-    .where(eq(clientInformation.clientId, clientId))
-    .limit(1);
-
-  if (!client) return false;
-
-  if (role === "counsellor") {
-    return (
-      client.counsellorId === userId ||
-      (client.transferStatus === true &&
-        client.transferedToCounsellorId === userId)
-    );
-  }
-
-  if (role === "manager") {
-    const candidateCounsellorIds = [
-      client.counsellorId,
-      client.transferStatus ? client.transferedToCounsellorId : null,
-    ].filter((id): id is number => Number.isFinite(id));
-
-    if (candidateCounsellorIds.length === 0) return false;
-
-    const counsellors = await db
-      .select({ id: users.id, managerId: users.managerId })
-      .from(users)
-      .where(inArray(users.id, candidateCounsellorIds));
-
-    return counsellors.some((c) => c.managerId === userId);
-  }
-
-  return false;
-};
-
 /**
  * Create client payment
  */
@@ -109,6 +67,7 @@ export const saveClientPaymentController = async (
 
     let targetClientId = Number(req.body.clientId);
     let existingHandledBy: number | null = null;
+    let existingPaymentHandledBy: number | null | undefined;
 
     // Fetch old value if updating
     let oldValue = null;
@@ -125,19 +84,11 @@ export const saveClientPaymentController = async (
             targetClientId = Number(oldPayment.clientId);
           }
 
-          // Preserve the original handledBy for use below
+          existingPaymentHandledBy = oldPayment.handledBy;
+
+          // Preserve the original handledBy for attribution on edits
           if (Number.isFinite(Number(oldPayment.handledBy)) && Number(oldPayment.handledBy) > 0) {
             existingHandledBy = Number(oldPayment.handledBy);
-          }
-
-          // Non-admin/manager can only edit payments they personally created (handledBy)
-          if (req.user.role !== "admin" && req.user.role !== "manager") {
-            if (Number(oldPayment.handledBy) !== req.user.id) {
-              return res.status(403).json({
-                success: false,
-                message: "You can only edit payments that you created",
-              });
-            }
           }
         }
       } catch (error) {
@@ -152,7 +103,7 @@ export const saveClientPaymentController = async (
       });
     }
 
-    const hasAccess = await canUserTouchClient(
+    const hasAccess = await canUserModifyClient(
       targetClientId,
       req.user.id,
       req.user.role
@@ -164,16 +115,33 @@ export const saveClientPaymentController = async (
       });
     }
 
-    // Admin/developer: use body.handledBy if explicitly provided, else preserve
-    // the existing counsellor's handledBy on edits, else fall back to caller's ID.
+    if (req.body.paymentId) {
+      const canEditPayment = await canUserEditExistingClientPayment(
+        targetClientId,
+        existingPaymentHandledBy,
+        req.user.id,
+        req.user.role
+      );
+      if (!canEditPayment) {
+        return res.status(403).json({
+          success: false,
+          message: "You can only edit payments that you created",
+        });
+      }
+    }
+
+    // Admin/developer may set handledBy explicitly. Counsellors keep original attribution on edits.
     const isAdminOrDeveloper = req.user.role === "admin" || req.user.role === "developer";
+    const isUpdate = Boolean(req.body.paymentId);
     const bodyHandledBy = Number(req.body.handledBy);
     const bodyHandledByValid = Number.isFinite(bodyHandledBy) && bodyHandledBy > 0;
     const effectiveHandledBy = isAdminOrDeveloper
       ? bodyHandledByValid
         ? bodyHandledBy
         : existingHandledBy ?? req.user.id
-      : req.user.id;
+      : isUpdate
+        ? existingHandledBy ?? req.user.id
+        : req.user.id;
 
     console.log("req.body client payment", req.body);
     const result = await saveClientPayment(req.body, effectiveHandledBy);
@@ -416,8 +384,10 @@ export const deleteClientPaymentController = async (
       });
     }
 
-    const hasAccess = await canUserTouchClient(
-      Number(existingPayment.clientId),
+    const clientId = Number(existingPayment.clientId);
+
+    const hasAccess = await canUserModifyClient(
+      clientId,
       req.user.id,
       req.user.role
     );
@@ -428,14 +398,17 @@ export const deleteClientPaymentController = async (
       });
     }
 
-    // Non-admin/manager can only delete payments they personally created (handledBy)
-    if (req.user.role !== "admin" && req.user.role !== "manager") {
-      if (Number(existingPayment.handledBy) !== req.user.id) {
-        return res.status(403).json({
-          success: false,
-          message: "You can only delete payments that you created",
-        });
-      }
+    const canDeletePayment = await canUserEditExistingClientPayment(
+      clientId,
+      existingPayment.handledBy,
+      req.user.id,
+      req.user.role
+    );
+    if (!canDeletePayment) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only delete payments that you created",
+      });
     }
 
     // 2. Call service
@@ -449,7 +422,6 @@ export const deleteClientPaymentController = async (
     }
 
     // Invalidate Redis caches so frontend sees updated list immediately
-    const clientId = Number(deleted.clientId);
     try {
       await redisDel([
         `client-payments:${clientId}`,

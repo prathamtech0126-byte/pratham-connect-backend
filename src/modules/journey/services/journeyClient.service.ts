@@ -1,5 +1,6 @@
 import { pool } from "../../../config/databaseConnection";
 import { getPoolSecond } from "../../../config/databaseConnectionSecond";
+import { normalizeDbDate } from "../../../utils/date";
 import {
   isUuid,
   resolveModuleClientId,
@@ -35,6 +36,44 @@ export type JourneyClientMeta = {
   transferStatus: boolean;
   transferedToCounsellorId: number | null;
 };
+
+export type JourneyClientDates = {
+  enrollmentDate: string | null;
+  createdAt: string | null;
+};
+
+/** Modules DB `clients.enrollment_date` (date) and `clients.created_at` (timestamp). */
+export async function getJourneyClientDates(
+  clientUuid: string
+): Promise<JourneyClientDates> {
+  const { rows } = await getPoolSecond().query<{
+    enrollment_date: string | Date | null;
+    created_at: Date | null;
+  }>(
+    `SELECT enrollment_date, created_at
+       FROM clients
+      WHERE id = $1::uuid
+      LIMIT 1`,
+    [clientUuid]
+  );
+
+  const row = rows[0];
+  if (!row) {
+    return { enrollmentDate: null, createdAt: null };
+  }
+
+  const createdAt = row.created_at
+    ? new Date(row.created_at).toISOString()
+    : null;
+  const enrollmentDate =
+    normalizeDbDate(row.enrollment_date) ??
+    (createdAt ? normalizeDbDate(createdAt) : null);
+
+  return {
+    enrollmentDate,
+    createdAt,
+  };
+}
 
 /** Accept modules UUID or main-CRM client_information.id. */
 export async function resolveJourneyClient(

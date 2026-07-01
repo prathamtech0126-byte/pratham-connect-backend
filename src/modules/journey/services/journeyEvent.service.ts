@@ -9,6 +9,10 @@ import {
   isModulesDbConfigured,
   getPoolSecond,
 } from "../../../config/databaseConnectionSecond";
+import {
+  normalizeDbDate,
+  resolveEnrollmentOccurredAt,
+} from "../../../utils/date";
 import { insertJourneyTimelineEvent } from "../models/journeyTimeline.model";
 
 const log = (label: string, error: unknown) => {
@@ -121,6 +125,8 @@ export async function ensureClientEnrolledTimelineEvent(input: {
   actorRole?: string | null;
   legacyClientId: number;
   enrolledAt?: string | Date | null;
+  enrollmentDate?: string | Date | null;
+  createdAt?: string | Date | null;
 }): Promise<void> {
   if (!isModulesDbConfigured()) return;
 
@@ -136,6 +142,26 @@ export async function ensureClientEnrolledTimelineEvent(input: {
         ? { name: input.actorName, role: input.actorRole ?? "counsellor" }
         : await resolveActorProfile(input.actorId);
 
+    const enrollmentDate =
+      normalizeDbDate(input.enrollmentDate ?? input.enrolledAt) ??
+      (input.createdAt ? normalizeDbDate(input.createdAt) : null);
+    const createdAt = input.createdAt
+      ? new Date(input.createdAt).toISOString()
+      : null;
+    const storedOccurredAt =
+      parseOccurredAt(input.enrolledAt ?? input.enrollmentDate, 0) ??
+      parseOccurredAt(input.createdAt, 0);
+    const occurredAt =
+      storedOccurredAt != null
+        ? new Date(
+            resolveEnrollmentOccurredAt({
+              occurredAt: storedOccurredAt,
+              enrollmentDate,
+              createdAt,
+            })
+          )
+        : null;
+
     await insertJourneyTimelineEvent({
       clientId: input.clientId,
       eventType: "CLIENT_ENROLLED",
@@ -145,8 +171,12 @@ export async function ensureClientEnrolledTimelineEvent(input: {
       actorId: input.actorId,
       actorName: actor?.name ?? null,
       actorRole: actor?.role ?? input.actorRole ?? "counsellor",
-      metadata: { legacyClientId: input.legacyClientId },
-      occurredAt: parseOccurredAt(input.enrolledAt, 0),
+      metadata: {
+        legacyClientId: input.legacyClientId,
+        enrollmentDate,
+        createdAt,
+      },
+      occurredAt,
     });
   } catch (error) {
     log("ensureClientEnrolledTimelineEvent", error);
@@ -164,6 +194,8 @@ export async function emitClientEnrolledEvent(input: {
   actorRole?: string | null;
   legacyClientId: number;
   enrolledAt?: string | Date | null;
+  enrollmentDate?: string | Date | null;
+  createdAt?: string | Date | null;
 }): Promise<void> {
   await ensureClientEnrolledTimelineEvent(input);
 }

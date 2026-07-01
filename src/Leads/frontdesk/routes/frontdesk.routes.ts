@@ -12,6 +12,11 @@ import {
   getActivityLogsController,
   exportLeadsController,
 } from "../controllers/frontdesk.controller";
+import {
+  createLeadEditLinkController,
+  revokeLeadEditLinkController,
+  listLeadEditLinksController,
+} from "../controllers/leadEditLink.controller";
 
 const router = Router();
 
@@ -228,6 +233,9 @@ router.get("/stats", ...fd, getDashboardStatsController);
 router.get("/leads", ...fd, listFrontDeskLeads);
 router.get("/leads/export", ...fd, exportLeadsController);
 router.get("/leads/:id", ...fd, getFrontDeskLeadDetailController);
+router.post("/leads/:id/edit-link", ...fd, createLeadEditLinkController);
+router.get("/leads/:id/edit-links", ...fd, listLeadEditLinksController);
+router.delete("/leads/:id/edit-link/:tokenId", ...fd, revokeLeadEditLinkController);
 router.post("/leads/:id/verify", ...fd, verifyLeadController);
 router.post("/leads/:id/assign", ...fd, assignLeadController);
 router.put("/leads/:id", ...fd, updateLeadDetailsController);

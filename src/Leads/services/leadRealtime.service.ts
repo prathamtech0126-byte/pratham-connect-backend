@@ -82,7 +82,7 @@ export async function publishLeadChange(
   }
 
   try {
-    const roles = ["telecaller", "counsellor", "admin", "developer", "manager", "marketing_head"];
+    const roles = ["telecaller", "counsellor", "admin", "developer", "manager", "marketing_head", "front_desk"];
     emitToRoles(roles, event, lead);
 
     const telecallerId = options?.notifyTelecallerId;

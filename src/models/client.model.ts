@@ -35,6 +35,38 @@ interface SaveClientInput {
   convertedLeadId?: number | null;
 }
 
+/**
+ * Compute the per-client payment summary used by the counsellor/admin/manager client lists.
+ * Mirrors the frontend computation (AllCounsellorClientsPage):
+ *  - totalPayment   = client.totalPayment ?? payments[0].totalPayment
+ *  - receivedPayment = sum of all core payment amounts
+ *  - pendingPayment  = max(total - received, 0)
+ * Product payments do not affect the money columns; they only drive `hasProductPayment`.
+ */
+const computeClientPaymentSummary = (client: {
+  totalPayment?: number | string | null;
+  payments?: Array<{ totalPayment?: number | string | null; amount?: number | string | null }> | null;
+  productPayments?: unknown[] | null;
+}) => {
+  const payments = Array.isArray(client.payments) ? client.payments : [];
+  const productPayments = Array.isArray(client.productPayments) ? client.productPayments : [];
+
+  const totalPayment =
+    Number(client.totalPayment ?? 0) || Number(payments[0]?.totalPayment ?? 0) || 0;
+  const receivedPayment = payments.reduce((sum, p) => sum + Number(p?.amount ?? 0), 0);
+  const pendingPayment = Math.max(totalPayment - receivedPayment, 0);
+
+  return {
+    hasProductPayment: productPayments.length > 0,
+    paymentStatus: (pendingPayment > 0 ? "Has Pending" : "Fully Paid") as
+      | "Has Pending"
+      | "Fully Paid",
+    totalPayment,
+    receivedPayment,
+    pendingPayment,
+  };
+};
+
 const attachStudentAppListFields = (
   client: { clientId: number },
   saleTypeMap: Map<number, { saleTypeId: number; saleType: string | null }>,
@@ -45,6 +77,7 @@ const attachStudentAppListFields = (
   studentApplications: (datesMap.get(client.clientId) ?? []).map((applicationDate) => ({
     applicationDate,
   })),
+  ...computeClientPaymentSummary(client as Parameters<typeof computeClientPaymentSummary>[0]),
 });
 
 /* ==============================
@@ -969,6 +1002,7 @@ export const getClientsByEnrollmentDateRange = async (
         leadType: leadType ? { id: leadType.id, leadType: leadType.leadType } : null,
         payments,
         productPayments: productPayments || [],
+        ...computeClientPaymentSummary({ ...client, payments, productPayments: productPayments || [] }),
       };
     })
   );

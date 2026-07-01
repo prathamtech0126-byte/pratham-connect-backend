@@ -353,6 +353,8 @@ export const updateVisaCaseStatusController = async (
     const data = await updateVisaCaseStatus(visaCaseId, viewer, {
       subStatus,
       notes: req.body.notes,
+      submissionDate: req.body.submissionDate,
+      decisionDate: req.body.decisionDate,
     });
 
     const after = await getVisaCaseById(visaCaseId);
