@@ -31,6 +31,13 @@ export const notificationTypeEnum = pgEnum("notification_type_enum", [
   // Client journey
   "CLIENT_JOURNEY_STAGE_UPDATED",  // → counsellor: client stage changed
   "CLIENT_TRANSFERRED",            // → new counsellor: client transferred to them
+
+  // Front desk / lead registration
+  "LEAD_INBOUND_REGISTERED",       // → front_desk: new website registration
+  "LEAD_CLIENT_SELF_EDITED",       // → front_desk: client updated via edit link
+  "LEAD_FRONTDESK_VERIFIED",       // → front_desk: lead verified
+  "LEAD_FRONTDESK_ASSIGNED",       // → front_desk: lead assigned to counsellor
+  "LEAD_FRONTDESK_UPDATED",        // → front_desk: lead details updated by staff
 ]);
 
 /**
@@ -43,6 +50,7 @@ export const notificationReferenceTypeEnum = pgEnum(
     "installment",
     "client",
     "client_journey",
+    "lead",
   ]
 );
 

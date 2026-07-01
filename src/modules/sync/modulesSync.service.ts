@@ -395,6 +395,8 @@ export async function syncClientFromMain(
         actorId: row.counsellor_id,
         legacyClientId,
         enrolledAt: row.date ?? row.created_at ?? null,
+        enrollmentDate: row.date,
+        createdAt: row.created_at ?? null,
       });
     }
 
@@ -403,6 +405,8 @@ export async function syncClientFromMain(
       actorId: row.counsellor_id,
       legacyClientId,
       enrolledAt: row.date ?? row.created_at ?? null,
+      enrollmentDate: row.date,
+      createdAt: row.created_at ?? null,
     });
 
     await ensureClientJourneyOnEnrollment({

@@ -7,7 +7,8 @@ import { leadFamilyMembers } from "../../leadregistration/schemas/leadFamilyMemb
 import { users } from "../../../schemas/users.schema";
 import { saleTypes } from "../../../schemas/saleType.schema";
 import { activityLog } from "../../../schemas/activityLog.schema";
-import { publishLeadChange } from "../../services/leadRealtime.service";
+import { publishFrontDeskOnWrite } from "../services/frontdeskOnWrite.service";
+import { invalidateFrontDeskCaches } from "../../../modules/cache/invalidate";
 import { notifyLeadAssignedCounsellor } from "../../../notification/integrations/leadNotifications";
 import { createActivityLog } from "../../../services/activityLog.service";
 import { serializeActivityLogTimestampAsIst } from "../../../utils/istTime";
@@ -23,8 +24,16 @@ import {
   count,
   asc,
   sql,
+  inArray,
 } from "drizzle-orm";
 import * as ExcelJS from "exceljs";
+
+/** Inbound lead sources visible on front desk (walk-in desk + website + udaan). */
+export const FRONT_DESK_INBOUND_SOURCES = ["walk_in", "web_site", "udaan"] as const;
+
+function frontDeskSourceFilter() {
+  return inArray(leads.leadSource, [...FRONT_DESK_INBOUND_SOURCES]);
+}
 
 function formatName(value: string) {
   return value
@@ -54,6 +63,7 @@ export async function logFrontDeskActivity(opts: {
     metadata: { ...(opts.metadata ?? {}), frontDeskAction: opts.action },
     performedBy: opts.userId,
   });
+  await invalidateFrontDeskCaches();
 }
 
 export async function getFrontDeskActivityLogs(userId: number, page = 1, limit = 30) {
@@ -114,7 +124,7 @@ export async function getFrontDeskDashboardStats(startDate?: Date, endDate?: Dat
   const start = startDate ?? new Date(new Date().setHours(0, 0, 0, 0));
   const end = endDate ?? new Date(new Date().setHours(23, 59, 59, 999));
 
-  const base = and(eq(leads.leadSource, "walk_in"), gte(leads.createdAt, start), lte(leads.createdAt, end));
+  const base = and(frontDeskSourceFilter(), gte(leads.createdAt, start), lte(leads.createdAt, end));
 
   const [totalRow, verifiedRow, assignedRow, notAssignedRow] = await Promise.all([
     db.select({ c: count() }).from(leads).where(base),
@@ -169,7 +179,7 @@ export async function getFrontDeskLeads(filters: FrontDeskLeadFilters) {
   const limit = filters.limit ?? 25;
   const offset = (page - 1) * limit;
 
-  const conditions: any[] = [eq(leads.leadSource, "walk_in")];
+  const conditions: any[] = [frontDeskSourceFilter()];
 
   if (filters.search) {
     const term = `%${filters.search}%`;
@@ -300,7 +310,15 @@ export async function verifyFrontDeskLead(
   const [updatedLead] = await db.update(leads).set(updatePayload as any).where(eq(leads.id, leadId)).returning();
 
   if (updatedLead) {
-    await publishLeadChange(counsellorId ? "lead:assigned" : "lead:updated", updatedLead as Record<string, unknown>, {
+    await publishFrontDeskOnWrite({
+      reason: counsellorId ? "frontdesk:verify_transfer" : "frontdesk:verified",
+      leadId,
+      leadName: updatedLead.fullName,
+      actorUserId: frontDeskUserId,
+      snapshot: updatedLead as Record<string, unknown>,
+      notificationKind: counsellorId ? "lead_frontdesk_assigned" : "lead_frontdesk_verified",
+      leadChangeEvent: counsellorId ? "lead:assigned" : "lead:updated",
+      leadChangePayload: updatedLead as Record<string, unknown>,
       notifyCounsellorId: counsellorId ?? null,
     });
   }
@@ -350,7 +368,15 @@ export async function assignLeadToCounsellor(leadId: number, counsellorId: numbe
   const [updatedLead] = await db.update(leads).set(updatePayload as any).where(eq(leads.id, leadId)).returning();
 
   if (updatedLead) {
-    await publishLeadChange("lead:assigned", updatedLead as Record<string, unknown>, {
+    await publishFrontDeskOnWrite({
+      reason: "frontdesk:assigned",
+      leadId,
+      leadName: updatedLead.fullName,
+      actorUserId: assignedByUserId,
+      snapshot: updatedLead as Record<string, unknown>,
+      notificationKind: "lead_frontdesk_assigned",
+      leadChangeEvent: "lead:assigned",
+      leadChangePayload: updatedLead as Record<string, unknown>,
       notifyCounsellorId: counsellorId,
     });
     notifyLeadAssignedCounsellor(
@@ -375,6 +401,15 @@ export async function assignLeadToCounsellor(leadId: number, counsellorId: numbe
 }
 
 // ─── Edit Lead Details ─────────────────────────────────────────────────────────
+
+export const FRONT_DESK_LEAD_EDIT_BLOCKED_MSG =
+  "Cannot edit lead after it has been assigned to a counsellor";
+
+export function isFrontDeskLeadEditable(lead: {
+  currentCounsellorId?: number | null;
+}): boolean {
+  return lead.currentCounsellorId == null;
+}
 
 export interface UpdateLeadDetailsInput {
   // Core lead fields
@@ -419,12 +454,19 @@ export interface UpdateLeadDetailsInput {
 
 export async function updateLeadDetails(leadId: number, input: UpdateLeadDetailsInput, updatedByUserId: number) {
   const [existing] = await db
-    .select({ id: leads.id, fullName: leads.fullName })
+    .select({
+      id: leads.id,
+      fullName: leads.fullName,
+      currentCounsellorId: leads.currentCounsellorId,
+    })
     .from(leads)
     .where(eq(leads.id, leadId))
     .limit(1);
 
   if (!existing) throw new Error("Lead not found");
+  if (!isFrontDeskLeadEditable(existing)) {
+    throw new Error(FRONT_DESK_LEAD_EDIT_BLOCKED_MSG);
+  }
 
   // Update core lead fields
   const leadUpdate: Record<string, unknown> = { updatedAt: new Date() };
@@ -521,7 +563,16 @@ export async function updateLeadDetails(leadId: number, input: UpdateLeadDetails
 
   const updatedLead = await getFrontDeskLeadDetail(leadId);
   if (updatedLead) {
-    await publishLeadChange("lead:updated", updatedLead as unknown as Record<string, unknown>);
+    await publishFrontDeskOnWrite({
+      reason: "frontdesk:updated",
+      leadId,
+      leadName: updatedLead.fullName,
+      actorUserId: updatedByUserId,
+      snapshot: updatedLead as unknown as Record<string, unknown>,
+      notificationKind: "lead_frontdesk_updated",
+      leadChangeEvent: "lead:updated",
+      leadChangePayload: updatedLead as unknown as Record<string, unknown>,
+    });
   }
 }
 

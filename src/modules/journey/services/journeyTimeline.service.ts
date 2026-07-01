@@ -22,6 +22,8 @@ import {
   type RawStatusEvent,
   type RawJourneyTimelineEvent,
 } from "../models/journeyTimeline.model";
+import { resolveEnrollmentOccurredAt } from "../../../utils/date";
+import { getJourneyClientDates } from "./journeyClient.service";
 
 // ─── Public response shape ────────────────────────────────────────────────────
 
@@ -53,6 +55,8 @@ export interface TimelineEvent {
 
 export interface JourneySummary {
   clientId: string;
+  enrollmentDate: string | null;
+  createdAt: string | null;
   currentJourneyStage: string | null;
   currentProcessingStage: string | null;
   currentProcessingSubStatus: string | null;
@@ -65,6 +69,12 @@ export interface JourneySummary {
     assignedUserId: number | null;
   }>;
   totalEvents: number;
+}
+
+export interface JourneyTimelineResult {
+  events: TimelineEvent[];
+  enrollmentDate: string | null;
+  createdAt: string | null;
 }
 
 // ─── Private helpers ──────────────────────────────────────────────────────────
@@ -249,13 +259,15 @@ function timelineBusinessRank(event: TimelineEvent): number {
 
 export async function getClientJourneyTimeline(
   clientId: string
-): Promise<TimelineEvent[]> {
-  const [ownEvents, assignments, statusEvents, transferRows] = await Promise.all([
-    getJourneyTimelineEventsForClient(clientId),
-    getAssignmentEventsForClient(clientId),
-    getStatusEventsForClient(clientId),
-    getClientTransferEvents(clientId),
-  ]);
+): Promise<JourneyTimelineResult> {
+  const [ownEvents, assignments, statusEvents, transferRows, clientDates] =
+    await Promise.all([
+      getJourneyTimelineEventsForClient(clientId),
+      getAssignmentEventsForClient(clientId),
+      getStatusEventsForClient(clientId),
+      getClientTransferEvents(clientId),
+      getJourneyClientDates(clientId),
+    ]);
 
   // Collect all actor IDs for a single batch lookup.
   const actorIds: number[] = [];
@@ -298,9 +310,38 @@ export async function getClientJourneyTimeline(
     const actorId = toActorId(e.actor_id);
     const userInfo = actorId != null ? users.get(actorId) : null;
     const actorName = e.actor_name ?? userInfo?.name ?? null;
+    const enrollmentMetadata =
+      e.event_type === "CLIENT_ENROLLED"
+        ? {
+            ...((e.metadata as Record<string, unknown>) ?? {}),
+            enrollmentDate:
+              clientDates.enrollmentDate ??
+              ((e.metadata as Record<string, unknown> | null)?.enrollmentDate as
+                | string
+                | null
+                | undefined) ??
+              null,
+            createdAt:
+              clientDates.createdAt ??
+              ((e.metadata as Record<string, unknown> | null)?.createdAt as
+                | string
+                | null
+                | undefined) ??
+              null,
+          }
+        : null;
+    const occurredAt =
+      e.event_type === "CLIENT_ENROLLED"
+        ? resolveEnrollmentOccurredAt({
+            occurredAt: e.occurred_at as Date,
+            enrollmentDate: enrollmentMetadata?.enrollmentDate as string | null,
+            createdAt: enrollmentMetadata?.createdAt as string | null,
+          })
+        : (e.occurred_at as Date).toISOString();
+
     events.push({
       id: e.id,
-      occurredAt: (e.occurred_at as Date).toISOString(),
+      occurredAt,
       phase: e.phase as JourneyPhase,
       type: e.event_type,
       title: e.title,
@@ -316,7 +357,8 @@ export async function getClientJourneyTimeline(
           }
         : null,
       visaCaseId: e.visa_case_id ?? null,
-      metadata: (e.metadata as Record<string, unknown>) ?? {},
+      metadata:
+        enrollmentMetadata ?? ((e.metadata as Record<string, unknown>) ?? {}),
       source: "journey_event",
     });
   }
@@ -404,7 +446,11 @@ export async function getClientJourneyTimeline(
     return timelineBusinessRank(b) - timelineBusinessRank(a);
   });
 
-  return events;
+  return {
+    events,
+    enrollmentDate: clientDates.enrollmentDate,
+    createdAt: clientDates.createdAt,
+  };
 }
 
 export async function getClientJourneySummary(
@@ -412,7 +458,7 @@ export async function getClientJourneySummary(
 ): Promise<JourneySummary> {
   const db = getPoolSecond();
 
-  const [journeyRow, visaCaseRows, eventCountRow] = await Promise.all([
+  const [journeyRow, visaCaseRows, eventCountRow, clientDates] = await Promise.all([
     db
       .query<{
         current_stage: string;
@@ -467,10 +513,14 @@ export async function getClientJourneySummary(
         [clientId]
       )
       .then((r) => parseInt(r.rows[0]?.cnt ?? "0", 10)),
+
+    getJourneyClientDates(clientId),
   ]);
 
   return {
     clientId,
+    enrollmentDate: clientDates.enrollmentDate,
+    createdAt: clientDates.createdAt,
     currentJourneyStage: journeyRow?.current_stage ?? null,
     currentProcessingStage: journeyRow?.current_processing_stage ?? null,
     currentProcessingSubStatus: journeyRow?.current_processing_sub_status ?? null,

@@ -1,8 +1,9 @@
 import { Request, Response } from "express";
 import { getLeadById } from "../../models/lead.model";
 import { upsertInboundLead } from "../models/leadRegistration.model";
+import { createInboundLeadEditLink } from "../models/leadEditToken.model";
 import { parseInboundLeadBody } from "../services/leadRegistrationInbound.service";
-import { publishLeadChange } from "../../services/leadRealtime.service";
+import { publishFrontDeskOnWrite } from "../../frontdesk/services/frontdeskOnWrite.service";
 
 /**
  * Public inbound webhook — authenticated via HMAC (see verifySecondaryServerHmac).
@@ -41,11 +42,26 @@ export const receiveLeadRegistrationController = async (
     const { leadId, isNew } = await upsertInboundLead(parsed.payload);
     const lead = await getLeadById(leadId);
     if (lead) {
-      await publishLeadChange(
-        isNew ? "lead:created" : "lead:updated",
-        lead as Record<string, unknown>
+      await publishFrontDeskOnWrite({
+        reason: isNew ? "frontdesk:registered" : "frontdesk:inbound_updated",
+        leadId,
+        leadName: (lead as { fullName?: string | null }).fullName,
+        snapshot: lead as Record<string, unknown>,
+        notificationKind: isNew ? "lead_inbound_registered" : "lead_frontdesk_updated",
+        skipNotification: false,
+        leadChangeEvent: isNew ? "lead:created" : "lead:updated",
+        leadChangePayload: lead as Record<string, unknown>,
+        notificationDedupeKey: isNew
+          ? `lead_inbound_registered:${leadId}`
+          : `lead_inbound_updated:${leadId}:${Date.now()}`,
+      });
+
+      console.log(
+        `[leadRegistration] inbound saved leadId=${leadId} isNew=${isNew} source=${parsed.payload.lead_source} → frontdesk realtime`
       );
     }
+
+    const editLink = await createInboundLeadEditLink(leadId);
 
     res.status(200).json({
       success: true,
@@ -53,6 +69,14 @@ export const receiveLeadRegistrationController = async (
       leadId,
       leadSource: parsed.payload.lead_source,
       isNew,
+      ...(editLink
+        ? {
+            editUrl: editLink.editUrl,
+            editToken: editLink.rawToken,
+            editExpiresAt: editLink.expiresAt.toISOString(),
+            editTokenId: editLink.tokenId,
+          }
+        : {}),
     });
   } catch (err) {
     console.error("[leadRegistration] DB error:", err);

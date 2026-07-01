@@ -31,6 +31,11 @@ export type NotificationType =
   | "tech_support_request"
   | "deadline_missed"
   | "visa_case_document_request"
+  | "lead_inbound_registered"
+  | "lead_client_self_edited"
+  | "lead_frontdesk_verified"
+  | "lead_frontdesk_assigned"
+  | "lead_frontdesk_updated"
   | "system";
 
 export interface NotifyInput {

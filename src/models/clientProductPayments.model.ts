@@ -1482,10 +1482,66 @@ export const saveClientProductPayment = async (
 
 type ClientProductPaymentRow = typeof clientProductPayments.$inferSelect;
 
+/** Per-product payment status (paid vs total). Only All Finance supports partial payments. */
+export type ProductPaymentStatus = {
+  /** Total agreed amount for this product. */
+  totalAmount: number;
+  /** Amount actually received so far (sum of installments for All Finance, full amount otherwise). */
+  paidAmount: number;
+  /** Outstanding balance = max(total - paid, 0). */
+  pendingAmount: number;
+  paymentStatus: "Pending" | "Fully Paid";
+};
+
 /** Same shape as rows in `GET /api/client/:id/complete` → `productPayments` (with `entity`). */
-export type ProductPaymentWithEntity = ClientProductPaymentRow & {
-  entity: unknown;
-  handledByUser?: { id: number; name: string } | null;
+export type ProductPaymentWithEntity = ClientProductPaymentRow &
+  ProductPaymentStatus & {
+    entity: unknown;
+    handledByUser?: { id: number; name: string } | null;
+  };
+
+const toNum = (v: unknown): number => {
+  const n = typeof v === "string" ? parseFloat(v) : Number(v);
+  return isFinite(n) ? n : 0;
+};
+
+/**
+ * Compute paid / pending / status for a single product payment row.
+ *
+ * - All Finance (`allFinance_id`): paid = amount + anotherPaymentAmount(1..3); total = entity.totalAmount
+ *   (falls back to paid when not set, i.e. legacy/fully-paid rows). This is the only product that can be partial.
+ * - master_only: the row's own `amount` is the full paid amount (no pending).
+ * - All other entities (newSell, visaExtension, simCard, etc.): single `amount` = total = paid (no pending).
+ */
+const computeProductPaymentStatus = (
+  row: ClientProductPaymentRow & { entity?: unknown }
+): ProductPaymentStatus => {
+  if (row.entityType === "master_only" || !row.entityId) {
+    const amt = toNum(row.amount);
+    return { totalAmount: amt, paidAmount: amt, pendingAmount: 0, paymentStatus: "Fully Paid" };
+  }
+
+  const entity = (row.entity ?? {}) as Record<string, unknown>;
+
+  if (row.entityType === "allFinance_id") {
+    const paidAmount =
+      toNum(entity.amount) +
+      toNum(entity.anotherPaymentAmount) +
+      toNum(entity.anotherPaymentAmount2) +
+      toNum(entity.anotherPaymentAmount3);
+    const totalAmount = entity.totalAmount != null ? toNum(entity.totalAmount) : paidAmount;
+    const pendingAmount = Math.max(totalAmount - paidAmount, 0);
+    return {
+      totalAmount,
+      paidAmount,
+      pendingAmount,
+      paymentStatus: pendingAmount > 0 ? "Pending" : "Fully Paid",
+    };
+  }
+
+  // Single-amount products have no partial-payment concept: recorded amount is fully paid.
+  const amt = toNum(entity.amount ?? entity.totalAmount);
+  return { totalAmount: amt, paidAmount: amt, pendingAmount: 0, paymentStatus: "Fully Paid" };
 };
 
 async function attachEntitiesToProductPayments(
@@ -1593,8 +1649,11 @@ async function attachEntitiesToProductPayments(
     });
   }
 
-  const attachHandler = (row: ProductPaymentWithEntity): ProductPaymentWithEntity => ({
+  const attachHandler = (
+    row: ClientProductPaymentRow & { entity: unknown; handledByUser?: { id: number; name: string } | null }
+  ): ProductPaymentWithEntity => ({
     ...row,
+    ...computeProductPaymentStatus(row),
     handledByUser: row.handledBy ? handlerMap.get(row.handledBy) ?? null : null,
   });
 

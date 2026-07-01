@@ -12,6 +12,8 @@ export const MODULES_REALTIME_EVENTS = {
   VISA_CASE_REFRESH: "modules:visa-case:refresh",
   VISA_CASE_UPDATED: "modules:visa-case:updated",
   VISA_CASE_ASSIGNED: "modules:visa-case:assigned",
+  FRONTDESK_REFRESH: "modules:frontdesk:refresh",
+  FRONTDESK_UPDATED: "modules:frontdesk:updated",
 } as const;
 
 /** Client → server subscription events. */
@@ -22,6 +24,10 @@ export const MODULES_SOCKET_SUBSCRIBE = {
   LEAVE_VISA_CASE: "leave:modules:visa-case",
   JOIN_VISA_CASE_DETAIL: "join:modules:visa-case:detail",
   LEAVE_VISA_CASE_DETAIL: "leave:modules:visa-case:detail",
+  JOIN_FRONTDESK: "join:modules:frontdesk",
+  LEAVE_FRONTDESK: "leave:modules:frontdesk",
+  JOIN_FRONTDESK_DETAIL: "join:modules:frontdesk:detail",
+  LEAVE_FRONTDESK_DETAIL: "leave:modules:frontdesk:detail",
 } as const;
 
 /** Server → client join confirmations. */
@@ -29,6 +35,8 @@ export const MODULES_SOCKET_CONFIRM = {
   JOINED_REPORTS: "joined:modules:reports",
   JOINED_VISA_CASE: "joined:modules:visa-case",
   JOINED_VISA_CASE_DETAIL: "joined:modules:visa-case:detail",
+  JOINED_FRONTDESK: "joined:modules:frontdesk",
+  JOINED_FRONTDESK_DETAIL: "joined:modules:frontdesk:detail",
 } as const;
 
 const uniqueRoles = (roles: readonly Role[]): Role[] =>
@@ -51,11 +59,23 @@ export const VISA_CASE_REALTIME_ROLES = uniqueRoles([
   "developer",
 ]);
 
+/** Roles that should receive front desk list/dashboard refresh signals. */
+export const FRONTDESK_REALTIME_ROLES: Role[] = ["front_desk", "developer"];
+
 export type ModulesRefreshPayload = {
   reason: string;
   clientId?: string;
   visaCaseId?: string;
+  leadId?: number;
   timestamp: string;
+};
+
+export type FrontDeskUpdatedPayload = {
+  leadId: number;
+  reason: string;
+  timestamp: string;
+  /** Optional row snapshot for detail views (omit on list-only refreshes). */
+  snapshot?: Record<string, unknown>;
 };
 
 export type VisaCaseUpdatedPayload = {
