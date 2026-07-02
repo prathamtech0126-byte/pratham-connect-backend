@@ -110,6 +110,7 @@ export const getTelecallerIndividualReport = async (
       COUNT(*) FILTER (WHERE ${convertedInPeriodSql(createdFrom, createdTo)})::int AS "converted",
       COUNT(*) FILTER (
         WHERE NOT is_junk
+        AND assignment_status = 'assigned'
         AND progress_status = 'follow_up'
         ${createdInPeriodSql(createdFrom, createdTo)}
       )::int AS "pendingFollowUp",

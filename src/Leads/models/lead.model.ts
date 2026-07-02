@@ -267,6 +267,20 @@ const buildWhereClause = (filters: LeadListFilters) => {
         eq(leads.assignmentStatus, "converted")
       )!
     );
+  } else if (
+    filters.progressStatus === "follow_up" &&
+    filters.currentTelecallerId != null &&
+    !filters.counsellorListFilter
+  ) {
+    // Telecaller follow-up inbox: only leads still assigned to telecaller (not transferred to counsellor).
+    conditions.push(
+      and(
+        eq(leads.isJunk, false),
+        eq(leads.progressStatus, "follow_up"),
+        eq(leads.assignmentStatus, "assigned"),
+        isNull(leads.currentCounsellorId)
+      )
+    );
   } else if (filters.progressStatus) {
     conditions.push(eq(leads.progressStatus, filters.progressStatus as any));
   }

@@ -107,6 +107,10 @@ import { db } from "../../config/databaseConnection";
 import { eq, inArray } from "drizzle-orm";
 import { users } from "../../schemas/users.schema";
 import {
+  canManagerReassignTransferredLead,
+  isLeadTransferBlockedForUser,
+} from "../services/leadTransferPermissions.service";
+import {
   isLeadTransferBlocked,
   logBulkLeadAssignment,
   logLeadAssignment,
@@ -601,9 +605,11 @@ export const getLeadByIdController = async (req: Request, res: Response) => {
             (lead.assignmentStatus !== "transferred" ||
               (!isConverted && isTelecallerViewer)),
           canReassignCounsellor:
-            lead.assignmentStatus === "transferred" &&
-            !isConverted &&
-            isTelecallerViewer,
+            (lead.assignmentStatus === "transferred" &&
+              !isConverted &&
+              isTelecallerViewer) ||
+            (authReq.user?.role === "manager" &&
+              canManagerReassignTransferredLead(lead, Number(authReq.user.id))),
           isAdminLike,
           isConverted,
         },
@@ -1009,6 +1015,10 @@ export const assignLeadController = async (req: Request, res: Response) => {
     const isAdminLike = ["admin", "developer", "manager", "superadmin", "marketing_head"].includes(
       authReq.user?.role ?? ""
     );
+    const isManager = authReq.user?.role === "manager";
+    const isFullAdminLike = ["admin", "developer", "superadmin", "marketing_head"].includes(
+      authReq.user?.role ?? ""
+    );
     const isTelecaller = authReq.user?.role === "telecaller";
     if (isLeadLocked(currentLead, authReq.user?.role)) {
       return res.status(400).json({
@@ -1065,7 +1075,14 @@ export const assignLeadController = async (req: Request, res: Response) => {
         });
       }
 
-      if (alreadyTransferred && !isTelecaller && !isAdminLike) {
+      if (alreadyTransferred && isManager) {
+        if (!canManagerReassignTransferredLead(currentLead, Number(authReq.user?.id))) {
+          return res.status(403).json({
+            success: false,
+            message: "You can only reassign leads transferred to you",
+          });
+        }
+      } else if (alreadyTransferred && !isTelecaller && !isFullAdminLike) {
         return res.status(400).json({
           success: false,
           message: "Lead is already transferred to a counsellor",
@@ -2054,7 +2071,7 @@ export const bulkAssignLeadsController = async (req: Request, res: Response) => 
         missing.push(id);
         continue;
       }
-      if (isLeadTransferBlocked(lead)) {
+      if (isLeadTransferBlockedForUser(lead, authReq.user?.role, authReq.user?.id)) {
         blocked.push(id);
         continue;
       }
@@ -2087,6 +2104,16 @@ export const bulkAssignLeadsController = async (req: Request, res: Response) => 
     for (const leadId of toUpdate) {
       const currentLead = rowMap.get(leadId);
       if (!currentLead) continue;
+
+      if (
+        authReq.user?.role === "manager" &&
+        counsellorId != null &&
+        currentLead.assignmentStatus === "transferred" &&
+        !canManagerReassignTransferredLead(currentLead, Number(authReq.user.id))
+      ) {
+        blocked.push(leadId);
+        continue;
+      }
 
       let assignPatch: Record<string, unknown>;
       if (counsellorId != null) {
