@@ -20,6 +20,7 @@ export const TAG_NAMES = {
   MODULE_JOURNEY: "Module Journey",
   MODULE_REPORTS: "Module Reports",
   MODULE_VISA_CASES: "Module Visa Cases",
+  MODULE_STAGES: "Module Stages",
   DASHBOARD: "Dashboard",
   ACTIVITY_LOGS: "Activity Logs",
   LEADERBOARD: "Leaderboard",
@@ -36,6 +37,8 @@ export const TAG_NAMES = {
   INCENTIVES: "Incentives",
   OTHER_PRODUCTS: "Other Products",
   RULE_CONFIGURATIONS: "Rule Configurations",
+  CLIENT_PORTAL: "Client Portal",
+  CLIENT_DOCUMENTS: "Client Documents",
   V2_PLACEHOLDER: "API v2 (Future)",
 } as const;
 
@@ -59,6 +62,7 @@ export const tags: OpenAPIV3.TagObject[] = [
   { name: TAG_NAMES.MODULE_JOURNEY, description: "Client journey timeline and stage tracking (modules database)" },
   { name: TAG_NAMES.MODULE_REPORTS, description: "Backend, binding, CX, and ops analytics reports (modules database)" },
   { name: TAG_NAMES.MODULE_VISA_CASES, description: "Visa case lifecycle, assignments, and documents (modules database)" },
+  { name: TAG_NAMES.MODULE_STAGES, description: "Admin-managed stage pipelines for client journey, visa case processing, and payments (modules database)" },
   { name: TAG_NAMES.DASHBOARD, description: "Role-based dashboard statistics" },
   { name: TAG_NAMES.ACTIVITY_LOGS, description: "User activity audit logs" },
   { name: TAG_NAMES.LEADERBOARD, description: "Counsellor leaderboard and targets" },
@@ -75,5 +79,7 @@ export const tags: OpenAPIV3.TagObject[] = [
   { name: TAG_NAMES.INCENTIVES, description: "Incentive rules and payout reports" },
   { name: TAG_NAMES.OTHER_PRODUCTS, description: "Other products catalog" },
   { name: TAG_NAMES.RULE_CONFIGURATIONS, description: "Incentive rule configuration groups" },
+  { name: TAG_NAMES.CLIENT_PORTAL, description: "Client portal invitation and client auth/session APIs" },
+  { name: TAG_NAMES.CLIENT_DOCUMENTS, description: "Client checklist assignment, document upload, and storage (modules DB)" },
   { name: TAG_NAMES.V2_PLACEHOLDER, description: "Reserved for future v2 API endpoints" },
 ];

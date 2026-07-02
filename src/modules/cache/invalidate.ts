@@ -18,6 +18,18 @@ const safeRun = async (
   }
 };
 
+export async function invalidateStagesCaches(): Promise<void> {
+  await safeRun(async () => {
+    await Promise.all([
+      redisDelByPrefix(MODULE_CACHE_KEYS.STAGES_PIPELINES),
+      redisDelByPrefix(MODULE_CACHE_KEYS.STAGES_PIPELINE),
+      redisDelByPrefix(MODULE_CACHE_KEYS.STAGES_TREE),
+      redisDelByPrefix(MODULE_CACHE_KEYS.STAGES_LIST),
+      redisDelByPrefix(MODULE_CACHE_KEYS.STAGES_DETAIL),
+    ]);
+  });
+}
+
 export async function invalidateCountriesCaches(): Promise<void> {
   await safeRun(async () => {
     await Promise.all([

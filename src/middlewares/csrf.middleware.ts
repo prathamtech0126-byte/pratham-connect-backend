@@ -25,6 +25,8 @@ export function requireCsrf(req: Request, res: Response, next: NextFunction) {
     path === "/health" ||
     path === "/api/users/login" ||
     path === "/api/users/refresh" ||
+    path === "/api/client-portal/login" ||
+    path === "/api/client-portal/refresh" ||
     path === "/api/lead-registration/inbound" ||
     path === "/api/lead-registration/self/me"
   ) {
@@ -32,10 +34,15 @@ export function requireCsrf(req: Request, res: Response, next: NextFunction) {
   }
 
   // Only apply when using cookie-based auth.
-  const hasAuthCookies = Boolean(req.cookies?.accessToken || req.cookies?.refreshToken);
+  const hasAuthCookies = Boolean(
+    req.cookies?.accessToken ||
+      req.cookies?.refreshToken ||
+      req.cookies?.clientAccessToken ||
+      req.cookies?.clientRefreshToken
+  );
   if (!hasAuthCookies) return next();
 
-  const cookieToken = req.cookies?.csrfToken;
+  const cookieToken = req.cookies?.csrfToken ?? req.cookies?.clientCsrfToken;
   const headerToken =
     (req.headers["x-csrf-token"] as string | undefined) ||
     (req.headers["x-xsrf-token"] as string | undefined);

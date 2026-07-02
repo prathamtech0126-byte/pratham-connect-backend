@@ -185,6 +185,9 @@ import ruleConfigurationRoutes from "./routes/ruleConfiguration.routes";
 import notificationRoutes from "./notification/routes/notification.routes";
 import modulePaymentRoutes from "./modules/payments/routes/payment.routes";
 import modulesRoutes from "./modules/routes/modules.routes";
+import clientPortalRoutes from "./modules/clientPortal/routes/clientPortal.routes";
+import clientDocumentRoutes from "./modules/clientDocuments/routes/clientDocument.routes";
+import clientDocumentPortalRoutes from "./modules/clientDocuments/routes/clientDocumentPortal.routes";
 import { registerSwagger } from "./docs/swagger/registerSwagger";
 
 
@@ -215,6 +218,10 @@ const registrationSiteOrigin = (process.env.REGISTRATION_SITE_URL ?? "")
   .trim()
   .replace(/\/$/, "");
 
+const clientPortalOrigin = (process.env.CLIENT_PORTAL_URL ?? process.env.CLIENT_PORTAL_FRONTEND_URL ?? "")
+  .trim()
+  .replace(/\/$/, "");
+
 const allowedOrigins = Array.from(
   new Set(
     (
@@ -222,12 +229,14 @@ const allowedOrigins = Array.from(
         ? [
             process.env.FRONTEND_URL,
             registrationSiteOrigin,
+            clientPortalOrigin,
             ...parseOrigins(process.env.CORS_ORIGINS),
           ]
         : [
             ...devDefaultOrigins,
             process.env.FRONTEND_URL,
             registrationSiteOrigin,
+            clientPortalOrigin,
             ...parseOrigins(process.env.CORS_ORIGINS),
           ]
     ).filter(Boolean) as string[]
@@ -363,6 +372,9 @@ app.use("/api/rule-configurations", ruleConfigurationRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/module-payments", modulePaymentRoutes);
 app.use("/api/modules", modulesRoutes);
+app.use("/api/client-portal", clientPortalRoutes);
+app.use("/api/client-portal", clientDocumentPortalRoutes);
+app.use("/api/client-documents", clientDocumentRoutes);
 
 // 404
 app.use((_req, res) => {

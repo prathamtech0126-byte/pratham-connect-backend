@@ -113,4 +113,68 @@ export const commonSchemas: ComponentsObject["schemas"] = {
       newPassword: { type: "string", format: "password", minLength: 8 },
     },
   },
+
+  ClientPortalLoginRequest: {
+    type: "object",
+    required: ["loginId", "password"],
+    properties: {
+      loginId: {
+        type: "string",
+        description: "Client login identifier (email or username)",
+        example: "client@example.com",
+      },
+      password: { type: "string", format: "password", example: "TempPass123!" },
+    },
+  },
+
+  ClientPortalRefreshRequest: {
+    type: "object",
+    properties: {
+      refreshToken: {
+        type: "string",
+        description: "Optional when refresh token is sent via clientRefreshToken cookie",
+        example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+      },
+    },
+  },
+
+  ClientPortalChangePasswordRequest: {
+    type: "object",
+    required: ["currentPassword", "newPassword"],
+    properties: {
+      currentPassword: { type: "string", format: "password" },
+      newPassword: { type: "string", format: "password", minLength: 8 },
+    },
+  },
+
+  ClientPortalInvitationRequest: {
+    type: "object",
+    properties: {
+      deliveryEmail: {
+        type: "string",
+        format: "email",
+        description: "Optional explicit email to deliver portal invitation/reset credentials",
+      },
+      delivery_email: {
+        type: "string",
+        format: "email",
+        description: "Legacy alias for deliveryEmail",
+      },
+    },
+  },
+
+  ClientPortalChecklistAssignmentRequest: {
+    type: "object",
+    required: ["clientId", "checklistId", "visaType", "country"],
+    properties: {
+      clientId: { type: "integer", example: 101 },
+      checklistId: {
+        type: "string",
+        format: "uuid",
+        example: "b13f6d84-f9db-4b3a-a5db-a6935f2a87c2",
+      },
+      visaType: { type: "string", example: "student" },
+      country: { type: "string", example: "canada" },
+    },
+  },
 };
