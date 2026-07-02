@@ -12,7 +12,7 @@ import {
   count,
   isNotNull,
 } from "drizzle-orm";
-import { Role } from "../types/role";
+import { Role, ROLES } from "../types/role";
 
 /* ================================
    TYPES
@@ -100,18 +100,9 @@ export const createBroadcastMessage = async (
     throw new Error("Target roles are required for broadcast messages");
   }
 
-  // Validate roles (manager/counsellor by default; maintenance may target more roles)
-  const validRoles = [
-    "manager",
-    "counsellor",
-    "telecaller",
-    "front_desk",
-    "marketing_head",
-    "superadmin",
-    "admin",
-  ];
+  // Validate roles against the canonical role list
   const invalidRoles = data.targetRoles.filter(
-    (role) => !validRoles.includes(role)
+    (role) => !ROLES.includes(role as Role)
   );
   if (invalidRoles.length > 0) {
     throw new Error(`Invalid roles: ${invalidRoles.join(", ")}`);
@@ -313,11 +304,16 @@ export const getAllMessages = async (options?: {
 
 export const BROADCAST_RECIPIENT_ROLES: Role[] = [
   "manager",
+  "branchmanager",
   "developer",
   "counsellor",
   "telecaller",
+  "tech_support",
   "front_desk",
   "marketing_head",
+  "cx",
+  "binding",
+  "application",
   "superadmin",
   "admin",
 ];

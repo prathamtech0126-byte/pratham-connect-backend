@@ -38,6 +38,7 @@
     "seed:monthly:reset": "ts-node src/scripts/seedMonthlyData.ts --reset",
     "seed:reference": "ts-node src/scripts/seedReference.ts",
     "seed:other-products": "ts-node src/seeds/seed-other-products.ts",
+    "seed:checklists": "ts-node src/seeds/seed-checklists.ts",
     "migrate:0009": "ts-node src/scripts/applyMigration0009.ts",
     "migrate:0012": "ts-node src/scripts/applyMigration0012.ts",
     "migrate:0013": "ts-node src/scripts/applyMigration0013.ts",
