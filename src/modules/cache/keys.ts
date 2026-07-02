@@ -8,6 +8,12 @@ export const MODULE_CACHE_KEYS = {
   JOURNEY_SUMMARY: "modules:journey:summary:",
   /** Front desk dashboard APIs (list, detail, stats, activity). */
   FRONTDESK: "modules:frontdesk:",
+  /** Admin-managed stage registry (pipelines + definitions). */
+  STAGES_PIPELINES: "modules:stages:pipelines:",
+  STAGES_PIPELINE: "modules:stages:pipeline:",
+  STAGES_TREE: "modules:stages:tree:",
+  STAGES_LIST: "modules:stages:list:",
+  STAGES_DETAIL: "modules:stages:id:",
 } as const;
 
 export const MODULE_CACHE_TTL = {
@@ -30,4 +36,6 @@ export const MODULE_CACHE_TTL = {
   FRONT_DESK_ACTIVITY: 60,
   /** Sale type filter dropdown — changes infrequently. */
   FRONT_DESK_SALE_TYPES: 3600,
+  /** Stage pipelines and definitions — invalidate on admin mutations. */
+  STAGES: 3600,
 } as const;

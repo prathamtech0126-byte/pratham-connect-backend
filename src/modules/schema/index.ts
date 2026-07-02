@@ -58,11 +58,18 @@ export * from "../payments/schemas/entities/simCard.schema";
 export * from "../payments/schemas/entities/tutionFees.schema";
 export * from "../payments/schemas/entities/newSell.schema";
 
+// ─── Stages (admin-managed pipelines) ────────────────────────────────────────
+export * from "../stages/schemas/stagePipeline.schema";
+export * from "../stages/schemas/stageDefinition.schema";
+
 // ─── Client Journey ───────────────────────────────────────────────────────────
 export * from "../journey/schemas/clientJourney.schema";
 
 // ─── Notifications ────────────────────────────────────────────────────────────
 export * from "../notifications/schemas/notification.schema";
+
+// ─── Client Documents (modules DB checklist templates) ───────────────────────
+export * from "../clientDocuments/schemas/clientDocumentChecklist.schema";
 
 // ─── Users (roles → users → departments → branches → teams) ─────────────────
 export * from "../users/schemas/role.schema";

@@ -1,5 +1,10 @@
 import { Router } from "express";
 import { saveClientController, getAllClientsByCounsellorController, getAllClientsController, getCounsellorClientsWithFilterController, getClientCompleteDetailsController, updateClientBasicDetailsController, getArchivedClientsController, archiveClientController, getAllClientsForAdminController, transferClientController } from "../controllers/client.controller";
+import {
+  getPortalStatusController,
+  resetPortalPasswordController,
+  sendPortalInvitationController,
+} from "../modules/clientPortal/controllers/clientPortalInvitation.controller";
 import { requireAuth, requireRole } from "../middlewares/auth.middleware";
 import { preventDuplicateRequests } from "../middlewares/requestDeduplication.middleware";
 
@@ -267,6 +272,33 @@ router.put(
   requireRole("admin", "counsellor", "manager","developer"),
   preventDuplicateRequests,
   archiveClientController
+);
+
+/**
+ * Get client complete details (client info + payments + product payments with entity data)
+ * ⚠️ This must come BEFORE /:counsellorId route to avoid route conflicts
+ */
+router.get(
+  "/:clientId/portal-status",
+  requireAuth,
+  requireRole("admin", "counsellor", "manager", "developer"),
+  getPortalStatusController
+);
+
+router.post(
+  "/:clientId/portal-invitation",
+  requireAuth,
+  requireRole("admin", "counsellor", "manager", "developer"),
+  preventDuplicateRequests,
+  sendPortalInvitationController
+);
+
+router.post(
+  "/:clientId/portal-reset-password",
+  requireAuth,
+  requireRole("admin", "counsellor", "manager", "developer"),
+  preventDuplicateRequests,
+  resetPortalPasswordController
 );
 
 /**

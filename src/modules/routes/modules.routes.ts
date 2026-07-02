@@ -3,6 +3,7 @@ import countryRoutes from "../countries/routes/country.routes";
 import journeyRoutes from "../journey/routes/journey.routes";
 import paymentRoutes from "../payments/routes/payment.routes";
 import reportsRoutes from "../reports/routes/reports.routes";
+import stageRoutes from "../stages/routes/stage.routes";
 import visaCaseRoutes from "../visaCase/routes/visaCase.routes";
 
 /**
@@ -11,6 +12,7 @@ import visaCaseRoutes from "../visaCase/routes/visaCase.routes";
 const router = Router();
 
 router.use("/countries", countryRoutes);
+router.use("/stages", stageRoutes);
 router.use("/payments", paymentRoutes);
 router.use("/reports", reportsRoutes);
 router.use("/visa-cases", visaCaseRoutes);

@@ -1,6 +1,8 @@
 import { mergePaths } from "../../utils/routeBuilder";
 import { automationPaths } from "./automation.paths";
 import { checklistPaths } from "./checklist.paths";
+import { clientPortalPaths } from "./clientPortal.paths";
+import { clientDocumentsPaths } from "./clientDocuments.paths";
 import {
   clientPaymentsPaths,
   clientProductPaymentsPaths,
@@ -11,6 +13,7 @@ import {
 import { moduleCountriesPaths } from "./countries.paths";
 import { journeyPaths } from "./journey.paths";
 import { moduleReportsPaths } from "./moduleReports.paths";
+import { moduleStagesPaths } from "./stages.paths";
 import { visaCasePaths } from "./visaCase.paths";
 import {
   activityLogsPaths,
@@ -64,6 +67,7 @@ export const v1Paths = mergePaths(
   journeyPaths,
   moduleReportsPaths,
   visaCasePaths,
+  moduleStagesPaths,
   leadsPaths,
   leadRegistrationPaths,
   frontDeskPaths,
@@ -77,6 +81,8 @@ export const v1Paths = mergePaths(
   googleSheetsPaths,
   allFinancePaths,
   checklistPaths,
+  clientPortalPaths,
+  clientDocumentsPaths,
   automationPaths,
   techSupportPaths,
   maintenancePaths,
